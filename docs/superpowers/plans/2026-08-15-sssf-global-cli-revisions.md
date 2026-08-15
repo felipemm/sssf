@@ -25,6 +25,7 @@
 | `1f61c1a` | folder convention: planner/documenter artifacts + prompts under `adws/` (§2.4) + regression guard |
 | `4fc95d5` | revisions spec/plan in-repo; README/customizing/contributing/SKILL updated |
 | `a18113f` | builder must never commit; commit_build three-way diagnosis (HEAD-moved vs never-landed); `diff_files_between` |
+| `a92b3be` | no-op re-runs walk the doc chain: confirm existing write-up ("success run, no updated doc") or produce the missing one |
 | `578c889` | docs: record folder convention in revisions spec + plan migration recipe |
 
 Inkwell demo repo (`~/dev/lab/demos/inkwell`):

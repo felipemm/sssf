@@ -79,8 +79,11 @@ An empty commit at `commit_build` now resolves three ways:
 
 - **Builder reported no changes** (`changed_files: []`), suite green, review
   approved → the work is **already implemented and verified** → the run
-  succeeds with a note, and the `changes`/`document`/`commit_docs` phases are
-  **skipped** (they would fail on an empty diff).
+  succeeds with a note. The **doc chain still runs**: if a write-up for the
+  session already exists (`adws/app_docs/<adw_id>_*.md`) it logs *"success run,
+  no updated doc"* and spawns no agent; if it is missing (an earlier run failed
+  before documenting), the documenter **produces the missing write-up** and
+  `commit_docs` lands it.
 - **Builder claimed changes** (non-empty `changed_files`) and the tree is clean
   but **HEAD moved past the spec commit** → the builder **committed its own
   work** (a discipline violation) → hard fail with a precise message. Field
