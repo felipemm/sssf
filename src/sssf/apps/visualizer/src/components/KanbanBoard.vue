@@ -40,6 +40,7 @@ async function tick() {
   } finally {
     inflight = false
   }
+  void pullTickets()   // keep ticket cards reconciled on every poll, not just after actions
 }
 
 // ── ticketing backlog ───────────────────────────────────────────────────────
@@ -119,7 +120,10 @@ const byColumn = computed(() => {
   const groups: Record<string, SessionSummary[]> = {
     backlog: [], planning: [], building: [], reviewing: [], success: [], fail: [],
   }
+  const seen = new Set<string>()
   for (const s of sessions.value) {
+    if (seen.has(s.adw_id)) continue   // one card per session, always
+    seen.add(s.adw_id)
     const status = s.status ?? 'fail'
     if (status === 'running') groups[stageOf(s)].push(s)
     else ;(groups[status] ?? groups.fail).push(s)

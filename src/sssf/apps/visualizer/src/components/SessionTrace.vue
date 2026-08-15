@@ -11,8 +11,8 @@ import type {
   Session,
   SessionUsage,
 } from '../lib/types'
-import { Archive, ArchiveRestore, Bot, SquareTerminal, UserRound } from 'lucide-vue-next'
-import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchSession } from '../lib/api'
+import { Archive, ArchiveRestore, Bot, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
+import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, type Ticket as TicketInfo } from '../lib/api'
 import { axisTicks, fmtDate, payloadOk, ts } from '../lib/format'
 import { modelIcon, modelName } from '../lib/models'
 import { agentColor, hexAlpha, parseAgentStart } from '../lib/events'
@@ -35,6 +35,9 @@ async function toggleArchive() {
 }
 
 const session = ref<Session | null>(null)
+const ticket = ref<TicketInfo | null>(null)
+const ticketChecked = ref(false)
+const showTicket = ref(false)
 const phases = ref<Phase[]>([])
 const agents = ref<AgentSession[]>([])
 const usage = ref<SessionUsage>({ read: 0, written: 0 })
@@ -83,6 +86,17 @@ async function tick() {
     nowMs.value = Date.now()
     apiError.value = null
     loaded.value = true
+
+    // The origin ticket (if any) for this session — fetched once.
+    if (!ticketChecked.value) {
+      ticketChecked.value = true
+      try {
+        const r = await fetchTickets()
+        ticket.value = r.tickets.find((t) => t.adw_id === props.adwId) ?? null
+      } catch {
+        ticket.value = null
+      }
+    }
   } catch (err) {
     apiError.value = err instanceof Error ? err.message : String(err)
   } finally {
@@ -454,6 +468,16 @@ function selectPhase(p: Phase) {
         <ArchiveRestore v-if="session.archived" :size="16" :stroke-width="2" />
         <Archive v-else :size="16" :stroke-width="2" />
       </button>
+      <button
+        v-if="ticket"
+        class="strip-archive"
+        type="button"
+        :title="'From ticket ' + (ticket.external_id || ticket.id)"
+        aria-label="Show ticket"
+        @click="showTicket = !showTicket"
+      >
+        <Ticket :size="16" :stroke-width="2" />
+      </button>
       <span class="dim">started {{ fmtDate(session.started_at) }}</span>
       <span class="run-stats">
         <StatChip kind="cost" :value="session.total_cost" />
@@ -461,6 +485,18 @@ function selectPhase(p: Phase) {
         <StatChip kind="tokens" :value="session.total_tokens" />
         <StatChip kind="read" :value="usage.read" />
         <StatChip kind="written" :value="usage.written" />
+      </span>
+    </div>
+
+    <div v-if="ticket && showTicket" class="ticket-info">
+      <span class="t-badge">{{ { jira: 'J', linear: 'L', internal: '⚙' }[ticket.provider] ?? '?' }}</span>
+      <span class="t-body">
+        <span class="t-title">{{ ticket.title }}</span>
+        <span class="t-meta dim">
+          {{ ticket.external_id || ticket.id }} · {{ ticket.status }}
+          <a v-if="ticket.source_url" :href="ticket.source_url" target="_blank" rel="noreferrer">source ↗</a>
+        </span>
+        <span v-if="ticket.prompt_file" class="t-meta dim">prompt: {{ ticket.prompt_file }}</span>
       </span>
     </div>
 
@@ -600,6 +636,49 @@ function selectPhase(p: Phase) {
 .strip-archive:hover {
   color: var(--text);
   border-color: rgba(200, 155, 255, 0.5);
+}
+
+.ticket-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 24px 10px;
+  padding: 12px 14px;
+  border: 1px dashed rgba(232, 182, 74, 0.5);
+  border-radius: 10px;
+  background: rgba(232, 182, 74, 0.06);
+}
+
+.ticket-info .t-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  flex: none;
+  background: rgba(232, 182, 74, 0.18);
+  color: #e8b64a;
+  font-weight: 700;
+}
+
+.ticket-info .t-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ticket-info .t-title {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.ticket-info .t-meta {
+  font-size: 13px;
+}
+
+.ticket-info a {
+  color: var(--purple);
 }
 
 .run-strip {

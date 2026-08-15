@@ -10,13 +10,14 @@ import ProjectPicker from './components/ProjectPicker.vue'
 
 const route = useRoute()
 
-// #/board and #/archived are peers of the sessions list over the same data;
-// everything else with an adwId is the trace view.
+// The board is the default landing page: #/ and #/board both show it.
+// #/sessions, #/archived are the other views; anything else is a trace.
 const view = computed(() => {
   const id = route.value.adwId
-  if (id === 'board') return 'board'
+  if (!id || id === 'board') return 'board'
+  if (id === 'sessions') return 'list'
   if (id === 'archived') return 'archived'
-  return id ? 'trace' : 'list'
+  return 'trace'
 })
 // In the trace branch adwId is non-null by construction; the template can't
 // narrow the ref, so hand it a computed string.
@@ -60,7 +61,7 @@ async function onSweep() {
   <div class="app">
     <header class="topbar">
       <nav class="crumbs">
-        <a :href="hrefFor()" class="home" title="back to sessions">
+        <a :href="hrefFor()" class="home" title="board">
           <!-- Inline copy of public/logo.svg (the favicon) so the mark renders
                crisply with no fetch; keep the two in sync. -->
           <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
@@ -75,18 +76,18 @@ async function onSweep() {
           <a
             :href="hrefFor()"
             class="tab"
-            :class="{ active: view === 'list' }"
-            role="tab"
-            :aria-selected="view === 'list'"
-            >sessions</a
-          >
-          <a
-            :href="hrefFor('board')"
-            class="tab"
             :class="{ active: view === 'board' }"
             role="tab"
             :aria-selected="view === 'board'"
             >board</a
+          >
+          <a
+            :href="hrefFor('sessions')"
+            class="tab"
+            :class="{ active: view === 'list' }"
+            role="tab"
+            :aria-selected="view === 'list'"
+            >sessions</a
           >
           <a
             :href="hrefFor('archived')"
