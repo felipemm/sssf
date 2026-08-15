@@ -7,12 +7,16 @@ Backlog tickets drive the factory: a per-project ticketing source (Jira, Linear,
 ## 1. Configuration — per-project `adws/adw_sssf_config/ticketing.yaml`
 
 ```yaml
-provider: internal          # jira | linear | internal — one per project
+# Any subset of providers can be enabled at once; the backlog aggregates
+# tickets from every enabled provider.
+providers:
+  - internal
+  - jira
+  # - linear
 
+# Jira goes through the acli CLI (pre-installed and authenticated by the
+# user — acli owns base_url + auth; sssf only passes the JQL).
 jira:
-  base_url: https://acme.atlassian.net
-  email: bot@acme.com
-  token_env: JIRA_TOKEN     # env-var reference, never the token itself
   jql: 'project = ACME AND status in (Backlog, "To Do")'
 
 linear:
@@ -26,8 +30,13 @@ linear:
   effectively empty `ticketing.yaml` means the feature is **off**: the kanban
   **hides the Backlog stage entirely**, and the `sssf ticket` commands answer
   with a friendly "ticketing not configured" instead of failing.
-- **Secrets live in env** — the token_env names an env var; `sssf ticket sync` loads the project's `.env` (python-dotenv, already a dependency) before calling the provider, matching how the roster's provider keys work. The YAML is committable; the `.env` is not.
-- One provider per project (v1); missing/invalid config → clear error naming the file.
+- **Providers are a set**: enable any subset of `jira | linear | internal`.
+  A missing/invalid block for one provider skips that provider with a clear
+  error; the others still sync.
+- **Secrets live in env** — only Linear carries a token (`token_env`, loaded
+  from the project's `.env` via python-dotenv like the roster keys). Jira has
+  **no token in sssf at all**: auth is acli's own, configured globally by the
+  user. The YAML is committable; the `.env` is not.
 
 ## 2. Backlog storage — the `tickets` table (same SQLite db)
 
@@ -54,14 +63,24 @@ CREATE TABLE IF NOT EXISTS tickets (
   card render the origin, and the row can always be traced to where it came
   from.
 - **Dedupe**: upsert on `provider + external_id`; re-syncing never duplicates.
-- **Lifecycle**: `backlog → running → done|failed`. `running` is set when the run is spawned (with the linked `adw_id`); `done|failed` is reconciled lazily from the linked session when tickets are read (a session `success` ⇒ done, `fail` ⇒ failed) — no background machinery.
+- **Lifecycle & first-class citizens**: the **session (ADW id) is the
+  first-class citizen of the kanban**, not the ticket. A ticket's lifecycle is
+  `backlog → running → done|failed` as **bookkeeping**: `running` is set when
+  the run spawns (linked `adw_id`); `done|failed` is reconciled lazily from the
+  linked session when tickets are read (session `success` ⇒ done, `fail` ⇒
+  failed).
+- **One stage at a time, always**: a session maps to exactly one kanban stage
+  (the deterministic stage rule) and a ticket is in the Backlog stage **only
+  while `status='backlog'`** — the moment a run spawns, the ticket leaves the
+  board and exists purely as the session's source/origin reference. Nothing is
+  ever in two stages simultaneously.
 
 ## 3. Provider adapters — Python engine (`sssf/ticketing.py`)
 
 | Provider | Fetch | Auth |
 |---|---|---|
-| `jira` | `GET {base}/rest/api/3/search` with `jql` | Basic (`email:token`) |
-| `linear` | GraphQL `issues` query filtered by team + filter | Bearer token |
+| `jira` | **acli wrapper** — shells to the pre-installed, user-authenticated [`acli`](https://github.com/zdharma-continuum/acli) CLI (e.g. `acli issue list --jql "…" -f json`), parses its JSON | acli's own global auth; sssf holds no Jira token |
+| `linear` | GraphQL `issues` query filtered by team + filter | Bearer token from `token_env` |
 | `internal` | rows already in the `tickets` table (created via CLI) | — |
 
 Each adapter returns normalized records (external id, title, description, source url); `sync()` iterates **every enabled provider** and upserts into the db. Read-only — **no write-back** to Jira/Linear in v1.
@@ -79,10 +98,11 @@ Each adapter returns normalized records (external id, title, description, source
 - The **Backlog** column is rendered **only when ticketing is enabled** for the
   project (at least one provider configured in `ticketing.yaml`). Disabled →
   the column is hidden entirely and the board shows Planning → … → Blocked as
-  before. Enabled → the column aggregates ticket cards from **all enabled
-  providers**, each with its provider badge (J / L / ⚙), title, status chip,
-  and the origin (external id / link). Session cards and ticket cards are
-  visually distinct.
+  before. Enabled → the column aggregates **backlog tickets only** (unrun,
+  `status='backlog'`) from **all enabled providers**, each with its provider
+  badge (J / L / ⚙), title, status chip, and the origin (external id / link).
+  Session cards and ticket cards are visually distinct; a run ticket is not a
+  card anywhere — its session is.
 - **Clicking a ticket card opens a modal** (`TicketModal.vue`): full title, provider + source link, description, current status, and the prompt file / `adw_id` when the ticket was run. Buttons: **Run** (primary) and **Close**.
   - **Run** → creates the enumerated prompt file and spawns the ADW (below), sets the ticket to `running` with the `adw_id`, closes the modal.
   - **Close** → dismisses; nothing changes.
@@ -95,8 +115,12 @@ Each adapter returns normalized records (external id, title, description, source
 2. The server scans `adws/prompts/` for the **next enumerated name** (`01-…` through `08-…` → `09-<slug>.md`; slug = kebab-case of the title, collision-safe suffix).
 3. The server writes the prompt file: `# <title>`, the ticket description as the task, the source link, and a line that it was generated from ticket `<external_id>`.
 4. The server spawns, detached: `sssf run simple_sdlc "run prompt <prompt_file>" --adw-id <generated_id>` (cwd = project root; `--adw-id` is minted by the server so the ticket can be linked immediately).
-5. The ticket row is updated to `status=running, adw_id=<id>, prompt_file=<file>`.
-6. The spawned run appears in the board's Planning → Building → Reviewing → Done/Blocked columns as a normal session; the ticket's `done|failed` state reconciles from that session.
+5. The ticket row is updated to `status=running, adw_id=<id>, prompt_file=<file>`
+   — and, per §2, the ticket **leaves the Backlog** immediately (the board
+   queries `status='backlog'`); it now exists only as the session's origin.
+6. The spawned run appears in the board's Planning → Building → Reviewing →
+   Done/Blocked columns as a normal session (the only first-class kanban
+   citizen); the ticket's `done|failed` state reconciles from that session.
 
 ## 7. Viz server routes (new)
 
@@ -111,7 +135,8 @@ The server shells to the Python CLI (`sssf`) for sync and run — the CLI is ins
 ## 8. Error handling
 
 - Missing/invalid `ticketing.yaml` → board shows a hint ("configure ticketing in adws/adw_sssf_config/ticketing.yaml"), sync/run return a clear error, never a crash.
-- Provider unreachable / bad token → sync reports the error per provider and leaves existing rows untouched.
+- **acli missing or unauthenticated** → the Jira adapter fails with actionable instructions: install acli and configure its auth (login/credentials) globally; Jira is skipped, other providers still sync.
+- Linear provider unreachable / bad token → sync reports the error per provider and leaves existing rows untouched.
 - Ticket already `running` → Run returns 409; the modal shows the linked session instead.
 - Prompt file collision → the enumerator appends a suffix (`09-<slug>-2.md`).
 
@@ -125,6 +150,6 @@ The server shells to the Python CLI (`sssf`) for sync and run — the CLI is ins
 
 ## 10. Verification
 
-- pytest: config load (missing/invalid, multiple providers), adapter parsing from mocked HTTP (Jira search JSON, Linear GraphQL), multi-provider sync upsert idempotency, `ticket add`, prompt enumeration (`09` after `01-08`), the run command's argv.
+- pytest: config load (missing/invalid, multiple providers), adapter parsing (Jira via a mocked `acli` subprocess, Linear via mocked GraphQL), multi-provider sync upsert idempotency, `ticket add`, prompt enumeration (`09` after `01-08`), the run command's argv, and the "one stage at a time" invariant (run ticket leaves the backlog query).
 - bun test: tickets read + reconciliation from a temp db, run/sync route behavior with the CLI stubbed.
 - Field: configure `provider: internal`, add a ticket, see it in the Backlog, open the modal, Run → watch it move through Planning → Done, reconcile to `done`; the prompt file lands in `adws/prompts/`.
