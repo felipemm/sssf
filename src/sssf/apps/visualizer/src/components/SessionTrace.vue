@@ -20,6 +20,7 @@ import { navigate, phaseCrumb } from '../lib/router'
 import StatusChip from './StatusChip.vue'
 import StatChip from './StatChip.vue'
 import PhaseDetail from './PhaseDetail.vue'
+import TicketModal from './TicketModal.vue'
 
 const props = defineProps<{ adwId: string; phaseId: string | null }>()
 
@@ -37,7 +38,7 @@ async function toggleArchive() {
 const session = ref<Session | null>(null)
 const ticket = ref<TicketInfo | null>(null)
 const ticketChecked = ref(false)
-const showTicket = ref(false)
+const activeTicket = ref<TicketInfo | null>(null)
 const phases = ref<Phase[]>([])
 const agents = ref<AgentSession[]>([])
 const usage = ref<SessionUsage>({ read: 0, written: 0 })
@@ -474,7 +475,7 @@ function selectPhase(p: Phase) {
         type="button"
         :title="'From ticket ' + (ticket.external_id || ticket.id)"
         aria-label="Show ticket"
-        @click="showTicket = !showTicket"
+        @click="activeTicket = ticket"
       >
         <Ticket :size="16" :stroke-width="2" />
       </button>
@@ -485,18 +486,6 @@ function selectPhase(p: Phase) {
         <StatChip kind="tokens" :value="session.total_tokens" />
         <StatChip kind="read" :value="usage.read" />
         <StatChip kind="written" :value="usage.written" />
-      </span>
-    </div>
-
-    <div v-if="ticket && showTicket" class="ticket-info">
-      <span class="t-badge">{{ { jira: 'J', linear: 'L', internal: '⚙' }[ticket.provider] ?? '?' }}</span>
-      <span class="t-body">
-        <span class="t-title">{{ ticket.title }}</span>
-        <span class="t-meta dim">
-          {{ ticket.external_id || ticket.id }} · {{ ticket.status }}
-          <a v-if="ticket.source_url" :href="ticket.source_url" target="_blank" rel="noreferrer">source ↗</a>
-        </span>
-        <span v-if="ticket.prompt_file" class="t-meta dim">prompt: {{ ticket.prompt_file }}</span>
       </span>
     </div>
 
@@ -611,6 +600,12 @@ function selectPhase(p: Phase) {
       :gates="gates"
       @close="navigate(props.adwId)"
     />
+
+    <TicketModal
+      v-if="activeTicket"
+      :ticket="activeTicket"
+      @close="activeTicket = null"
+    />
   </div>
 </template>
 
@@ -652,49 +647,6 @@ function selectPhase(p: Phase) {
 .strip-archive:hover {
   color: var(--text);
   border-color: rgba(200, 155, 255, 0.5);
-}
-
-.ticket-info {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  margin: 0 24px 10px;
-  padding: 12px 14px;
-  border: 1px dashed rgba(232, 182, 74, 0.5);
-  border-radius: 10px;
-  background: rgba(232, 182, 74, 0.06);
-}
-
-.ticket-info .t-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  flex: none;
-  background: rgba(232, 182, 74, 0.18);
-  color: #e8b64a;
-  font-weight: 700;
-}
-
-.ticket-info .t-body {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.ticket-info .t-title {
-  font-weight: 700;
-  font-size: 15px;
-}
-
-.ticket-info .t-meta {
-  font-size: 13px;
-}
-
-.ticket-info a {
-  color: var(--purple);
 }
 
 .run-strip {
