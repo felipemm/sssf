@@ -178,18 +178,30 @@ async function archive(s: SessionSummary, event: MouseEvent) {
 
     <div class="columns">
       <section v-for="col in columns" :key="col.key" class="col">
-        <button
-          type="button"
-          class="col-head"
-          :title="collapsed[col.key] ? 'Expand stage' : 'Collapse stage'"
-          @click="toggleCollapsed(col.key)"
-        >
-          <ChevronRight v-if="collapsed[col.key]" :size="15" :stroke-width="2" class="chev" />
-          <ChevronDown v-else :size="15" :stroke-width="2" class="chev" />
-          <span class="dot" :style="{ background: col.accent }" />
-          <span class="col-name">{{ col.label }}</span>
-          <span class="col-count">{{ byColumn[col.key].length }}</span>
-        </button>
+        <div class="col-head">
+          <button
+            type="button"
+            class="col-toggle"
+            :title="collapsed[col.key] ? 'Expand stage' : 'Collapse stage'"
+            @click="toggleCollapsed(col.key)"
+          >
+            <ChevronRight v-if="collapsed[col.key]" :size="15" :stroke-width="2" class="chev" />
+            <ChevronDown v-else :size="15" :stroke-width="2" class="chev" />
+            <span class="dot" :style="{ background: col.accent }" />
+            <span class="col-name">{{ col.label }}</span>
+            <span class="col-count">{{ byColumn[col.key].length }}</span>
+          </button>
+          <button
+            v-if="col.key === 'backlog'"
+            class="sync-link"
+            type="button"
+            :disabled="syncing"
+            :title="'Fetch external tickets'"
+            @click="onSync"
+          >
+            <RefreshCw :size="13" /> {{ syncing ? 'syncing…' : 'refresh' }}
+          </button>
+        </div>
 
         <div v-if="!collapsed[col.key]" class="cards">
           <template v-if="col.key === 'backlog'">
@@ -199,15 +211,6 @@ async function archive(s: SessionSummary, event: MouseEvent) {
               :ticket="t"
               @open="activeTicket = $event"
             />
-            <button
-              v-if="tickets.tickets.length"
-              class="sync-link"
-              type="button"
-              :disabled="syncing"
-              @click="onSync"
-            >
-              <RefreshCw :size="13" /> {{ syncing ? 'syncing…' : 'refresh' }}
-            </button>
           </template>
           <template v-else>
             <a
@@ -301,8 +304,15 @@ async function archive(s: SessionSummary, event: MouseEvent) {
 .col-head {
   display: flex;
   align-items: center;
+  gap: 8px;
+}
+
+.col-toggle {
+  display: flex;
+  align-items: center;
   gap: 9px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 0;
   background: none;
   border: none;
@@ -313,13 +323,32 @@ async function archive(s: SessionSummary, event: MouseEvent) {
   cursor: pointer;
 }
 
-.col-head:hover {
+.col-toggle:hover {
   color: var(--text);
 }
 
-.col-head .chev {
+.col-toggle .chev {
   flex: none;
   color: var(--faint);
+}
+
+.sync-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sync-link:hover {
+  color: var(--text);
+  border-color: rgba(200, 155, 255, 0.5);
 }
 
 .col-head .dot {
@@ -446,24 +475,6 @@ async function archive(s: SessionSummary, event: MouseEvent) {
   border-radius: 12px;
 }
 
-.sync-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  align-self: flex-start;
-  padding: 5px 10px;
-  border-radius: 7px;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--dim);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.sync-link:hover {
-  color: var(--text);
-  border-color: rgba(200, 155, 255, 0.5);
-}
 
 .board-empty {
   padding: 40px 0;
