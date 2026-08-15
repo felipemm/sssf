@@ -5,8 +5,35 @@ from pathlib import Path
 
 from sssf import __version__
 from sssf import registry
-from sssf.commands import init, run
-from sssf.project import find_project
+from sssf.commands import init, obs_cmds, run
+from sssf.project import find_project, data_dir
+
+
+def _register_obs(sub: argparse._SubParsersAction) -> None:
+    """sessions / phases / tail / procs — each resolves the project db, then renders."""
+    def db_path(explicit: str | None) -> Path:
+        root = find_project(Path.cwd(), explicit)
+        if root is None:
+            print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+            raise SystemExit(1)
+        return data_dir(root) / "sssf.db"
+
+    def sessions_cmd(a):
+        return obs_cmds.sessions(db_path(a.project))
+
+    def scoped_cmd(fn):
+        return lambda a: fn(db_path(a.project), a.adw_id)
+
+    p = sub.add_parser("sessions", help="trace: recent ADW runs")
+    p.add_argument("--project", default=None)
+    p.set_defaults(func=sessions_cmd)
+
+    for name, fn in (("phases", obs_cmds.phases), ("tail", obs_cmds.tail),
+                     ("procs", obs_cmds.procs)):
+        p = sub.add_parser(name, help=f"trace: {name} <adw_id>")
+        p.add_argument("--project", default=None)
+        p.add_argument("adw_id")
+        p.set_defaults(func=scoped_cmd(fn))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -26,6 +53,8 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("args", nargs=argparse.REMAINDER, help="passed through to the ADW")
     p_run.add_argument("--project", default=None)
     p_run.set_defaults(func=lambda a: run.run(Path.cwd(), a.adw, a.args, a.project))
+
+    _register_obs(sub)
 
     args = parser.parse_args(argv)
     if args.version:
