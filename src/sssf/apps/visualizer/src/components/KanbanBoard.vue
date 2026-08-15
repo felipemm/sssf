@@ -6,7 +6,7 @@ import { fmtCost, fmtDate, fmtTokens, ts } from '../lib/format'
 import { hrefFor } from '../lib/router'
 import PhaseDots from './PhaseDots.vue'
 
-// A read-only status board: sessions grouped by their run state. Status is
+// A read-only stage board: sessions grouped by where they are in the chain. Status is
 // produced by the factory, not triaged here, so the board never reorders by
 // dragging — it is the list view's data, organized for a glance.
 const sessions = shallowRef<SessionSummary[]>([])
@@ -37,17 +37,49 @@ onMounted(() => {
 
 onUnmounted(() => clearInterval(timer))
 
+const AGENT_STAGE: Record<string, string> = {
+  planner: 'planning',
+  builder: 'building',
+  reviewer: 'reviewing',
+}
+
+/**
+ * Where a running session sits in the chain. The running phase decides the
+ * stage; when it is an engineer/code phase (request, commit, test, …) it
+ * inherits the stage of the nearest agent phase at or before it — a mid-test
+ * session belongs to the build, a mid-request session is still planning.
+ */
+function stageOf(s: SessionSummary): string {
+  const phases = s.phases ?? []
+  const running = phases.find((p) => p.status === 'running')
+  if (!running) return 'planning'   // running but nothing reported yet
+  const own = AGENT_STAGE[running.owner ?? '']
+  if (own) return own
+  const idx = phases.indexOf(running)
+  for (let i = idx; i >= 0; i--) {
+    const stage = AGENT_STAGE[phases[i].owner ?? '']
+    if (stage) return stage
+  }
+  return 'planning'                 // before any agent phase (mid-request)
+}
+
 const COLUMNS = [
-  { status: 'running', label: 'running', accent: 'var(--blue)' },
-  { status: 'success', label: 'success', accent: 'var(--green)' },
-  { status: 'fail', label: 'fail', accent: 'var(--red)' },
+  { key: 'backlog', label: 'Backlog', accent: 'var(--faint)', stub: true },
+  { key: 'planning', label: 'Planning', accent: 'var(--purple)', stub: false },
+  { key: 'building', label: 'Building', accent: 'var(--blue)', stub: false },
+  { key: 'reviewing', label: 'Reviewing', accent: 'var(--cyan)', stub: false },
+  { key: 'success', label: 'Done', accent: 'var(--green)', stub: false },
+  { key: 'fail', label: 'Blocked', accent: 'var(--red)', stub: false },
 ] as const
 
-const byStatus = computed(() => {
-  const groups: Record<string, SessionSummary[]> = { running: [], success: [], fail: [] }
+const byColumn = computed(() => {
+  const groups: Record<string, SessionSummary[]> = {
+    backlog: [], planning: [], building: [], reviewing: [], success: [], fail: [],
+  }
   for (const s of sessions.value) {
     const status = s.status ?? 'fail'
-    ;(groups[status] ?? groups.fail).push(s)
+    if (status === 'running') groups[stageOf(s)].push(s)
+    else ;(groups[status] ?? groups.fail).push(s)
   }
   for (const list of Object.values(groups)) {
     list.sort((a, b) => (ts(b.started_at) || 0) - (ts(a.started_at) || 0))
@@ -63,20 +95,20 @@ const total = computed(() => sessions.value.length)
     <div v-if="apiError" class="error-bar">api unreachable — retrying {{ apiError }}</div>
 
     <div v-if="loaded && total" class="board-head dim">
-      {{ total }} runs · grouped by status — click a card for its trace
+      {{ total }} runs · grouped by stage — click a card for its trace
     </div>
 
     <div class="columns">
-      <section v-for="col in COLUMNS" :key="col.status" class="col">
+      <section v-for="col in COLUMNS" :key="col.key" class="col">
         <header class="col-head">
           <span class="dot" :style="{ background: col.accent }" />
           <span class="col-name">{{ col.label }}</span>
-          <span class="col-count">{{ byStatus[col.status].length }}</span>
+          <span class="col-count">{{ byColumn[col.key].length }}</span>
         </header>
 
         <div class="cards">
           <a
-            v-for="s in byStatus[col.status]"
+            v-for="s in byColumn[col.key]"
             :key="s.adw_id"
             class="card"
             :href="hrefFor(s.adw_id)"
@@ -96,7 +128,9 @@ const total = computed(() => sessions.value.length)
             </div>
           </a>
 
-          <div v-if="loaded && !byStatus[col.status].length" class="empty">no runs</div>
+          <div v-if="loaded && !byColumn[col.key].length" class="empty">
+            {{ col.stub ? 'backlog — not wired yet' : 'no runs' }}
+          </div>
         </div>
       </section>
     </div>
