@@ -1,11 +1,21 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
-import { Archive, ChevronDown, ChevronRight } from 'lucide-vue-next'
+import { Archive, ChevronDown, ChevronRight, RefreshCw } from 'lucide-vue-next'
 import type { SessionSummary } from '../lib/types'
-import { archiveSession, fetchSessions } from '../lib/api'
+import {
+  archiveSession,
+  fetchSessions,
+  fetchTickets,
+  syncTickets,
+  useProjects,
+  type Ticket,
+  type TicketsResponse,
+} from '../lib/api'
 import { fmtCost, fmtDate, fmtTokens, ts } from '../lib/format'
 import { hrefFor } from '../lib/router'
 import PhaseDots from './PhaseDots.vue'
+import TicketCard from './TicketCard.vue'
+import TicketModal from './TicketModal.vue'
 
 // A read-only stage board: sessions grouped by where they are in the chain. Status is
 // produced by the factory, not triaged here, so the board never reorders by
@@ -31,8 +41,34 @@ async function tick() {
   }
 }
 
+// ── ticketing backlog ───────────────────────────────────────────────────────
+const { selectedProject } = useProjects()
+const tickets = ref<TicketsResponse>({ enabled: false, tickets: [] })
+const activeTicket = ref<Ticket | null>(null)
+const syncing = ref(false)
+
+async function pullTickets() {
+  if (!selectedProject.value) return      // adhoc mode has no project scope / backlog
+  try {
+    tickets.value = await fetchTickets()
+  } catch {
+    tickets.value = { enabled: false, tickets: [] }
+  }
+}
+
+async function onSync() {
+  syncing.value = true
+  try {
+    await syncTickets()
+  } finally {
+    syncing.value = false
+  }
+  void pullTickets()
+}
+
 onMounted(() => {
   void tick()
+  void pullTickets()
   timer = setInterval(() => void tick(), 500)
 })
 
@@ -72,6 +108,11 @@ const COLUMNS = [
   { key: 'success', label: 'Done', accent: 'var(--green)', stub: false },
   { key: 'fail', label: 'Blocked', accent: 'var(--red)', stub: false },
 ] as const
+
+// The Backlog stage exists only when ticketing is enabled for the project.
+const columns = computed(() =>
+  tickets.value.enabled ? COLUMNS : COLUMNS.filter((c) => c.key !== 'backlog'),
+)
 
 const byColumn = computed(() => {
   const groups: Record<string, SessionSummary[]> = {
@@ -135,7 +176,7 @@ async function archive(s: SessionSummary, event: MouseEvent) {
     </div>
 
     <div class="columns">
-      <section v-for="col in COLUMNS" :key="col.key" class="col">
+      <section v-for="col in columns" :key="col.key" class="col">
         <button
           type="button"
           class="col-head"
@@ -150,37 +191,56 @@ async function archive(s: SessionSummary, event: MouseEvent) {
         </button>
 
         <div v-if="!collapsed[col.key]" class="cards">
-          <a
-            v-for="s in byColumn[col.key]"
-            :key="s.adw_id"
-            class="card"
-            :href="hrefFor(s.adw_id)"
-          >
-            <div class="card-top">
-              <span class="adw" :title="s.adw_id">{{ s.adw_name || s.adw_id }}</span>
-              <span class="card-actions">
-                <PhaseDots :phases="s.phases" />
-                <button
-                  class="card-archive"
-                  type="button"
-                  title="Archive — remove this run from review"
-                  aria-label="Archive run"
-                  @click="archive(s, $event)"
-                >
-                  <Archive :size="15" :stroke-width="2" />
-                </button>
-              </span>
-            </div>
-            <p class="req" :title="s.request ?? ''">{{ s.request || '—' }}</p>
-            <div class="meta">
-              <span class="engineer">{{ s.engineer }}</span>
-              <span class="time">{{ fmtDate(s.started_at) }}</span>
-            </div>
-            <div class="stats">
-              <span>{{ fmtTokens(s.total_tokens) }} tok</span>
-              <span>{{ fmtCost(s.total_cost) }}</span>
-            </div>
-          </a>
+          <template v-if="col.key === 'backlog'">
+            <TicketCard
+              v-for="t in tickets.tickets.filter((x) => x.status === 'backlog')"
+              :key="t.id"
+              :ticket="t"
+              @open="activeTicket = $event"
+            />
+            <button
+              v-if="tickets.tickets.length"
+              class="sync-link"
+              type="button"
+              :disabled="syncing"
+              @click="onSync"
+            >
+              <RefreshCw :size="13" /> {{ syncing ? 'syncing…' : 'refresh' }}
+            </button>
+          </template>
+          <template v-else>
+            <a
+              v-for="s in byColumn[col.key]"
+              :key="s.adw_id"
+              class="card"
+              :href="hrefFor(s.adw_id)"
+            >
+              <div class="card-top">
+                <span class="adw" :title="s.adw_id">{{ s.adw_name || s.adw_id }}</span>
+                <span class="card-actions">
+                  <PhaseDots :phases="s.phases" />
+                  <button
+                    class="card-archive"
+                    type="button"
+                    title="Archive — remove this run from review"
+                    aria-label="Archive run"
+                    @click="archive(s, $event)"
+                  >
+                    <Archive :size="15" :stroke-width="2" />
+                  </button>
+                </span>
+              </div>
+              <p class="req" :title="s.request ?? ''">{{ s.request || '—' }}</p>
+              <div class="meta">
+                <span class="engineer">{{ s.engineer }}</span>
+                <span class="time">{{ fmtDate(s.started_at) }}</span>
+              </div>
+              <div class="stats">
+                <span>{{ fmtTokens(s.total_tokens) }} tok</span>
+                <span>{{ fmtCost(s.total_cost) }}</span>
+              </div>
+            </a>
+          </template>
 
           <div v-if="loaded && !byColumn[col.key].length" class="empty">
             {{ col.stub ? 'backlog — not wired yet' : 'no runs' }}
@@ -188,6 +248,13 @@ async function archive(s: SessionSummary, event: MouseEvent) {
         </div>
       </section>
     </div>
+
+    <TicketModal
+      v-if="activeTicket"
+      :ticket="activeTicket"
+      @close="activeTicket = null"
+      @ran="void pullTickets()"
+    />
 
     <div v-if="loaded && !total" class="board-empty">no sessions yet — run an ADW to see it here</div>
     <div v-else-if="!loaded && !apiError" class="board-empty">loading sessions…</div>
@@ -376,6 +443,25 @@ async function archive(s: SessionSummary, event: MouseEvent) {
   font-size: 14px;
   border: 1px dashed var(--border);
   border-radius: 12px;
+}
+
+.sync-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  padding: 5px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sync-link:hover {
+  color: var(--text);
+  border-color: rgba(200, 155, 255, 0.5);
 }
 
 .board-empty {

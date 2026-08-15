@@ -44,10 +44,14 @@ export function readTickets(dbPath: string): Ticket[] {
     return rows.map((row) => {
       let status = row.status as string;
       if (row.adw_id) {
-        const s = db.query<{ status: string }, [string]>(
-          "SELECT status FROM sessions WHERE adw_id = ?",
-        ).get(row.adw_id);
-        if (s) status = s.status === "success" ? "done" : s.status === "fail" ? "failed" : "running";
+        try {
+          const s = db.query<{ status: string }, [string]>(
+            "SELECT status FROM sessions WHERE adw_id = ?",
+          ).get(row.adw_id);
+          if (s) status = s.status === "success" ? "done" : s.status === "fail" ? "failed" : "running";
+        } catch {
+          // sessions table may not exist yet (no runs) — keep the ticket status
+        }
       }
       return { ...row, status, source_url: row.source_url ?? "" };
     });

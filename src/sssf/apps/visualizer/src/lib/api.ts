@@ -139,3 +139,36 @@ export function fetchGates(adwId: string): Promise<GateResult[]> {
     `${base()}/sessions/${encodeURIComponent(adwId)}/gates`,
   ) as Promise<GateResult[]>
 }
+
+export interface Ticket {
+  id: string
+  provider: string
+  external_id: string | null
+  title: string
+  description: string
+  status: string
+  prompt_file: string | null
+  adw_id: string | null
+  source_url: string
+}
+
+export interface TicketsResponse {
+  enabled: boolean
+  tickets: Ticket[]
+}
+
+export async function fetchTickets(): Promise<TicketsResponse> {
+  return getJson(`${base()}/tickets`) as Promise<TicketsResponse>
+}
+
+export async function runTicket(id: string): Promise<{ ok: boolean; adwId?: string; output?: string }> {
+  const res = await fetch(`${base()}/tickets/${encodeURIComponent(id)}/run`, { method: 'POST' })
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; adwId?: string; output?: string }
+  return { ok: data.ok ?? res.ok, adwId: data.adwId, output: data.output }
+}
+
+export async function syncTickets(): Promise<{ ok: boolean; output?: string }> {
+  const res = await fetch(`${base()}/tickets/sync`, { method: 'POST' })
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; output?: string }
+  return { ok: data.ok ?? res.ok, output: data.output }
+}
