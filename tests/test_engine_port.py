@@ -1,5 +1,5 @@
 import sssf.adw_modules as m  # noqa: F401  (import surface must resolve)
-from sssf.adw_modules import agents, data_types
+from sssf.adw_modules import agents, data_types, tracer as tracer_mod
 
 
 def _roster(data_dir) -> str:
@@ -46,3 +46,11 @@ def test_pi_request_carries_skill_path():
         skill_path="/pkg/SKILL.md",
     )
     assert req.skill_path == "/pkg/SKILL.md"
+
+
+def test_tracer_creates_tickets_table(tmp_path):
+    t = tracer_mod.Tracer(db_path=tmp_path / "sssf.db", events_jsonl=tmp_path / "e.jsonl")
+    cols = {row[1] for row in t.conn.execute("PRAGMA table_info(tickets)")}
+    assert {"id", "provider", "external_id", "title", "description", "status",
+            "prompt_file", "adw_id", "source_url", "created_at", "updated_at"} <= cols
+    t.conn.close()

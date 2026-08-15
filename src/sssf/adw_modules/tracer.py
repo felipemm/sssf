@@ -87,6 +87,18 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
   created_at    TEXT, last_used_at TEXT,
   PRIMARY KEY (adw_id, agent)
 );
+CREATE TABLE IF NOT EXISTS tickets (
+  id          TEXT PRIMARY KEY,   -- 'jira:<key>' | 'linear:<id>' | 'internal:<uuid>'
+  provider    TEXT NOT NULL,      -- jira | linear | internal
+  external_id TEXT,               -- NULL for internal
+  title       TEXT NOT NULL,
+  description TEXT,
+  status      TEXT NOT NULL DEFAULT 'backlog',   -- backlog | running | done | failed
+  prompt_file TEXT,               -- adws/prompts/NN-<slug>.md once run
+  adw_id      TEXT,               -- the run spawned for this ticket
+  source_url  TEXT,               -- the ticket's origin link ('' for internal)
+  created_at  TEXT, updated_at TEXT
+);
 """
 
 # Columns added after a schema shipped. CREATE TABLE IF NOT EXISTS never
