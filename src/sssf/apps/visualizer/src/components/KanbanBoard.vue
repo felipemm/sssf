@@ -156,18 +156,20 @@ async function archive(s: SessionSummary, event: MouseEvent) {
             class="card"
             :href="hrefFor(s.adw_id)"
           >
-            <button
-              class="card-archive"
-              type="button"
-              title="Archive — remove this run from review"
-              aria-label="Archive run"
-              @click="archive(s, $event)"
-            >
-              <Archive :size="15" :stroke-width="2" />
-            </button>
             <div class="card-top">
               <span class="adw" :title="s.adw_id">{{ s.adw_name || s.adw_id }}</span>
-              <PhaseDots :phases="s.phases" />
+              <span class="card-actions">
+                <PhaseDots :phases="s.phases" />
+                <button
+                  class="card-archive"
+                  type="button"
+                  title="Archive — remove this run from review"
+                  aria-label="Archive run"
+                  @click="archive(s, $event)"
+                >
+                  <Archive :size="15" :stroke-width="2" />
+                </button>
+              </span>
             </div>
             <p class="req" :title="s.request ?? ''">{{ s.request || '—' }}</p>
             <div class="meta">
@@ -273,7 +275,6 @@ async function archive(s: SessionSummary, event: MouseEvent) {
 
 .card {
   display: block;
-  position: relative;
   background: rgba(11, 15, 24, 0.66);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -283,15 +284,20 @@ async function archive(s: SessionSummary, event: MouseEvent) {
   transition: border-color 0.15s ease, transform 0.15s ease;
 }
 
+.card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
 .card-archive {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  width: 26px;
-  height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
   border-radius: 6px;
   border: none;
   background: transparent;
