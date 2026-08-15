@@ -1,0 +1,246 @@
+/** Status dashboard: one aggregate payload per project, computed from the trace db. */
+import { Database } from "bun:sqlite";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+export interface ProjectInfo {
+  name: string;
+  root: string;
+  ticketing_enabled: boolean;
+  last_run: string | null;   // most recent sessions.started_at (ISO); null when no runs
+}
+
+export interface Totals {
+  runs: number;
+  active: number;
+  success: number;
+  failed: number;
+  archived: number;
+  success_rate: number;      // success / (success + failed); 0 when none finished
+  avg_duration_s: number;    // successful runs only
+  total_cost: number;
+  avg_cost_per_run: number;  // total_cost / runs (0 when no runs)
+  total_tokens: number;
+  avg_tokens_per_run: number;
+}
+
+export interface Quality {
+  gate_pass_rate: number;    // ok checks / total checks in gate_results.checks_json
+  hotspot_phase: string | null;
+  hotspot_count: number;
+  total_retries: number;
+  failed_phases: number;
+}
+
+export interface AgentStat {
+  role: string;
+  model: string | null;      // most recent agent_sessions.model; null if never used
+  sessions: number;          // distinct adw_ids (one agent_sessions row per run+agent)
+  context_tokens: number;    // sum across rows
+}
+
+export interface TicketsCounts {
+  backlog: number;
+  running: number;
+  done: number;
+  failed: number;
+}
+
+export interface TrendBucket {
+  day: string;               // YYYY-MM-DD (UTC, from started_at)
+  runs: number;
+  cost: number;
+  tokens: number;
+  success: number;           // finished-success sessions started that day
+  fail: number;              // finished-fail sessions started that day
+}
+
+export interface StatusResponse {
+  project: ProjectInfo;
+  totals: Totals;
+  quality: Quality;
+  agents: AgentStat[];
+  tickets: TicketsCounts | null;
+  trends: { window: number; buckets: TrendBucket[] };
+}
+
+const AGENT_ROLES = ["planner", "builder", "reviewer", "documenter"];
+
+/** Same enabled check as tickets.ts — ticketing.yaml with an uncommented providers line. */
+function ticketingEnabled(root: string): boolean {
+  const path = resolve(root, "adws", "adw_sssf_config", "ticketing.yaml");
+  if (!existsSync(path)) return false;
+  try {
+    return readFileSync(path, "utf8")
+      .split("\n")
+      .some((line) => /^\s*providers\s*:/.test(line));
+  } catch {
+    return false;
+  }
+}
+
+export function computeStatus(dbPath: string, root: string, name: string, windowDays: number): StatusResponse {
+  const db = new Database(dbPath);
+  const empty: StatusResponse = {
+    project: { name, root, ticketing_enabled: ticketingEnabled(root), last_run: null },
+    totals: { runs: 0, active: 0, success: 0, failed: 0, archived: 0, success_rate: 0,
+              avg_duration_s: 0, total_cost: 0, avg_cost_per_run: 0,
+              total_tokens: 0, avg_tokens_per_run: 0 },
+    quality: { gate_pass_rate: 0, hotspot_phase: null, hotspot_count: 0,
+               total_retries: 0, failed_phases: 0 },
+    agents: AGENT_ROLES.map((role) => ({ role, model: null, sessions: 0, context_tokens: 0 })),
+    tickets: null,
+    trends: { window: windowDays, buckets: [] },
+  };
+  try {
+    const has = (table: string): boolean =>
+      (db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table) !== null);
+
+    // ── totals ────────────────────────────────────────────────────────────
+    const t = has("sessions")
+      ? db.query<{ n: number; active: number; success: number; failed: number; archived: number;
+                   total_cost: number; total_tokens: number;
+                   avg_duration_s: number; } & Record<string, unknown>, []>(
+        `SELECT COUNT(*) n,
+                SUM(status='running') active,
+                SUM(status='success') success,
+                SUM(status='fail') failed,
+                COALESCE(SUM(archived),0) archived,
+                COALESCE(SUM(total_cost),0) total_cost,
+                COALESCE(SUM(total_tokens),0) total_tokens,
+                AVG(CASE WHEN status='success' AND ended_at IS NOT NULL
+                         THEN (julianday(ended_at)-julianday(started_at))*86400 END) avg_duration_s
+           FROM sessions`).get()!
+      : null;
+    const totals: Totals = t
+      ? { runs: t.n, active: Number(t.active ?? 0), success: Number(t.success ?? 0),
+          failed: Number(t.failed ?? 0), archived: Number(t.archived ?? 0),
+          success_rate: (Number(t.success ?? 0) + Number(t.failed ?? 0)) > 0
+            ? Number(t.success ?? 0) / (Number(t.success ?? 0) + Number(t.failed ?? 0)) : 0,
+          avg_duration_s: t.avg_duration_s ?? 0,
+          total_cost: Number(t.total_cost ?? 0),
+          avg_cost_per_run: t.n > 0 ? Number(t.total_cost ?? 0) / t.n : 0,
+          total_tokens: Number(t.total_tokens ?? 0),
+          avg_tokens_per_run: t.n > 0 ? Math.round(Number(t.total_tokens ?? 0) / t.n) : 0 }
+      : empty.totals;
+
+    // ── quality ───────────────────────────────────────────────────────────
+    let quality = empty.quality;
+    if (has("phases")) {
+      const failed = db.query<{ name: string; count: number }, []>(
+        "SELECT name, COUNT(*) count FROM phases WHERE status='fail' GROUP BY name ORDER BY count DESC, name"
+      ).all();
+      const retries = db.query<{ r: number }, []>(
+        "SELECT COALESCE(SUM(retries),0) r FROM phases"
+      ).get()!;
+      quality = {
+        gate_pass_rate: 0,
+        hotspot_phase: failed.length ? failed[0]!.name : null,
+        hotspot_count: failed.length ? failed[0]!.count : 0,
+        total_retries: Number(retries.r ?? 0),
+        failed_phases: failed.reduce((n, f) => n + f.count, 0),
+      };
+    }
+    if (has("gate_results")) {
+      const rows = db.query<{ checks_json: string | null }, []>(
+        "SELECT checks_json FROM gate_results"
+      ).all();
+      let ok = 0, total = 0;
+      for (const row of rows) {
+        if (!row.checks_json) continue;
+        try {
+          const checks = JSON.parse(row.checks_json) as { ok?: boolean }[];
+          if (!Array.isArray(checks)) continue;
+          for (const c of checks) { total++; if (c.ok) ok++; }
+        } catch { /* unparseable checks_json — skip */ }
+      }
+      quality.gate_pass_rate = total > 0 ? ok / total : 0;
+    }
+
+    // ── agents ────────────────────────────────────────────────────────────
+    const agents: AgentStat[] = AGENT_ROLES.map((role) => ({ role, model: null, sessions: 0, context_tokens: 0 }));
+    if (has("agent_sessions")) {
+      // Most recent model per role: max last_used_at wins.
+      const rows = db.query<{ agent: string; model: string | null; n: number; tokens: number }, []>(
+        `SELECT a.agent, a.model, COUNT(*) n, COALESCE(SUM(a.context_tokens),0) tokens
+           FROM agent_sessions a
+           JOIN (SELECT agent, MAX(last_used_at) m FROM agent_sessions GROUP BY agent) m
+             ON m.agent = a.agent AND m.m = a.last_used_at
+          GROUP BY a.agent`
+      ).all();
+      for (const row of rows) {
+        const stat = agents.find((x) => x.role === row.agent);
+        if (!stat) continue;
+        stat.model = row.model;
+      }
+      const counts = db.query<{ agent: string; n: number; tokens: number }, []>(
+        `SELECT agent, COUNT(DISTINCT adw_id) n, COALESCE(SUM(context_tokens),0) tokens
+           FROM agent_sessions GROUP BY agent`
+      ).all();
+      for (const row of counts) {
+        const stat = agents.find((x) => x.role === row.agent);
+        if (!stat) continue;
+        stat.sessions = row.n;
+        stat.context_tokens = Number(row.tokens ?? 0);
+      }
+    }
+
+    // ── tickets ───────────────────────────────────────────────────────────
+    let tickets: TicketsCounts | null = null;
+    if (ticketingEnabled(root) && has("tickets")) {
+      const rows = db.query<{ status: string; adw_id: string | null }, []>(
+        "SELECT status, adw_id FROM tickets"
+      ).all();
+      const counts: TicketsCounts = { backlog: 0, running: 0, done: 0, failed: 0 };
+      for (const row of rows) {
+        let status = row.status;
+        if (row.adw_id) {
+          try {
+            const s = db.query<{ status: string }, [string]>(
+              "SELECT status FROM sessions WHERE adw_id = ?"
+            ).get(row.adw_id);
+            if (s) status = s.status === "success" ? "done" : s.status === "fail" ? "failed" : "running";
+          } catch { /* sessions table may not exist yet */ }
+        }
+        if (status in counts) (counts as unknown as Record<string, number>)[status]++;
+      }
+      tickets = counts;
+    }
+
+    // ── trends ────────────────────────────────────────────────────────────
+    const buckets: TrendBucket[] = [];
+    let lastRun: string | null = null;
+    if (has("sessions")) {
+      const row = db.query<{ started_at: string | null }, []>(
+        "SELECT MAX(started_at) started_at FROM sessions"
+      ).get();
+      lastRun = row?.started_at ?? null;
+      const cutoff = new Date(Date.now() - windowDays * 86400_000).toISOString().slice(0, 10);
+      const rows = db.query<{ day: string; n: number; cost: number; tokens: number; success: number; fail: number }, [string]>(
+        `SELECT date(started_at) day, COUNT(*) n,
+                COALESCE(SUM(total_cost),0) cost, COALESCE(SUM(total_tokens),0) tokens,
+                SUM(status='success') success, SUM(status='fail') fail
+           FROM sessions
+          WHERE started_at IS NOT NULL AND date(started_at) >= ?
+          GROUP BY day ORDER BY day ASC`,
+      ).all(cutoff);
+      for (const row of rows) {
+        buckets.push({ day: row.day, runs: row.n, cost: Number(row.cost ?? 0),
+                       tokens: Number(row.tokens ?? 0),
+                       success: Number(row.success ?? 0), fail: Number(row.fail ?? 0) });
+      }
+    }
+
+    return {
+      project: { name, root, ticketing_enabled: ticketingEnabled(root), last_run: lastRun },
+      totals, quality, agents, tickets,
+      trends: { window: windowDays, buckets },
+    };
+  } catch (err) {
+    // Any read problem degrades to the zeroed payload — a dashboard never 500s.
+    console.error(`[sssf] status for ${name} failed:`, err);
+    return empty;
+  } finally {
+    db.close();
+  }
+}
