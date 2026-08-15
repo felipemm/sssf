@@ -5,7 +5,7 @@ from pathlib import Path
 
 from sssf import __version__
 from sssf import registry
-from sssf.commands import init
+from sssf.commands import init, run
 from sssf.project import find_project
 
 
@@ -20,6 +20,12 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("--force", action="store_true", help="overwrite existing files")
     p_init.set_defaults(func=lambda a: init.run(Path(a.project or ".").resolve(),
                                                 refresh=a.refresh, force=a.force))
+
+    p_run = sub.add_parser("run", help="execute an ADW chain: sssf run <adw> \"<prompt>\" [--adw-id X]")
+    p_run.add_argument("adw", help="chain name; the adw_ prefix is optional")
+    p_run.add_argument("args", nargs=argparse.REMAINDER, help="passed through to the ADW")
+    p_run.add_argument("--project", default=None)
+    p_run.set_defaults(func=lambda a: run.run(Path.cwd(), a.adw, a.args, a.project))
 
     args = parser.parse_args(argv)
     if args.version:
