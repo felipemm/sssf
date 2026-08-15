@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, shallowRef, watch } from 'vue'
+import { Archive, ArchiveRestore } from 'lucide-vue-next'
 import type { EventRow, SessionSummary } from '../lib/types'
 import { archiveSession, fetchEvents } from '../lib/api'
 import { axisTicks, fmtDate, fmtOffset, ts } from '../lib/format'
@@ -9,7 +10,7 @@ import StatusChip from './StatusChip.vue'
 import StatChip from './StatChip.vue'
 import PhaseDots from './PhaseDots.vue'
 
-const props = defineProps<{ session: SessionSummary; nowMs: number }>()
+const props = defineProps<{ session: SessionSummary; nowMs: number; archived?: boolean }>()
 const emit = defineEmits<{ archived: [adwId: string] }>()
 
 // The card is an <a>; the button lives inside it, so the click must not
@@ -20,7 +21,7 @@ async function archive(event: MouseEvent) {
   event.stopPropagation()
   emit('archived', props.session.adw_id)
   try {
-    await archiveSession(props.session.adw_id)
+    await archiveSession(props.session.adw_id, !props.archived)   // restore on the archive page
   } catch {
     emit('archived', '')   // signals the parent to re-sync from the server
   }
@@ -191,11 +192,12 @@ const hiddenRowCount = computed(() =>
     <button
       class="card-archive"
       type="button"
-      title="Archive — remove this run from review"
-      aria-label="Archive run"
+      :title="archived ? 'Restore — bring this run back to review' : 'Archive — remove this run from review'"
+      :aria-label="archived ? 'Restore run' : 'Archive run'"
       @click="archive"
     >
-      ×
+      <Archive v-if="!archived" :size="15" :stroke-width="2" />
+      <ArchiveRestore v-else :size="15" :stroke-width="2" />
     </button>
     <span class="card-id">{{ session.adw_id }}</span>
     <span class="card-adw" :title="session.adw_name ?? ''">{{ session.adw_name ?? '—' }}</span>

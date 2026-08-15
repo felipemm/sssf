@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { Recycle } from 'lucide-vue-next'
 import { useRoute, hrefFor, phaseCrumb, navigate } from './lib/router'
-import { setProject } from './lib/api'
+import { runSweep, setProject } from './lib/api'
 import SessionsList from './components/SessionsList.vue'
 import SessionTrace from './components/SessionTrace.vue'
 import KanbanBoard from './components/KanbanBoard.vue'
@@ -9,11 +10,14 @@ import ProjectPicker from './components/ProjectPicker.vue'
 
 const route = useRoute()
 
-// #/board is a peer of the sessions list over the same data; everything else
-// with an adwId is the trace view.
-const view = computed(() =>
-  route.value.adwId === 'board' ? 'board' : route.value.adwId ? 'trace' : 'list',
-)
+// #/board and #/archived are peers of the sessions list over the same data;
+// everything else with an adwId is the trace view.
+const view = computed(() => {
+  const id = route.value.adwId
+  if (id === 'board') return 'board'
+  if (id === 'archived') return 'archived'
+  return id ? 'trace' : 'list'
+})
 // In the trace branch adwId is non-null by construction; the template can't
 // narrow the ref, so hand it a computed string.
 const traceAdwId = computed(() => route.value.adwId ?? '')
@@ -23,6 +27,32 @@ const traceAdwId = computed(() => route.value.adwId ?? '')
 function onProjectSelect(name: string) {
   setProject(name)
   navigate()
+}
+
+// Manual archival sweep across every registered project — the `sssf sweep` CLI
+// as a topbar button. Result note is transient (5 s).
+const sweeping = ref(false)
+const sweepNote = ref('')
+let sweepTimer: ReturnType<typeof setTimeout> | undefined
+
+async function onSweep() {
+  if (sweeping.value) return
+  sweeping.value = true
+  sweepNote.value = ''
+  try {
+    const results = await runSweep()
+    const archived = results.reduce((n, r) => n + r.archived, 0)
+    const errors = results.filter((r) => r.error).length
+    sweepNote.value = errors
+      ? `${archived} archived · ${errors} error(s)`
+      : `${archived} session(s) archived`
+  } catch {
+    sweepNote.value = 'sweep failed'
+  } finally {
+    sweeping.value = false
+    clearTimeout(sweepTimer)
+    sweepTimer = setTimeout(() => (sweepNote.value = ''), 5000)
+  }
 }
 </script>
 
@@ -43,6 +73,7 @@ function onProjectSelect(name: string) {
         <span class="sep">›</span>
         <a :href="hrefFor()" :class="{ current: view === 'list' }">sessions</a>
         <a :href="hrefFor('board')" :class="{ current: view === 'board' }">board</a>
+        <a :href="hrefFor('archived')" :class="{ current: view === 'archived' }">archived</a>
         <template v-if="view === 'trace' && route.adwId">
           <span class="sep">›</span>
           <a :href="hrefFor(route.adwId)" :class="{ current: !route.phaseId }">{{ route.adwId }}</a>
@@ -53,11 +84,23 @@ function onProjectSelect(name: string) {
         </template>
       </nav>
       <ProjectPicker @select="onProjectSelect" />
+      <button
+        class="sweep-btn"
+        type="button"
+        :disabled="sweeping"
+        :title="sweeping ? 'Sweeping…' : 'Archive finished sessions older than 30 days (all projects)'"
+        aria-label="Run the archive sweep"
+        @click="onSweep"
+      >
+        <Recycle :size="16" :stroke-width="2" />
+      </button>
+      <span v-if="sweepNote" class="sweep-note dim">{{ sweepNote }}</span>
       <span class="live-hint"><span class="live-dot" /> live</span>
     </header>
     <main>
       <KanbanBoard v-if="view === 'board'" />
       <SessionsList v-else-if="view === 'list'" />
+      <SessionsList v-else-if="view === 'archived'" archived />
       <SessionTrace v-else :key="traceAdwId" :adw-id="traceAdwId" :phase-id="route.phaseId" />
     </main>
   </div>
@@ -161,5 +204,33 @@ function onProjectSelect(name: string) {
   background: var(--green);
   box-shadow: 0 0 10px rgba(74, 222, 128, 0.7);
   animation: pulse 1.6s ease-in-out infinite;
+}
+
+.sweep-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(11, 15, 24, 0.9);
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.sweep-btn:hover {
+  color: var(--text);
+  border-color: rgba(200, 155, 255, 0.5);
+}
+
+.sweep-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.sweep-note {
+  font-size: 13px;
+  white-space: nowrap;
 }
 </style>

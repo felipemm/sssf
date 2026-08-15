@@ -11,8 +11,8 @@ import type {
   Session,
   SessionUsage,
 } from '../lib/types'
-import { Bot, SquareTerminal, UserRound } from 'lucide-vue-next'
-import { fetchEnvelopes, fetchEvents, fetchGates, fetchSession } from '../lib/api'
+import { Archive, ArchiveRestore, Bot, SquareTerminal, UserRound } from 'lucide-vue-next'
+import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchSession } from '../lib/api'
 import { axisTicks, fmtDate, payloadOk, ts } from '../lib/format'
 import { modelIcon, modelName } from '../lib/models'
 import { agentColor, hexAlpha, parseAgentStart } from '../lib/events'
@@ -22,6 +22,17 @@ import StatChip from './StatChip.vue'
 import PhaseDetail from './PhaseDetail.vue'
 
 const props = defineProps<{ adwId: string; phaseId: string | null }>()
+
+// Archive/restore from the trace: triage while reading. On success the run has
+// left the review surface, so land back on the sessions home.
+async function toggleArchive() {
+  try {
+    await archiveSession(props.adwId, !session.value?.archived)
+    navigate()
+  } catch {
+    /* stay on the page; the next poll reconciles */
+  }
+}
 
 const session = ref<Session | null>(null)
 const phases = ref<Phase[]>([])
@@ -433,6 +444,16 @@ function selectPhase(p: Phase) {
     <div v-if="session" class="run-strip">
       <span class="request" :title="session.request ?? ''">{{ session.request }}</span>
       <StatusChip :status="session.status ?? 'fail'" />
+      <button
+        class="strip-archive"
+        type="button"
+        :title="session.archived ? 'Restore — bring this run back to review' : 'Archive — remove this run from review'"
+        :aria-label="session.archived ? 'Restore run' : 'Archive run'"
+        @click="toggleArchive"
+      >
+        <ArchiveRestore v-if="session.archived" :size="16" :stroke-width="2" />
+        <Archive v-else :size="16" :stroke-width="2" />
+      </button>
       <span class="dim">started {{ fmtDate(session.started_at) }}</span>
       <span class="run-stats">
         <StatChip kind="cost" :value="session.total_cost" />
@@ -560,6 +581,25 @@ function selectPhase(p: Phase) {
 <style scoped>
 .trace {
   padding: 0 0 40px;
+}
+
+.strip-archive {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(11, 15, 24, 0.9);
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.strip-archive:hover {
+  color: var(--text);
+  border-color: rgba(200, 155, 255, 0.5);
 }
 
 .run-strip {

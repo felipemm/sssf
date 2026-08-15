@@ -52,8 +52,10 @@ function base(): string {
   return selectedProject.value ? `/api/projects/${encodeURIComponent(selectedProject.value)}` : ''
 }
 
-export function fetchSessions(): Promise<SessionSummary[]> {
-  return getJson(`${base()}/sessions`) as Promise<SessionSummary[]>
+export function fetchSessions(archived = false): Promise<SessionSummary[]> {
+  return getJson(
+    `${base()}/sessions${archived ? '?archived=1' : ''}`,
+  ) as Promise<SessionSummary[]>
 }
 
 export async function fetchSession(adwId: string): Promise<SessionDetail> {
@@ -88,6 +90,24 @@ export async function archiveSession(adwId: string, archived = true): Promise<vo
     body: JSON.stringify({ archived }),
   })
   if (!res.ok) throw new Error(`POST ${url} → ${res.status}`)
+}
+
+export interface SweepResult {
+  project: string
+  db: string
+  archived: number
+  error?: string
+}
+
+/** Manual archival sweep across every registered project — the `sssf sweep` CLI. */
+export async function runSweep(): Promise<SweepResult[]> {
+  const res = await fetch('/api/sweep', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+  })
+  if (!res.ok) throw new Error(`POST /api/sweep → ${res.status}`)
+  const data = (await res.json()) as { results?: SweepResult[] }
+  return data.results ?? []
 }
 
 export function fetchHealth(): Promise<HealthResponse> {

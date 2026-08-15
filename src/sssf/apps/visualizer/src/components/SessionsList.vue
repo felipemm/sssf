@@ -5,6 +5,8 @@ import { fetchSessions } from '../lib/api'
 import { ts } from '../lib/format'
 import SessionCard from './SessionCard.vue'
 
+const props = defineProps<{ archived?: boolean }>()
+
 const sessions = shallowRef<SessionSummary[]>([])
 const apiError = ref<string | null>(null)
 const loaded = ref(false)
@@ -17,7 +19,7 @@ async function tick() {
   if (inflight) return
   inflight = true
   try {
-    sessions.value = await fetchSessions()
+    sessions.value = await fetchSessions(props.archived ?? false)
     nowMs.value = Date.now()
     apiError.value = null
     loaded.value = true
@@ -53,7 +55,9 @@ const ordered = computed(() =>
   <div class="sessions">
     <div v-if="apiError" class="error-bar">api unreachable — retrying {{ apiError }}</div>
 
-    <div v-if="ordered.length" class="list-head dim">{{ ordered.length }} runs</div>
+    <div v-if="ordered.length" class="list-head dim">
+      {{ ordered.length }} {{ archived ? 'archived runs' : 'runs' }}
+    </div>
 
     <div v-if="ordered.length" class="cards">
       <SessionCard
@@ -61,10 +65,13 @@ const ordered = computed(() =>
         :key="s.adw_id"
         :session="s"
         :now-ms="nowMs"
+        :archived="archived"
         @archived="onArchived"
       />
     </div>
-    <div v-else-if="loaded" class="empty-state">no sessions yet — run an ADW to see it here</div>
+    <div v-else-if="loaded" class="empty-state">
+      {{ archived ? 'no archived sessions' : 'no sessions yet — run an ADW to see it here' }}
+    </div>
     <div v-else-if="!apiError" class="empty-state">loading sessions…</div>
   </div>
 </template>

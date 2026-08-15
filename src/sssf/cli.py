@@ -5,7 +5,7 @@ from pathlib import Path
 
 from sssf import __version__
 from sssf import registry
-from sssf.commands import init, misc, obs_cmds, run, viz
+from sssf.commands import init, misc, obs_cmds, run, sweep, viz
 from sssf.project import find_project, data_dir
 
 
@@ -73,6 +73,11 @@ def main(argv: list[str] | None = None) -> int:
     p_viz.add_argument("--project", default=None, help="use this project's registry")
     p_viz.set_defaults(func=lambda a: viz.start(a.port, a.db, a.project)
                        if a.action == "start" else viz.stop())
+
+    p_sweep = sub.add_parser("sweep", help="archive finished sessions older than the interval (all registered projects)")
+    p_sweep.add_argument("--project", default=None, help="sweep one project root instead of the whole registry")
+    p_sweep.add_argument("--days", type=int, default=30)
+    p_sweep.set_defaults(func=lambda a: sweep.run(a.project, a.days))
 
     args = parser.parse_args(argv)
     if args.version:

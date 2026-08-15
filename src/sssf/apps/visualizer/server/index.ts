@@ -21,6 +21,7 @@ import { existsSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { SssfDb, resolveDbPath } from "./db.ts";
 import { ProjectRegistry } from "./registry.ts";
+import { sweepAll } from "./sweep.ts";
 import type { AgentPrompts, ApiError, HealthResponse } from "../shared/types.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
@@ -153,7 +154,8 @@ function intQuery(req: Request, key: string, fallback: number): number {
 // ── handlers — the query code from the single-db server, unchanged ──────────
 
 function sessionsHandler(req: Request, db: SssfDb): Response {
-  return json(db.sessions(intQuery(req, "limit", 200)));
+  const onlyArchived = intQuery(req, "archived", 0) === 1;
+  return json(db.sessions(intQuery(req, "limit", 200), onlyArchived));
 }
 
 function sessionDetailHandler(req: Request, db: SssfDb): Response {
@@ -294,6 +296,12 @@ const server = Bun.serve({
       ),
     ),
 
+    // Manual archival sweep across every registered project (the `sssf sweep`
+    // CLI equivalent) — review triage, the only batch write the server makes.
+    "/api/sweep": {
+      POST: safely(() => json({ results: sweepAll(projects, adhocDb?.path ?? null) })),
+    },
+
     // Adhoc single-db mode (backwards compat).
     "/api/sessions": adhocOnly(sessionsHandler),
     "/api/sessions/:adw_id": adhocOnly(sessionDetailHandler),
@@ -341,3 +349,13 @@ process.on("SIGINT", () => {
   for (const db of projectDbs.values()) db.close();
   process.exit(0);
 });
+
+// ── automatic archival sweep (review triage): on boot, then every 6h ───────
+function runSweep(): void {
+  for (const r of sweepAll(projects, adhocDb?.path ?? null)) {
+    if (r.error) console.log(`[sssf] sweep ${r.project}: ${r.error}`);
+    else if (r.archived > 0) console.log(`[sssf] sweep ${r.project}: archived ${r.archived} session(s)`);
+  }
+}
+runSweep();
+setInterval(runSweep, 6 * 60 * 60 * 1000);

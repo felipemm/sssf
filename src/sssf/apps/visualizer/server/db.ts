@@ -172,19 +172,19 @@ export class SssfDb {
   }
 
   /** Sessions, most recent first, each with its phase statuses for the progress dots. */
-  sessions(limit = 200): SessionSummary[] {
+  sessions(limit = 200, onlyArchived = false): SessionSummary[] {
     const rows = this.db
-      .query<Session, [number]>(
+      .query<Session, [number, number]>(
         `SELECT adw_id, ${this.optionalColumn("sessions", "adw_name")}, request,
                 status, engineer, started_at, ended_at,
                 total_tokens, total_cost,
                 ${this.optionalColumn("sessions", "archived")}
            FROM sessions
-          WHERE COALESCE(${this.hasColumn("sessions", "archived") ? "archived" : "0"}, 0) = 0
+          WHERE COALESCE(${this.hasColumn("sessions", "archived") ? "archived" : "0"}, 0) = ?
           ORDER BY started_at DESC, rowid DESC
           LIMIT ?`,
       )
-      .all(clamp(limit, 1, MAX_LIMIT));
+      .all(onlyArchived ? 1 : 0, clamp(limit, 1, MAX_LIMIT));
 
     if (rows.length === 0) return [];
 

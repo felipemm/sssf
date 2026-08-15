@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
+import { Archive, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import type { SessionSummary } from '../lib/types'
-import { fetchSessions } from '../lib/api'
+import { archiveSession, fetchSessions } from '../lib/api'
 import { fmtCost, fmtDate, fmtTokens, ts } from '../lib/format'
 import { hrefFor } from '../lib/router'
 import PhaseDots from './PhaseDots.vue'
@@ -88,6 +89,41 @@ const byColumn = computed(() => {
 })
 
 const total = computed(() => sessions.value.length)
+
+// Per-stage collapse, persisted so the board opens the way you left it. The
+// count stays visible in the header while a stage is folded away.
+const COLLAPSE_KEY = 'sssf.boardCollapsed'
+const collapsed = ref<Record<string, boolean>>(loadCollapsed())
+
+function loadCollapsed(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(COLLAPSE_KEY) ?? '{}') as Record<string, boolean>
+  } catch {
+    return {}
+  }
+}
+
+function toggleCollapsed(key: string) {
+  collapsed.value = { ...collapsed.value, [key]: !collapsed.value[key] }
+  try {
+    localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsed.value))
+  } catch {
+    /* private mode — the collapse just won't survive reloads */
+  }
+}
+
+// Archive from the board: the card is an <a>, so the click must not navigate.
+// The board polls every 500 ms — a failed write just re-syncs on the next tick.
+async function archive(s: SessionSummary, event: MouseEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+  try {
+    await archiveSession(s.adw_id)
+    void tick()
+  } catch {
+    /* the next poll reconciles */
+  }
+}
 </script>
 
 <template>
@@ -100,19 +136,35 @@ const total = computed(() => sessions.value.length)
 
     <div class="columns">
       <section v-for="col in COLUMNS" :key="col.key" class="col">
-        <header class="col-head">
+        <button
+          type="button"
+          class="col-head"
+          :title="collapsed[col.key] ? 'Expand stage' : 'Collapse stage'"
+          @click="toggleCollapsed(col.key)"
+        >
+          <ChevronRight v-if="collapsed[col.key]" :size="15" :stroke-width="2" class="chev" />
+          <ChevronDown v-else :size="15" :stroke-width="2" class="chev" />
           <span class="dot" :style="{ background: col.accent }" />
           <span class="col-name">{{ col.label }}</span>
           <span class="col-count">{{ byColumn[col.key].length }}</span>
-        </header>
+        </button>
 
-        <div class="cards">
+        <div v-if="!collapsed[col.key]" class="cards">
           <a
             v-for="s in byColumn[col.key]"
             :key="s.adw_id"
             class="card"
             :href="hrefFor(s.adw_id)"
           >
+            <button
+              class="card-archive"
+              type="button"
+              title="Archive — remove this run from review"
+              aria-label="Archive run"
+              @click="archive(s, $event)"
+            >
+              <Archive :size="15" :stroke-width="2" />
+            </button>
             <div class="card-top">
               <span class="adw" :title="s.adw_id">{{ s.adw_name || s.adw_id }}</span>
               <PhaseDots :phases="s.phases" />
@@ -180,10 +232,24 @@ const total = computed(() => sessions.value.length)
   display: flex;
   align-items: center;
   gap: 9px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
   font-size: 15px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--dim);
+  cursor: pointer;
+}
+
+.col-head:hover {
+  color: var(--text);
+}
+
+.col-head .chev {
+  flex: none;
+  color: var(--faint);
 }
 
 .col-head .dot {
@@ -207,6 +273,7 @@ const total = computed(() => sessions.value.length)
 
 .card {
   display: block;
+  position: relative;
   background: rgba(11, 15, 24, 0.66);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -214,6 +281,27 @@ const total = computed(() => sessions.value.length)
   text-decoration: none;
   color: var(--text);
   transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.card-archive {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.card-archive:hover {
+  color: var(--text);
+  background: rgba(200, 155, 255, 0.12);
 }
 
 .card:hover {
