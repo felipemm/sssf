@@ -18,6 +18,8 @@
 
 Implement the work described in `prompt`, guided by `previous_envelope` if present, then emit your `Report` JSON.
 
+**You never commit.** Running `git commit` (or `git push`) yourself is a violation: the factory owns every commit and lands your work in its own commit phase, after the suite and the review pass. Your `commit_message` is the subject the factory uses. If your work needs saving mid-phase, say so in `notes_for_next_agent` instead.
+
 ## Report
 
 Respond with ONLY valid JSON matching `BuildOutput` — no prose before or after:

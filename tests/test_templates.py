@@ -47,3 +47,11 @@ def test_artifact_folders_live_under_adws():
         for folder in ("specs/", "app_docs/"):
             assert (folder not in text or f"adws/{folder}" in text), \
                 f"{path.relative_to(TEMPLATES)} references bare {folder!r}"
+
+
+def test_builder_prompt_forbids_committing():
+    """The factory owns commits — the builder must never run git commit itself.
+    (Field incident: a builder committed its own work mid-phase, so commit_build
+    found a clean tree and the claim-mismatch check fired.)"""
+    text = (TEMPLATES / "prompt_engineering" / "builder" / "user.md").read_text()
+    assert "you never commit" in text.lower() and "git commit" in text

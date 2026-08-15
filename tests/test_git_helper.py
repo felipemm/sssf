@@ -42,3 +42,15 @@ def test_commit_all_commits_when_changed(repo, monkeypatch):
         ["git", "-C", str(repo), "log", "-1", "--format=%s"], capture_output=True, text=True
     ).stdout.strip()
     assert log == "real change"
+
+
+def test_diff_files_between(repo, monkeypatch):
+    monkeypatch.chdir(repo)
+    base = git_helper.rev("HEAD")
+    (repo / "a.txt").write_text("a")
+    git_helper.commit_all("add a")
+    (repo / "b.txt").write_text("b")
+    git_helper.commit_all("add b")
+    assert git_helper.diff_files_between(base, "HEAD") == ["a.txt", "b.txt"]
+    assert git_helper.diff_files_between(base, f"HEAD~1") == ["a.txt"]
+    assert git_helper.diff_files_between("HEAD", "HEAD") == []

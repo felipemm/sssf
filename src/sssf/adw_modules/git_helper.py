@@ -107,6 +107,12 @@ def diff_files(base: str) -> list[str]:
     return [line for line in out.splitlines() if line]
 
 
+def diff_files_between(a: str, b: str = "HEAD") -> list[str]:
+    """Tracked files that differ between two refs (commit-to-commit)."""
+    out = _git("diff", "--name-only", a, b)
+    return [line for line in out.splitlines() if line]
+
+
 def diff_stat(base: str) -> str:
     return _git("diff", "--stat", base)
 

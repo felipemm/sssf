@@ -89,6 +89,7 @@ def main(prompt: str, config: str = "adws/adw_sssf_config/sssf.config.yaml", adw
     with run.phase(PhaseParams(name="commit_plan", kind="code", owner="git",
                                description="Put the spec on record before any code exists to blur it")) as ph:
         commit(ph, plan)
+    plan_sha = git_helper.rev("HEAD")   # the spec commit — the only commit this run owns so far
 
     with run.phase(PhaseParams(name="build", kind="agent", owner="builder",
                                description="Implement the plan exactly")) as ph:
@@ -150,12 +151,21 @@ def main(prompt: str, config: str = "adws/adw_sssf_config/sssf.config.yaml", adw
                                    description="Land the code only now: green suite, approved review")) as ph:
             landed = commit(ph, build, allow_empty=True)
             if not landed:
-                # Nothing to commit. Two ways to get here, and they must not
-                # both pass: the plan's work is ALREADY implemented (a no-op
-                # re-run — the builder changed nothing and said so), or the
-                # builder CLAIMED changes that never landed (rolled back or
-                # never made). The second is a lie: fail, don't bless it.
+                # Nothing to commit. Three ways to get here, and only one may
+                # pass: the plan's work is ALREADY implemented (a no-op re-run —
+                # the builder changed nothing and said so), the builder CLAIMED
+                # changes that never landed (rolled back or never made), or the
+                # builder COMMITTED its own work (a discipline violation — HEAD
+                # moved past the spec commit). Fail the two, bless only the no-op.
                 if build.changed_files:
+                    head_now = git_helper.rev("HEAD")
+                    if head_now != plan_sha:
+                        raise RuntimeError(
+                            "the builder committed its own work — the factory owns "
+                            f"commits. HEAD moved {plan_sha[:7]} -> {head_now[:7]} "
+                            "before commit_build, so code landed before review. The "
+                            "builder must never run `git commit`; re-run after fixing "
+                            "its prompt.")
                     raise RuntimeError(
                         "builder reported changed files, but the working tree has "
                         "no diff — the changes never landed, nothing to commit")
