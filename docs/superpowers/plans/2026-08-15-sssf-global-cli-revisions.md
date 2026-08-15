@@ -24,6 +24,8 @@
 | `388288d` | reap stale runs on re-run; failsafe excepthook; already-implemented vs claim-mismatch |
 | `1f61c1a` | folder convention: planner/documenter artifacts + prompts under `adws/` (§2.4) + regression guard |
 | `4fc95d5` | revisions spec/plan in-repo; README/customizing/contributing/SKILL updated |
+| `a18113f` | builder must never commit; commit_build three-way diagnosis (HEAD-moved vs never-landed); `diff_files_between` |
+| `578c889` | docs: record folder convention in revisions spec + plan migration recipe |
 
 Inkwell demo repo (`~/dev/lab/demos/inkwell`):
 
@@ -33,6 +35,7 @@ Inkwell demo repo (`~/dev/lab/demos/inkwell`):
 | `701318b` | sync `adw_simple_sdlc.py` (allow_empty commit_build) |
 | `54483f6` | sync `adw_simple_sdlc.py` (already-implemented detection, no-op skips doc chain) |
 | `b6cfbde` | refactor: specs/app_docs/prompts → `adws/`; app code → `src/`; prompts + config re-synced |
+| `f4cb4eb` | sync builder no-commit rule + commit_build diagnosis; fix stale `apps/inkwell/` paths in all 8 prompts |
 
 ## Applying the fixes to a project stamped before the fix
 

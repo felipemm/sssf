@@ -75,15 +75,21 @@ session is written again harmlessly.
 
 ### 2.3 `commit_build`: already implemented ≠ builder failed
 
-An empty commit at `commit_build` now resolves two ways:
+An empty commit at `commit_build` now resolves three ways:
 
 - **Builder reported no changes** (`changed_files: []`), suite green, review
   approved → the work is **already implemented and verified** → the run
   succeeds with a note, and the `changes`/`document`/`commit_docs` phases are
   **skipped** (they would fail on an empty diff).
-- **Builder claimed changes** (non-empty `changed_files`) but the working tree
-  has no diff → **hard fail** (`builder reported changed files, but the working
-  tree has no diff — the changes never landed`).
+- **Builder claimed changes** (non-empty `changed_files`) and the tree is clean
+  but **HEAD moved past the spec commit** → the builder **committed its own
+  work** (a discipline violation) → hard fail with a precise message. Field
+  incident (inkwell `7f914799`): the builder ran `git commit` mid-phase, so
+  this branch must check `HEAD != plan_sha` rather than assuming the changes
+  never landed. The builder prompt now forbids committing; a regression guard
+  asserts it.
+- **Builder claimed changes** and HEAD is still the spec commit → the changes
+  **never landed** (rolled back or never made) → hard fail.
 
 `commit_plan` and `commit_docs` stay strict: a plan or doc that produced
 nothing is a real failure.
