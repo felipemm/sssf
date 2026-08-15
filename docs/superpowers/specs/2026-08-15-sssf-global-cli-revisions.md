@@ -27,6 +27,7 @@ delta.
 | ADW `simple_sdlc` | `commit_build` distinguishes **already implemented** from **claim-mismatch**; a no-op skips the document chain | a re-run whose work was already landed is success; a builder that claims changes that never landed is a hard fail |
 | engine | `session.ensure()` **reaps** a previous run still marked in flight under the same `adw_id` | re-running an adw_id must kill the stale run (verified against the recorded command) and mark its open phases/session failed — no more zombie "running" sessions |
 | engine | failsafe `sys.excepthook` marks the session failed on **any** uncaught exception | per-phase handling covered in-phase errors; between-phase and `finish()` errors left the session reading `running` forever |
+| templates | planner/documenter artifacts move under `adws/` (`adws/specs/`, `adws/app_docs/`); prompts live at `adws/prompts/` | inkwell refactor: root-level artifact folders clutter the project; baked into templates so every future project follows it (§2.4) |
 
 ## 1. The inkwell incident (why the field fixes exist)
 
@@ -86,6 +87,23 @@ An empty commit at `commit_build` now resolves two ways:
 
 `commit_plan` and `commit_docs` stay strict: a plan or doc that produced
 nothing is a real failure.
+
+### 2.4 Folder convention: everything under `adws/`
+
+The factory's artifacts and the project's prompt files never touch the repo
+root (inkwell refactor, applied to the templates so every future project
+follows it):
+
+- planner writes `adws/specs/<adw_id>_<slug>.md` (was `specs/`)
+- documenter writes `adws/app_docs/<adw_id>_<slug>.md` (was `app_docs/`)
+- prompt files live at `adws/prompts/` (e.g. `sssf run <adw> "run prompt adws/prompts/x.md"`)
+- app code under `src/` is a project convention, not a factory rule — the
+  factory only cares that its own folders stay under `adws/`
+
+Enforced by the config `writes:` entries (`adws/specs/`, `adws/app_docs/`),
+which `permissions.py` prefix-matches, and by the regression guard
+`test_artifact_folders_live_under_adws` (no template may reference bare
+`specs/` or `app_docs/`).
 
 ## 3. What did NOT change
 

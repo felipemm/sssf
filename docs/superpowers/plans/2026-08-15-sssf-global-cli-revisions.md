@@ -22,6 +22,8 @@
 | `e5a92da` | **fix:** gitignore WAL sidecars in init; viz recovers from `SQLITE_IOERR` |
 | `1693e1e` | `commit_all(allow_empty)`; commit_build tolerates no-op re-runs |
 | `388288d` | reap stale runs on re-run; failsafe excepthook; already-implemented vs claim-mismatch |
+| `1f61c1a` | folder convention: planner/documenter artifacts + prompts under `adws/` (§2.4) + regression guard |
+| `4fc95d5` | revisions spec/plan in-repo; README/customizing/contributing/SKILL updated |
 
 Inkwell demo repo (`~/dev/lab/demos/inkwell`):
 
@@ -30,6 +32,7 @@ Inkwell demo repo (`~/dev/lab/demos/inkwell`):
 | `b2f7b51` | untrack `sssf.db-wal`/`sssf.db-shm` + gitignore entries |
 | `701318b` | sync `adw_simple_sdlc.py` (allow_empty commit_build) |
 | `54483f6` | sync `adw_simple_sdlc.py` (already-implemented detection, no-op skips doc chain) |
+| `b6cfbde` | refactor: specs/app_docs/prompts → `adws/`; app code → `src/`; prompts + config re-synced |
 
 ## Applying the fixes to a project stamped before the fix
 
@@ -52,6 +55,19 @@ all three):
    ```
 
    Only safe if the project's copy is unmodified (check with `diff` first).
+
+2b. **Re-sync the planner/documenter prompts** (folder convention §2.4):
+
+   ```bash
+   cp ~/dev/lab/mvp/sssf/src/sssf/templates/prompt_engineering/{planner,documenter}/{system,user}.md \
+      adws/adw_data/prompt_engineering/{planner,documenter}/
+   # and in adws/adw_sssf_config/sssf.config.yaml:
+   #   planner writes:    - specs/      → - adws/specs/
+   #   documenter writes: - app_docs/   → - adws/app_docs/
+   ```
+
+   Then move any existing artifacts: `git mv specs adws/specs`, `git mv
+   app_docs adws/app_docs`, `git mv prompts adws/prompts` (if present).
 
 3. **Upgrade the tool** so the engine picks up the reap/failsafe/no-op logic:
 
