@@ -1,0 +1,15 @@
+# Ticketing integration (optional). Uncomment to enable — the kanban Backlog
+# stage stays hidden until this file configures at least one provider.
+#
+# providers:            # any subset of jira | linear | internal
+#   - internal
+#   # - jira
+#   # - linear
+#
+# jira:                 # via the acli CLI (install and authenticate it first)
+#   jql: 'project = ACME AND status in (Backlog, "To Do")'
+#
+# linear:               # token from the project .env (token_env)
+#   team: ENG
+#   token_env: LINEAR_TOKEN
+#   states: [Backlog, "To Do"]

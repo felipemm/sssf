@@ -47,3 +47,17 @@ def test_refresh_adds_missing_only(tmp_path, monkeypatch):
     (root / "adws/adw_prompt.py").unlink()
     assert _run_init(root, monkeypatch, ["--refresh"]) == 0
     assert (root / "adws/adw_prompt.py").exists()
+
+
+def test_init_stamps_commented_ticketing_template(tmp_path, monkeypatch):
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert _run_init(root, monkeypatch) == 0
+    cfg = root / "adws/adw_sssf_config/ticketing.yaml"
+    assert cfg.exists()
+    text = cfg.read_text()
+    assert text.lstrip().startswith("#")          # fully commented
+    assert "providers" in text
+    # and it parses as "not configured":
+    from sssf import ticketing
+    assert ticketing.load_config(root) is None

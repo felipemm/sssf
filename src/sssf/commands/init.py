@@ -56,6 +56,10 @@ def run(root: Path, *, refresh: bool = False, force: bool = False) -> int:
     if not config_dest.exists() or force:
         config_dest.parent.mkdir(parents=True, exist_ok=True)
         config_dest.write_text((templates / "sssf.config.yaml").read_text())
+    ticket_dest = root / "adws" / "adw_sssf_config" / "ticketing.yaml"
+    if not ticket_dest.exists() or force:
+        ticket_dest.parent.mkdir(parents=True, exist_ok=True)
+        ticket_dest.write_text((templates / "ticketing.yaml").read_text())
     _copy_tree(templates / "prompt_engineering", root / "adws" / "adw_data" / "prompt_engineering",
                force=force)
     _copy_tree(templates / "harness_engineering", root / "adws" / "adw_data" / "harness_engineering",
