@@ -19,14 +19,16 @@ function onProjectSelect(name: string) {
   <div class="app">
     <header class="topbar">
       <nav class="crumbs">
-        <!-- Inline copy of public/logo.svg (the favicon) so the mark renders
-             crisply with no fetch; keep the two in sync. -->
-        <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
-          <rect x="4" y="6" width="17" height="5" rx="2.5" fill="#e8b64a" />
-          <rect x="8" y="13.5" width="20" height="5" rx="2.5" fill="#c89bff" />
-          <rect x="4" y="21" width="13" height="5" rx="2.5" fill="#5ad2dd" />
-        </svg>
-        <span class="brand">Super Simple Software Factory</span>
+        <a :href="hrefFor()" class="home" title="back to sessions">
+          <!-- Inline copy of public/logo.svg (the favicon) so the mark renders
+               crisply with no fetch; keep the two in sync. -->
+          <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+            <rect x="4" y="6" width="17" height="5" rx="2.5" fill="#e8b64a" />
+            <rect x="8" y="13.5" width="20" height="5" rx="2.5" fill="#c89bff" />
+            <rect x="4" y="21" width="13" height="5" rx="2.5" fill="#5ad2dd" />
+          </svg>
+          <span class="brand">Super Simple Software Factory</span>
+        </a>
         <span class="sep">›</span>
         <a :href="hrefFor()" :class="{ current: !route.adwId }">sessions</a>
         <template v-if="route.adwId">
@@ -114,6 +116,17 @@ function onProjectSelect(name: string) {
 }
 
 .crumbs a:hover {
+  color: var(--text);
+}
+
+.crumbs .home {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+
+.crumbs .home:hover {
   color: var(--text);
 }
 

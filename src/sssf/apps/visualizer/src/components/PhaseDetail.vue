@@ -42,7 +42,8 @@ const props = defineProps<{
 defineEmits<{ close: [] }>()
 
 const phaseEvents = computed(() =>
-  props.events.filter((e) => e.phase_id === props.phase.phase_id).sort((a, b) => a.rowid - b.rowid),
+  // Latest first — the newest event is the first thing you read.
+  props.events.filter((e) => e.phase_id === props.phase.phase_id).sort((a, b) => b.rowid - a.rowid),
 )
 
 const phaseGates = computed(() =>

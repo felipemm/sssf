@@ -54,7 +54,7 @@ Three principles:
 | `sssf run <adw> "<prompt>" [--adw-id X]` | execute a chain (the `adw_` prefix is optional) |
 | `sssf sessions / phases <id> / tail <id> / procs <id>` | trace queries over the WAL db |
 | `sssf projects [list|remove <name>]` | manage the registry |
-| `sssf viz [--port N] [--db PATH]` | global trace visualizer (bun required) |
+| `sssf viz [start|stop] [--port N] [--db PATH]` | global trace visualizer as a background service (bun required); `start` opens the browser, `stop` shuts it down |
 | `sssf doctor` | check global prerequisites (`uv`, `pi`, `bun`, `sqlite3`) |
 | `sssf upgrade` | `uv tool upgrade sssf` |
 

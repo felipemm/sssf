@@ -66,11 +66,13 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("upgrade", help="uv tool upgrade sssf") \
        .set_defaults(func=lambda a: misc.upgrade())
 
-    p_viz = sub.add_parser("viz", help="boot the global trace visualizer")
+    p_viz = sub.add_parser("viz", help="run the global trace visualizer as a background service")
+    p_viz.add_argument("action", nargs="?", default="start", choices=["start", "stop"])
     p_viz.add_argument("--port", type=int, default=4600)
     p_viz.add_argument("--db", default=None, help="adhoc single-db mode")
     p_viz.add_argument("--project", default=None, help="use this project's registry")
-    p_viz.set_defaults(func=lambda a: viz.run(a.port, a.db, a.project))
+    p_viz.set_defaults(func=lambda a: viz.start(a.port, a.db, a.project)
+                       if a.action == "start" else viz.stop())
 
     args = parser.parse_args(argv)
     if args.version:
