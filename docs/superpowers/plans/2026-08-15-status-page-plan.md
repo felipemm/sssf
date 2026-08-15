@@ -38,12 +38,12 @@ Create `src/sssf/apps/visualizer/server/status.test.ts`:
 ```ts
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { computeStatus } from "./status";
 
-function fixtureDb(path: string): void {
+function fixtureDb(path: string): string[] {
   const db = new Database(path);
   db.run(`CREATE TABLE sessions (
     adw_id TEXT PRIMARY KEY, adw_name TEXT, request TEXT, status TEXT,
@@ -66,45 +66,53 @@ function fixtureDb(path: string): void {
     title TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'backlog',
     prompt_file TEXT, adw_id TEXT, source_url TEXT, created_at TEXT, updated_at TEXT)`);
 
+  // Dates are RELATIVE to now so the tests stay green regardless of when they run.
+  const now = Date.now();
+  const iso = (daysAgo: number) => new Date(now - daysAgo * 86400_000).toISOString();
+  const day = (daysAgo: number) => new Date(now - daysAgo * 86400_000).toISOString().slice(0, 10);
+  const end = (start: string, seconds: number) => new Date(Date.parse(start) + seconds * 1000).toISOString();
+  const s1 = iso(6), s2 = iso(4), s3 = iso(2), s4 = iso(0);
+
   const s = db.prepare(`INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?)`);
   // s1, s2 success · s3 fail · s4 running (no ended_at)
-  s.run("s1", "adw_simple_sdlc", "r1", "success", "eng", "2026-08-10T10:00:00+00:00", "2026-08-10T10:05:00+00:00", 100000, 0.50, 0);
-  s.run("s2", "adw_simple_sdlc", "r2", "success", "eng", "2026-08-12T10:00:00+00:00", "2026-08-12T10:02:00+00:00", 50000, 0.20, 0);
-  s.run("s3", "adw_simple_sdlc", "r3", "fail", "eng", "2026-08-13T10:00:00+00:00", "2026-08-13T10:01:00+00:00", 10000, 0.05, 0);
-  s.run("s4", "adw_simple_sdlc", "r4", "running", "eng", "2026-08-15T10:00:00+00:00", null, 0, 0, 0);
+  s.run("s1", "adw_simple_sdlc", "r1", "success", "eng", s1, end(s1, 300), 100000, 0.50, 0);
+  s.run("s2", "adw_simple_sdlc", "r2", "success", "eng", s2, end(s2, 120), 50000, 0.20, 0);
+  s.run("s3", "adw_simple_sdlc", "r3", "fail", "eng", s3, end(s3, 60), 10000, 0.05, 0);
+  s.run("s4", "adw_simple_sdlc", "r4", "running", "eng", s4, null, 0, 0, 0);
 
   const p = db.prepare(`INSERT INTO phases VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
-  p.run("s1_01", "s1", 1, "request", "engineer", "eng", "", "success", 0, 0, null, "2026-08-10T10:00:00+00:00", "2026-08-10T10:00:01+00:00");
-  p.run("s1_02", "s1", 2, "commit_build", "code", "git", "", "fail", 0, 1, "boom", "2026-08-10T10:04:00+00:00", "2026-08-10T10:04:01+00:00");
-  p.run("s1_03", "s1", 3, "commit_build", "code", "git", "", "success", 1, 0, null, "2026-08-10T10:04:02+00:00", "2026-08-10T10:04:03+00:00");
-  p.run("s2_01", "s2", 1, "review_1", "agent", "reviewer", "", "fail", 0, 2, "nope", "2026-08-12T10:01:00+00:00", "2026-08-12T10:01:30+00:00");
-  p.run("s3_01", "s3", 1, "plan", "agent", "planner", "", "success", 0, 0, null, "2026-08-13T10:00:00+00:00", "2026-08-13T10:00:30+00:00");
+  p.run("s1_01", "s1", 1, "request", "engineer", "eng", "", "success", 0, 0, null, s1, end(s1, 1));
+  p.run("s1_02", "s1", 2, "commit_build", "code", "git", "", "fail", 0, 1, "boom", s1, end(s1, 1));
+  p.run("s1_03", "s1", 3, "commit_build", "code", "git", "", "success", 1, 0, null, s1, end(s1, 1));
+  p.run("s2_01", "s2", 1, "review_1", "agent", "reviewer", "", "fail", 0, 2, "nope", s2, end(s2, 30));
+  p.run("s3_01", "s3", 1, "plan", "agent", "planner", "", "success", 0, 0, null, s3, end(s3, 30));
 
   const g = db.prepare(`INSERT INTO gate_results (adw_id, phase_id, attempt, gate, passed, checks_json, created_at) VALUES (?,?,?,?,?,?,?)`);
-  g.run("s2", "s2_02", 0, "quality", 1, '[{"item":"a","ok":true},{"item":"b","ok":true}]', "2026-08-12T10:02:00+00:00");
-  g.run("s3", "s3_02", 0, "quality", 0, '[{"item":"a","ok":true},{"item":"b","ok":false}]', "2026-08-13T10:01:00+00:00");
+  g.run("s2", "s2_02", 0, "quality", 1, '[{"item":"a","ok":true},{"item":"b","ok":true}]', s2);
+  g.run("s3", "s3_02", 0, "quality", 0, '[{"item":"a","ok":true},{"item":"b","ok":false}]', s3);
 
   const a = db.prepare(`INSERT INTO agent_sessions (adw_id, agent, model, context_tokens, created_at, last_used_at) VALUES (?,?,?,?,?,?)`);
-  a.run("s1", "planner", "litellm/deepseek-v4-flash-official", 60000, "2026-08-10T10:00:01+00:00", "2026-08-10T10:00:01+00:00");
-  a.run("s1", "builder", "litellm/gpt-5.5", 40000, "2026-08-10T10:01:00+00:00", "2026-08-10T10:01:00+00:00");
-  a.run("s2", "reviewer", "litellm/gemini-2.5-flash", 30000, "2026-08-12T10:01:00+00:00", "2026-08-12T10:01:00+00:00");
-  a.run("s3", "documenter", "litellm/gemini-2.5-flash", 20000, "2026-08-13T10:01:00+00:00", "2026-08-13T10:01:00+00:00");
+  a.run("s1", "planner", "litellm/deepseek-v4-flash-official", 60000, s1, s1);
+  a.run("s1", "builder", "litellm/gpt-5.5", 40000, s1, s1);
+  a.run("s2", "reviewer", "litellm/gemini-2.5-flash", 30000, s2, s2);
+  a.run("s3", "documenter", "litellm/gemini-2.5-flash", 20000, s3, s3);
 
   db.run(`INSERT INTO tickets (id, provider, external_id, title, status) VALUES ('internal:b','internal','','backlog ticket','backlog')`);
   db.run(`INSERT INTO tickets (id, provider, external_id, title, status, adw_id) VALUES ('internal:r','internal','','running ticket','running','s4')`);
   db.close();
+  return [day(6), day(4), day(2), day(0)];   // ascending day strings for the trend assertions
 }
 
-function setup(): { dbPath: string; root: string } {
+function setup(): { dbPath: string; root: string; days: string[] } {
   const dir = mkdtempSync(join(tmpdir(), "sssf-status-"));
   const dbPath = join(dir, "sssf.db");
-  fixtureDb(dbPath);
-  return { dbPath, root: dir };
+  const days = fixtureDb(dbPath);
+  return { dbPath, root: dir, days };
 }
 
 describe("computeStatus", () => {
   test("totals, quality, agents, tickets, trends over a known dataset", () => {
-    const { dbPath, root } = setup();
+    const { dbPath, root, days } = setup();
     const status = computeStatus(dbPath, root, "fixture", 30);
 
     // totals: all-time, includes the running session
@@ -119,6 +127,7 @@ describe("computeStatus", () => {
     expect(status.totals.avg_cost_per_run).toBeCloseTo(0.1875, 5); // 0.75/4
     expect(status.totals.total_tokens).toBe(160000);
     expect(status.totals.avg_tokens_per_run).toBe(40000);
+    expect(status.project.last_run).toBe(new Date(Date.now()).toISOString().slice(0, 10)); // today
 
     // quality
     expect(status.quality.gate_pass_rate).toBeCloseTo(0.75, 5);  // 3 of 4 checks ok
@@ -139,11 +148,10 @@ describe("computeStatus", () => {
 
     // trends: non-empty days within the window, ascending
     expect(status.trends.window).toBe(30);
-    const days = status.trends.buckets.map((b) => b.day);
-    expect(days).toEqual(["2026-08-10", "2026-08-12", "2026-08-13", "2026-08-15"]);
-    const d13 = status.trends.buckets.find((b) => b.day === "2026-08-13")!;
-    expect(d13.runs).toBe(1);
-    expect(d13.fail).toBe(1);
+    expect(status.trends.buckets.map((b) => b.day)).toEqual(days);
+    const d3 = status.trends.buckets.find((b) => b.day === days[2])!;
+    expect(d3.runs).toBe(1);
+    expect(d3.fail).toBe(1);
   });
 
   test("ticketing enabled when ticketing.yaml has providers", () => {
@@ -168,11 +176,11 @@ describe("computeStatus", () => {
   });
 
   test("window bounds the trend buckets", () => {
-    const { dbPath, root } = setup();
-    // 2026-08-15 minus 3 days -> only s4 (08-15) inside a 3-day window
-    const status = computeStatus(dbPath, root, "fixture", 3);
-    expect(status.trends.window).toBe(3);
-    expect(status.trends.buckets.map((b) => b.day)).toEqual(["2026-08-15"]);
+    const { dbPath, root, days } = setup();
+    // window=1 -> cutoff is yesterday, so only today's session (s4) is inside.
+    const status = computeStatus(dbPath, root, "fixture", 1);
+    expect(status.trends.window).toBe(1);
+    expect(status.trends.buckets.map((b) => b.day)).toEqual([days[3]]);
   });
 });
 ```
@@ -198,6 +206,7 @@ export interface ProjectInfo {
   name: string;
   root: string;
   ticketing_enabled: boolean;
+  last_run: string | null;   // most recent sessions.started_at (ISO); null when no runs
 }
 
 export interface Totals {
@@ -399,7 +408,12 @@ export function computeStatus(dbPath: string, root: string, name: string, window
 
     // ── trends ────────────────────────────────────────────────────────────
     const buckets: TrendBucket[] = [];
+    let lastRun: string | null = null;
     if (has("sessions")) {
+      const row = db.query<{ started_at: string | null }, []>(
+        "SELECT MAX(started_at) started_at FROM sessions"
+      ).get();
+      lastRun = row?.started_at ?? null;
       const cutoff = new Date(Date.now() - windowDays * 86400_000).toISOString().slice(0, 10);
       const rows = db.query<{ day: string; n: number; cost: number; tokens: number; success: number; fail: number }, []>(
         `SELECT date(started_at) day, COUNT(*) n,
@@ -418,7 +432,7 @@ export function computeStatus(dbPath: string, root: string, name: string, window
     }
 
     return {
-      project: { name, root, ticketing_enabled: ticketingEnabled(root) },
+      project: { name, root, ticketing_enabled: ticketingEnabled(root), last_run: lastRun },
       totals, quality, agents, tickets,
       trends: { window: windowDays, buckets },
     };
@@ -527,6 +541,7 @@ export interface StatusProject {
   name: string
   root: string
   ticketing_enabled: boolean
+  last_run: string | null
 }
 export interface StatusTotals {
   runs: number
@@ -806,7 +821,7 @@ import { RefreshCw } from 'lucide-vue-next'
 import { useProjects, fetchStatus } from '../lib/api'
 import type { StatusResponse } from '../lib/api'
 import { hrefFor } from '../lib/router'
-import { fmtCost, fmtDate, fmtTokens } from '../lib/format'
+import { fmtCost, fmtTokens } from '../lib/format'
 import StatusCharts from './StatusCharts.vue'
 
 const { selectedProject, projectsLoaded } = useProjects()
@@ -836,13 +851,6 @@ function setWindow(d: number) {
 }
 
 const hasData = computed(() => (status.value?.totals.runs ?? 0) > 0)
-const lastRun = computed(() => {
-  const s = status.value
-  if (!s || !hasData.value) return null
-  // trends buckets are sorted ascending; the last bucket's day is the last run day
-  const last = s.trends.buckets[s.trends.buckets.length - 1]
-  return last ? last.day : null
-})
 
 onMounted(() => {
   void load()
@@ -859,7 +867,7 @@ watch(projectsLoaded, () => {
         <h1 class="s-title">status · {{ status?.project.name ?? selectedProject ?? '…' }}</h1>
         <p v-if="status" class="s-sub dim">
           {{ status.project.root }}
-          <span v-if="lastRun"> · last run {{ lastRun }}</span>
+          <span v-if="status.project.last_run"> · last run {{ status.project.last_run.slice(0, 10) }}</span>
         </p>
       </div>
       <button class="btn" type="button" :disabled="loading" @click="load">
