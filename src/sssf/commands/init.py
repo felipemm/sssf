@@ -27,9 +27,29 @@ GITIGNORE_ENTRIES = [
 ]
 
 
-def _copy_tree(src, dest: Path, *, force: bool) -> list[str]:
-    """Copy a template tree (Traversable or Path) into dest, skipping existing files unless forced."""
+def _copy_tree(src, dest: Path, *, force: bool = False, confirm: bool = False,
+               label: str = "") -> list[str]:
+    """Copy a template tree into dest.
+
+    Existing files are skipped unless forced; with ``confirm`` the user is asked
+    per file first (y/N/a — a = yes to all), default no, so a --refresh can
+    never silently clobber an edited chain.
+    """
     copied = []
+    state = {"all": False}
+
+    def ask(rel: Path) -> bool:
+        if state["all"]:
+            return True
+        prefix = f"{label}/" if label else ""
+        try:
+            answer = input(f"overwrite {prefix}{rel}? [y/N/a] ").strip().lower()
+        except EOFError:
+            return False            # non-interactive: skip, never clobber
+        if answer in ("a", "all"):
+            state["all"] = True
+            return True
+        return answer in ("y", "yes")
 
     def walk(trav, rel: Path) -> None:
         for item in trav.iterdir():
@@ -37,7 +57,7 @@ def _copy_tree(src, dest: Path, *, force: bool) -> list[str]:
                 walk(item, rel / item.name)
                 continue
             target = dest / rel / item.name
-            if target.exists() and not force:
+            if target.exists() and not force and not (confirm and ask(rel / item.name)):
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(item.read_text())
@@ -51,7 +71,8 @@ def run(root: Path, *, refresh: bool = False, force: bool = False) -> int:
     templates = resources.files("sssf.templates")
     root.mkdir(parents=True, exist_ok=True)
 
-    _copy_tree(templates / "adws", root / "adws", force=force or refresh)
+    _copy_tree(templates / "adws", root / "adws", force=force, confirm=refresh,
+               label="adws")
     config_dest = root / "adws" / "adw_sssf_config" / "sssf.config.yaml"
     if not config_dest.exists() or force:
         config_dest.parent.mkdir(parents=True, exist_ok=True)

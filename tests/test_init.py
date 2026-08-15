@@ -45,6 +45,7 @@ def test_refresh_adds_missing_only(tmp_path, monkeypatch):
     root.mkdir()
     _run_init(root, monkeypatch)
     (root / "adws/adw_prompt.py").unlink()
+    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
     assert _run_init(root, monkeypatch, ["--refresh"]) == 0
     assert (root / "adws/adw_prompt.py").exists()
 
@@ -61,3 +62,38 @@ def test_init_stamps_commented_ticketing_template(tmp_path, monkeypatch):
     # and it parses as "not configured":
     from sssf import ticketing
     assert ticketing.load_config(root) is None
+
+
+def test_refresh_prompts_and_keeps_on_no(tmp_path, monkeypatch):
+    root = tmp_path / "proj"
+    root.mkdir()
+    _run_init(root, monkeypatch)
+    adw = root / "adws/adw_prompt.py"
+    original = adw.read_text()
+    adw.write_text(original + "\n# user edit\n")
+    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+    assert _run_init(root, monkeypatch, ["--refresh"]) == 0
+    assert adw.read_text() == original + "\n# user edit\n"   # nothing clobbered
+
+
+def test_refresh_overwrites_on_yes(tmp_path, monkeypatch):
+    root = tmp_path / "proj"
+    root.mkdir()
+    _run_init(root, monkeypatch)
+    adw = root / "adws/adw_prompt.py"
+    template = adw.read_text()
+    adw.write_text(template + "\n# user edit\n")
+    monkeypatch.setattr("builtins.input", lambda prompt="": "y")
+    assert _run_init(root, monkeypatch, ["--refresh"]) == 0
+    assert adw.read_text() == template                  # template restored
+
+
+def test_refresh_yes_to_all_overwrites_every_adw(tmp_path, monkeypatch):
+    root = tmp_path / "proj"
+    root.mkdir()
+    _run_init(root, monkeypatch)
+    adw = root / "adws/adw_prompt.py"
+    adw.write_text(adw.read_text() + "\n# user edit\n")
+    monkeypatch.setattr("builtins.input", lambda prompt="": "a")
+    assert _run_init(root, monkeypatch, ["--refresh"]) == 0
+    assert "# user edit" not in adw.read_text()
