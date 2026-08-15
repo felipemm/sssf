@@ -51,7 +51,7 @@ async function onSweep() {
   } finally {
     sweeping.value = false
     clearTimeout(sweepTimer)
-    sweepTimer = setTimeout(() => (sweepNote.value = ''), 5000)
+    sweepTimer = setTimeout(() => (sweepNote.value = ''), 4000)
   }
 }
 </script>
@@ -94,7 +94,6 @@ async function onSweep() {
       >
         <Recycle :size="16" :stroke-width="2" />
       </button>
-      <span v-if="sweepNote" class="sweep-note dim">{{ sweepNote }}</span>
       <span class="live-hint"><span class="live-dot" /> live</span>
     </header>
     <main>
@@ -103,6 +102,13 @@ async function onSweep() {
       <SessionsList v-else-if="view === 'archived'" archived />
       <SessionTrace v-else :key="traceAdwId" :adw-id="traceAdwId" :phase-id="route.phaseId" />
     </main>
+
+    <!-- Transient sweep result — floats over the app, never displaces the header. -->
+    <Transition name="toast">
+      <div v-if="sweepNote" class="sweep-toast" role="status" @click="sweepNote = ''">
+        {{ sweepNote }}
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -229,8 +235,29 @@ async function onSweep() {
   cursor: default;
 }
 
-.sweep-note {
-  font-size: 13px;
-  white-space: nowrap;
+.sweep-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 60;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(11, 15, 24, 0.95);
+  border: 1px solid rgba(200, 155, 255, 0.35);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
 }
 </style>
