@@ -33,12 +33,11 @@ async function tick() {
   inflight = true
   try {
     sessions.value = await fetchSessions()
-    // Diagnostic: what the board actually received this poll.
+    // Guard: the API is deduplicated, so a repeated adw_id here is a real bug.
     const dupes = sessions.value.filter(
       (s, i) => sessions.value.findIndex((x) => x.adw_id === s.adw_id) !== i,
     )
     if (dupes.length) console.warn('[board] DUPLICATE adw_id in response:', dupes.map((d) => `${d.adw_id}:${d.status}`))
-    console.debug('[board] poll:', sessions.value.map((s) => `${s.adw_id}:${s.status ?? '?'}`).join(', '))
     apiError.value = null
     loaded.value = true
   } catch (err) {
@@ -136,7 +135,7 @@ const byColumn = computed(() => {
     seen.add(s.adw_id)
     const status = s.status ?? 'fail'
     if (status === 'running') groups[stageOf(s)].push(s)
-    else ;(groups[status] ?? groups.fail).push(s)
+    else (groups[status] ?? groups.fail).push(s)
   }
   for (const list of Object.values(groups)) {
     list.sort((a, b) => (ts(b.started_at) || 0) - (ts(a.started_at) || 0))
