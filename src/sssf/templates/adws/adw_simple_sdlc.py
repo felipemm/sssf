@@ -61,10 +61,15 @@ def main(prompt: str, config: str = "adws/adw_sssf_config/sssf.config.yaml", adw
     run = session.ensure(cfg, adw_id)
     baseline = git_helper.rev("HEAD")     # pinned before this run commits anything
 
-    def commit(ph, envelope) -> None:
+    def commit(ph, envelope, *, allow_empty=False) -> None:
         """Commit what the preceding phase produced, in that agent's own words."""
         message = envelope.commit_message or f"sssf({run.adw_id}): {envelope.summary}"
-        ph.log(sha=git_helper.commit_all(message), message=message)
+        sha = git_helper.commit_all(message, allow_empty=allow_empty)
+        if sha is None:
+            ph.log(note="nothing to commit — the preceding phases changed no files "
+                        "(a no-op re-run: the work was already landed)")
+            return
+        ph.log(sha=sha, message=message)
 
     def record(ph, result) -> None:
         """Log a deterministic block's verdict — the same shape every ADW uses."""
@@ -142,7 +147,9 @@ def main(prompt: str, config: str = "adws/adw_sssf_config/sssf.config.yaml", adw
     if verified:
         with run.phase(PhaseParams(name="commit_build", kind="code", owner="git",
                                    description="Land the code only now: green suite, approved review")) as ph:
-            commit(ph, build)
+            # allow_empty: an idempotent re-run whose work an earlier run already
+            # committed is a success, not a failure — log the note and move on.
+            commit(ph, build, allow_empty=True)
 
         with run.phase(PhaseParams(name="changes", kind="code", owner="git",
                                    description="Diff the whole run against its pinned baseline, for the documenter")) as ph:

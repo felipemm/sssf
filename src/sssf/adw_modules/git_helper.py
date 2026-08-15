@@ -40,14 +40,21 @@ def repo_root() -> Path:
     return Path.cwd().resolve()
 
 
-def commit_all(message: str) -> str:
-    """Stage the working tree and commit it. Returns the new short sha."""
+def commit_all(message: str, allow_empty: bool = False) -> str | None:
+    """Stage the working tree and commit it. Returns the new short sha.
+
+    With ``allow_empty``, an unchanged working tree returns ``None`` instead of
+    raising — the legitimate outcome of an idempotent re-run whose work was
+    already landed by an earlier run.
+    """
     if not is_repo():
         raise RuntimeError(
             "not a git repository — a commit phase needs one. Run `git init` in the "
             "repo root (and make a first commit) before running an ADW that commits.")
     _git("add", "-A")
     if not _git("status", "--porcelain"):
+        if allow_empty:
+            return None
         raise RuntimeError("nothing to commit — the preceding phases changed no files")
     _git("commit", "-m", message)
     return _git("rev-parse", "--short", "HEAD")
