@@ -2,6 +2,11 @@
 
 **Status:** implemented · **Date:** 2026-08-15 · **Amends:** `2026-08-14-sssf-global-cli-design.md` · **Plan:** `2026-08-15-sssf-global-cli-revisions.md`
 
+> **Per-feature specs/plans** (self-contained records of the post-implementation work):
+> `2026-08-15-engine-run-semantics-{design,plan}.md` ·
+> `2026-08-15-viz-background-service-{design,plan}.md` ·
+> `2026-08-15-visualizer-ux-{design,plan}.md`
+
 This spec records every change made to the SSSF global CLI **after** the
 original design was implemented (`4ebb094..388288d` in `~/dev/lab/mvp/sssf`),
 the bugs it found in the field, and the operational semantics it added. The
