@@ -53,4 +53,20 @@ export class ProjectRegistry {
       return null;
     }
   }
+
+  /**
+   * Drop every cached connection — the db file was replaced underneath us
+   * (an agent git-checkout over a live WAL, a restore, …) and the open vnodes
+   * are dead. Callers retry against a fresh registry.
+   */
+  reset(): void {
+    for (const db of this.cache.values()) {
+      try {
+        db.close();
+      } catch {
+        /* already closed */
+      }
+    }
+    this.cache.clear();
+  }
 }

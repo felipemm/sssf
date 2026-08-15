@@ -24,6 +24,8 @@ def test_init_stamps_project(tmp_path, monkeypatch):
     assert "sssf" in agents_md
     gitignore = (root / ".gitignore").read_text()
     assert "adws/adw_data/sssf.db" in gitignore
+    assert "adws/adw_data/sssf.db-wal" in gitignore
+    assert "adws/adw_data/sssf.db-shm" in gitignore
     assert len(registry.list_projects()) == 1
 
 

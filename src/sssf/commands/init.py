@@ -16,7 +16,15 @@ Edit your chains in `adws/adw_*.py` and your roster in
 <!-- /sssf -->
 """
 
-GITIGNORE_ENTRIES = ["adws/adw_data/sessions/", "adws/adw_data/sssf.db"]
+GITIGNORE_ENTRIES = [
+    "adws/adw_data/sessions/",
+    "adws/adw_data/sssf.db",
+    # The WAL sidecars are runtime state too — if they ever get tracked, agents
+    # see them as clutter and may git-checkout them over a live db, which breaks
+    # open reader connections (SQLITE_IOERR_VNODE). Keep them untracked.
+    "adws/adw_data/sssf.db-wal",
+    "adws/adw_data/sssf.db-shm",
+]
 
 
 def _copy_tree(src, dest: Path, *, force: bool) -> list[str]:

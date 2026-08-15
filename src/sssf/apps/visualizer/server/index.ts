@@ -74,6 +74,35 @@ function notFound(message: string): Response {
   return json({ error: message } satisfies ApiError, 404);
 }
 
+/** True when the sqlite file was replaced under an open connection. */
+function isIoError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof (error as { code?: unknown }).code === "string" &&
+    (error as { code: string }).code.startsWith("SQLITE_IOERR")
+  );
+}
+
+/**
+ * Drop every cached connection and rebuild the adhoc one: the db file was
+ * replaced underneath us (an agent git-checkout over a live WAL, a restore,
+ * …), so the open vnodes are dead. The retry reopens fresh.
+ */
+function resetDbCaches(): void {
+  projects.reset();
+  projectDbs.clear();
+  if (hasAdhocDb) {
+    adhocDb?.close();
+    try {
+      adhocDb = new SssfDb(resolveDbPath());
+    } catch {
+      adhocDb = null;
+    }
+  }
+}
+
 /** Guard every handler so a malformed query can't take the server down mid-run. */
 function safely(
   handler: (req: Request) => Response | Promise<Response>,
@@ -82,6 +111,15 @@ function safely(
     try {
       return await handler(req);
     } catch (error) {
+      if (isIoError(error)) {
+        resetDbCaches();
+        try {
+          return await handler(req);
+        } catch (retryError) {
+          console.error(`[sssf] ${req.method} ${new URL(req.url).pathname}:`, retryError);
+          return json({ error: (retryError as Error).message } satisfies ApiError, 500);
+        }
+      }
       console.error(`[sssf] ${req.method} ${new URL(req.url).pathname}:`, error);
       return json({ error: (error as Error).message } satisfies ApiError, 500);
     }
