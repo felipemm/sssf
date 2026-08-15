@@ -4,7 +4,7 @@
 Usage:
     uv run adws/adw_document.py "<prompt or path/to/prompt.md>" [--base main] [--config adws/adw_sssf_config/sssf.config.yaml] [--adw-id a1b2c3d4]
 
-Phases: engineer(request) -> code(changes) -> documenter
+Phases: engineer(request) -> code(changes) -> documenter -> git(commit_docs)
 
 This runs AFTER a build, and the guard is structural rather than advisory: the
 change capture is a code phase, and an empty diff raises there — before the
@@ -19,7 +19,7 @@ branch, on main, and on a clean tree right after a chain committed.
 import argparse
 import sys
 
-from sssf.adw_modules import agents, changes, gates, session, utils
+from sssf.adw_modules import agents, changes, gates, git_helper, session, utils
 from sssf.adw_modules.data_types import (AgentCall, ChangeCapture, DocumentOutput,
                                     PhaseParams)
 
@@ -56,9 +56,14 @@ def main(prompt: str, base: str = "main",
 
     with run.phase(PhaseParams(name="document", kind="agent", owner="documenter", retries=1,
                                description="Turn the captured diff into a write-up an engineer can read")) as ph:
-        ph.call(AgentCall(output_type=DocumentOutput, prompt=prompt,
+        document = ph.call(AgentCall(output_type=DocumentOutput, prompt=prompt,
                           previous=changes.as_envelope(changeset, DOCUMENT_NOTES),
                           gates=[gates.artifacts_exist, gates.files_non_empty]))
+
+    with run.phase(PhaseParams(name="commit_docs", kind="code", owner="git",
+                               description="Ship the write-up in its own commit, beside the code it describes")) as ph:
+        message = document.commit_message or f"sssf({run.adw_id}): {document.summary}"
+        ph.log(sha=git_helper.commit_all(message), message=message)
 
     return run.finish()
 

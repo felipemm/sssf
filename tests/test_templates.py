@@ -66,3 +66,12 @@ def test_noop_rerun_walks_the_doc_chain():
     assert "no updated doc" in text
     assert "app_docs" in text
     assert "run.repo_root" in text
+
+
+def test_document_chain_ends_in_commit():
+    """The standalone adw_document chain must commit the write-up — a doc left
+    uncommitted in the working tree is a lost record. (Field gap: adw_document
+    wrote adws/app_docs/<id>.md but never committed it.)"""
+    text = (TEMPLATES / "adws" / "adw_document.py").read_text()
+    assert "commit_docs" in text
+    assert "git_helper.commit_all" in text
