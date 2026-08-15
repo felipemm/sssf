@@ -1,11 +1,22 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRoute, hrefFor, phaseCrumb, navigate } from './lib/router'
 import { setProject } from './lib/api'
 import SessionsList from './components/SessionsList.vue'
 import SessionTrace from './components/SessionTrace.vue'
+import KanbanBoard from './components/KanbanBoard.vue'
 import ProjectPicker from './components/ProjectPicker.vue'
 
 const route = useRoute()
+
+// #/board is a peer of the sessions list over the same data; everything else
+// with an adwId is the trace view.
+const view = computed(() =>
+  route.value.adwId === 'board' ? 'board' : route.value.adwId ? 'trace' : 'list',
+)
+// In the trace branch adwId is non-null by construction; the template can't
+// narrow the ref, so hand it a computed string.
+const traceAdwId = computed(() => route.value.adwId ?? '')
 
 // A project switch changes the meaning of every hash route, so land on the
 // L1 sessions list; the picker itself reloads the project list on mount.
@@ -30,14 +41,13 @@ function onProjectSelect(name: string) {
           <span class="brand">Super Simple Software Factory</span>
         </a>
         <span class="sep">›</span>
-        <a :href="hrefFor()" :class="{ current: !route.adwId }">sessions</a>
-        <template v-if="route.adwId">
+        <a :href="hrefFor()" :class="{ current: view === 'list' }">sessions</a>
+        <a :href="hrefFor('board')" :class="{ current: view === 'board' }">board</a>
+        <template v-if="view === 'trace' && route.adwId">
           <span class="sep">›</span>
-          <a :href="hrefFor(route.adwId)" :class="{ current: !route.phaseId }">{{
-            route.adwId
-          }}</a>
+          <a :href="hrefFor(route.adwId)" :class="{ current: !route.phaseId }">{{ route.adwId }}</a>
         </template>
-        <template v-if="route.adwId && route.phaseId">
+        <template v-if="view === 'trace' && route.adwId && route.phaseId">
           <span class="sep">›</span>
           <span class="current">{{ phaseCrumb ?? route.phaseId }}</span>
         </template>
@@ -46,8 +56,9 @@ function onProjectSelect(name: string) {
       <span class="live-hint"><span class="live-dot" /> live</span>
     </header>
     <main>
-      <SessionsList v-if="!route.adwId" />
-      <SessionTrace v-else :key="route.adwId" :adw-id="route.adwId" :phase-id="route.phaseId" />
+      <KanbanBoard v-if="view === 'board'" />
+      <SessionsList v-else-if="view === 'list'" />
+      <SessionTrace v-else :key="traceAdwId" :adw-id="traceAdwId" :phase-id="route.phaseId" />
     </main>
   </div>
 </template>
