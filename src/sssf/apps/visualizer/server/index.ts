@@ -22,6 +22,7 @@ import { join, resolve, sep } from "node:path";
 import { SssfDb, resolveDbPath } from "./db.ts";
 import { ProjectRegistry } from "./registry.ts";
 import { sweepAll } from "./sweep.ts";
+import { isEnabled, readTickets } from "./tickets.ts";
 import type { AgentPrompts, ApiError, HealthResponse } from "../shared/types.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
@@ -47,6 +48,10 @@ if (hasAdhocDb) {
 
 /** SssfDb bindings per project name, built over the registry's cached connections. */
 const projectDbs = new Map<string, SssfDb>();
+
+function projectRoot(name: string): string | null {
+  return projects.list().find((p) => p.name === name)?.root ?? null;
+}
 
 /** Resolve the db a request targets: a :project scope, or adhoc when unscoped. */
 function dbForProject(projectName: string | null): SssfDb | null {
@@ -314,6 +319,37 @@ const server = Bun.serve({
     "/api/sessions/:adw_id/agents/:agent/prompts": adhocOnly(promptsHandler),
 
     // Global multi-project scope.
+    "/api/projects/:project/tickets": scoped((req) => {
+      const name = param(req, "project");
+      const root = projectRoot(name);
+      if (!root) return notFound(`no project ${name}`);
+      const db = dbForProject(name);
+      if (!db) return notFound("no trace db for project");
+      return json({ enabled: isEnabled(root), tickets: readTickets(db.path) });
+    }),
+    "/api/projects/:project/tickets/sync": scoped(async (req) => {
+      const name = param(req, "project");
+      const root = projectRoot(name);
+      if (!root || !isEnabled(root)) return json({ error: "ticketing not configured" }, 400);
+      const proc = Bun.spawn(["sssf", "ticket", "sync", "--project", root],
+        { stdout: "pipe", stderr: "pipe" });
+      const output = await new Response(proc.stdout).text();
+      await proc.exited;
+      return json({ ok: proc.exitCode === 0, output });
+    }),
+    "/api/projects/:project/tickets/:id/run": scoped(async (req) => {
+      const name = param(req, "project");
+      const root = projectRoot(name);
+      const id = param(req, "id");
+      if (!root || !isEnabled(root)) return json({ error: "ticketing not configured" }, 400);
+      const proc = Bun.spawn(["sssf", "ticket", "run", id, "--project", root],
+        { stdout: "pipe", stderr: "pipe" });
+      const output = await new Response(proc.stdout).text();
+      await proc.exited;
+      if (proc.exitCode !== 0) return json({ ok: false, output }, 409);
+      const adwId = output.match(/adw_id ([a-f0-9]+)/)?.[1] ?? null;
+      return json({ ok: true, adwId, output });
+    }),
     "/api/projects/:project/sessions": scoped(sessionsHandler),
     "/api/projects/:project/sessions/:adw_id": scoped(sessionDetailHandler),
     "/api/projects/:project/sessions/:adw_id/archive": {
