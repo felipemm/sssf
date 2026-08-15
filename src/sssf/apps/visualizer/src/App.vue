@@ -71,9 +71,32 @@ async function onSweep() {
           <span class="brand">Super Simple Software Factory</span>
         </a>
         <span class="sep">›</span>
-        <a :href="hrefFor()" :class="{ current: view === 'list' }">sessions</a>
-        <a :href="hrefFor('board')" :class="{ current: view === 'board' }">board</a>
-        <a :href="hrefFor('archived')" :class="{ current: view === 'archived' }">archived</a>
+        <div class="tabs" role="tablist" aria-label="views">
+          <a
+            :href="hrefFor()"
+            class="tab"
+            :class="{ active: view === 'list' }"
+            role="tab"
+            :aria-selected="view === 'list'"
+            >sessions</a
+          >
+          <a
+            :href="hrefFor('board')"
+            class="tab"
+            :class="{ active: view === 'board' }"
+            role="tab"
+            :aria-selected="view === 'board'"
+            >board</a
+          >
+          <a
+            :href="hrefFor('archived')"
+            class="tab"
+            :class="{ active: view === 'archived' }"
+            role="tab"
+            :aria-selected="view === 'archived'"
+            >archived</a
+          >
+        </div>
         <template v-if="view === 'trace' && route.adwId">
           <span class="sep">›</span>
           <a :href="hrefFor(route.adwId)" :class="{ current: !route.phaseId }">{{ route.adwId }}</a>
@@ -203,6 +226,36 @@ async function onSweep() {
 
 .crumbs .current {
   color: var(--text);
+}
+
+/* View tabs: sessions | board | archived, active one highlighted. */
+.tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+}
+
+.tabs .tab {
+  padding: 5px 14px;
+  border-radius: 7px;
+  font-size: 15px;
+  color: var(--dim);
+  text-decoration: none;
+  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.tabs .tab:hover {
+  color: var(--text);
+}
+
+.tabs .tab.active {
+  color: var(--text);
+  background: rgba(200, 155, 255, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(200, 155, 255, 0.35);
 }
 
 .live-hint {
