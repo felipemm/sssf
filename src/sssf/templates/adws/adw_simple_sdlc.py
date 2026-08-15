@@ -173,20 +173,28 @@ def main(prompt: str, config: str = "adws/adw_sssf_config/sssf.config.yaml", adw
                             "implemented and verified (no-op re-run)")
                 no_op = True
 
-        if not no_op:
-            with run.phase(PhaseParams(name="changes", kind="code", owner="git",
-                                       description="Diff the whole run against its pinned baseline, for the documenter")) as ph:
-                changeset = changes.capture(run, ChangeCapture(base=baseline))
-                ph.log(base=f"{changeset.base.label} @ {changeset.base.commit[:7]}",
-                       reason=changeset.base.reason,
-                       files=len(changeset.files) + len(changeset.untracked),
-                       lines=f"+{changeset.insertions} -{changeset.deletions}",
-                       diff=changeset.diff_path)
-                if changeset.empty:
-                    raise RuntimeError(
-                        f"nothing changed since {changeset.base.label} "
-                        f"({changeset.base.reason}) — there is nothing to document.")
+        with run.phase(PhaseParams(name="changes", kind="code", owner="git",
+                                   description="Diff the whole run against its pinned baseline, for the documenter")) as ph:
+            changeset = changes.capture(run, ChangeCapture(base=baseline))
+            ph.log(base=f"{changeset.base.label} @ {changeset.base.commit[:7]}",
+                   reason=changeset.base.reason,
+                   files=len(changeset.files) + len(changeset.untracked),
+                   lines=f"+{changeset.insertions} -{changeset.deletions}",
+                   diff=changeset.diff_path)
+            if changeset.empty:
+                raise RuntimeError(
+                    f"nothing changed since {changeset.base.label} "
+                    f"({changeset.base.reason}) — there is nothing to document.")
 
+        # A no-op re-run (work already implemented) still walks the doc chain.
+        # If a write-up for this session already exists there is nothing to
+        # update — confirm and pass. If it is missing (the earlier run failed
+        # before documenting, say), the documenter produces it from the diff.
+        if no_op and (run.repo_root / "adws" / "app_docs").glob(f"{run.adw_id}_*.md"):
+            with run.phase(PhaseParams(name="document", kind="code", owner="git",
+                                       description="Confirm the write-up exists — a no-op re-run ships no updated doc")) as ph:
+                ph.log(note="documentation already exists — success run, no updated doc")
+        else:
             with run.phase(PhaseParams(name="document", kind="agent", owner="documenter", retries=1,
                                        description="Write up the completed change")) as ph:
                 document = ph.call(AgentCall(output_type=DocumentOutput, prompt=prompt,

@@ -55,3 +55,14 @@ def test_builder_prompt_forbids_committing():
     found a clean tree and the claim-mismatch check fired.)"""
     text = (TEMPLATES / "prompt_engineering" / "builder" / "user.md").read_text()
     assert "you never commit" in text.lower() and "git commit" in text
+
+
+def test_noop_rerun_walks_the_doc_chain():
+    """A no-op re-run must not silently skip documentation: it confirms an
+    existing write-up (success run, no updated doc) or produces the missing one.
+    (Field gap: the FTS5 work was committed by a failed run that never reached
+    the document phase, and the no-op re-run skipped docs entirely.)"""
+    text = (TEMPLATES / "adws" / "adw_simple_sdlc.py").read_text()
+    assert "no updated doc" in text
+    assert "app_docs" in text
+    assert "run.repo_root" in text
