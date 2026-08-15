@@ -4,8 +4,10 @@ import type { SessionSummary } from '../lib/types'
 import { fetchSessions } from '../lib/api'
 import { ts } from '../lib/format'
 import SessionCard from './SessionCard.vue'
+import { useProjects } from '../lib/api'
 
 const props = defineProps<{ archived?: boolean }>()
+const { projectsLoaded } = useProjects()
 
 const sessions = shallowRef<SessionSummary[]>([])
 const apiError = ref<string | null>(null)
@@ -17,6 +19,7 @@ let inflight = false
 
 async function tick() {
   if (inflight) return
+  if (!projectsLoaded.value) return   // wait for the project situation before fetching
   inflight = true
   try {
     sessions.value = await fetchSessions(props.archived ?? false)

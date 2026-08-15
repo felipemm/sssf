@@ -29,9 +29,11 @@ export interface ProjectInfo {
 
 const selectedProject = ref<string | null>(null)
 const projects = ref<ProjectInfo[]>([])
+/** True once fetchProjects() has answered — the project situation is known. */
+const projectsLoaded = ref(false)
 
 export function useProjects() {
-  return { selectedProject, projects }
+  return { selectedProject, projects, projectsLoaded }
 }
 
 export function setProject(name: string | null): void {
@@ -41,15 +43,20 @@ export function setProject(name: string | null): void {
 export async function fetchProjects(): Promise<ProjectInfo[]> {
   const list = (await getJson('/api/projects')) as ProjectInfo[]
   projects.value = list
+  projectsLoaded.value = true
   if (list.length > 0 && !selectedProject.value) {
     selectedProject.value = list[0]!.name
   }
   return list
 }
 
-/** Path prefix for the selected project; empty in adhoc mode. */
+/**
+ * Path prefix for the selected project; '/api' when none is selected yet.
+ * Never '' — an unprefixed path ('/sessions') hits the SPA fallback and comes
+ * back as index.html, which breaks res.json() with a doctype parse error.
+ */
 function base(): string {
-  return selectedProject.value ? `/api/projects/${encodeURIComponent(selectedProject.value)}` : ''
+  return selectedProject.value ? `/api/projects/${encodeURIComponent(selectedProject.value)}` : '/api'
 }
 
 export function fetchSessions(archived = false): Promise<SessionSummary[]> {

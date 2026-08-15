@@ -29,6 +29,7 @@ let inflight = false
 
 async function tick() {
   if (inflight) return
+  if (!projectsLoaded.value) return   // wait for the project situation before fetching
   inflight = true
   try {
     sessions.value = await fetchSessions()
@@ -42,7 +43,7 @@ async function tick() {
 }
 
 // ── ticketing backlog ───────────────────────────────────────────────────────
-const { selectedProject } = useProjects()
+const { selectedProject, projectsLoaded } = useProjects()
 const tickets = ref<TicketsResponse>({ enabled: false, tickets: [] })
 const activeTicket = ref<Ticket | null>(null)
 const syncing = ref(false)
