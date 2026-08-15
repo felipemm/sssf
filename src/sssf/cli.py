@@ -5,7 +5,7 @@ from pathlib import Path
 
 from sssf import __version__
 from sssf import registry
-from sssf.commands import init, misc, obs_cmds, run
+from sssf.commands import init, misc, obs_cmds, run, viz
 from sssf.project import find_project, data_dir
 
 
@@ -65,6 +65,12 @@ def main(argv: list[str] | None = None) -> int:
        .set_defaults(func=lambda a: misc.doctor())
     sub.add_parser("upgrade", help="uv tool upgrade sssf") \
        .set_defaults(func=lambda a: misc.upgrade())
+
+    p_viz = sub.add_parser("viz", help="boot the global trace visualizer")
+    p_viz.add_argument("--port", type=int, default=4600)
+    p_viz.add_argument("--db", default=None, help="adhoc single-db mode")
+    p_viz.add_argument("--project", default=None, help="use this project's registry")
+    p_viz.set_defaults(func=lambda a: viz.run(a.port, a.db, a.project))
 
     args = parser.parse_args(argv)
     if args.version:
