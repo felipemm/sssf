@@ -21,6 +21,7 @@ delta.
 |---|---|---|
 | `sssf init` | gitignore entries now include `adws/adw_data/sssf.db-wal` + `sssf.db-shm` | Tracked WAL sidecars make agents treat them as clutter and git-checkout them over a live db → `SQLITE_IOERR_SHMOPEN` on every open reader connection (inkwell incident) |
 | `sssf init` / engine | template trees read via the `Traversable` API (`iterdir`/`read_text`), not `Path(resources.files(...))` | Python 3.13 `resources.files()` returns `MultiplexedPath` whose `__fspath__` yields a `Path`, not `str` — `Path(...)` chokes; the Traversable API is also zip-safe for the wheel |
+| `sssf init --refresh` | asks per file before overwriting an existing chain (`y/N/a`, default no) — plain init still skips silently, `--force` overwrites all | refresh previously clobbered edited `adw_*.py` chains silently (force was `force or refresh`); the user must be able to keep or restore edits |
 | `sssf init` | `--version` handled explicitly, returns 0 | argparse `action="version"` raises `SystemExit`, breaking the `main(argv) -> int` contract |
 | `sssf run` | unchanged | — |
 | `sssf sessions` | query selects `adw_name` (rest verbatim from the justfile recipe) | the plan's own test asserted the ADW name appears; without the column it can't |
