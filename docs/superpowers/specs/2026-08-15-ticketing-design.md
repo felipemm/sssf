@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS tickets (
 | `linear` | GraphQL `issues` query filtered by team + filter | Bearer token |
 | `internal` | rows already in the `tickets` table (created via CLI) | — |
 
-Each adapter returns normalized records (external id, title, description, source url); `sync()` upserts them into the db. Read-only — **no write-back** to Jira/Linear in v1.
+Each adapter returns normalized records (external id, title, description, source url); `sync()` iterates **every enabled provider** and upserts into the db. Read-only — **no write-back** to Jira/Linear in v1.
 
 ## 4. CLI — `sssf ticket`
 
@@ -76,7 +76,13 @@ Each adapter returns normalized records (external id, title, description, source
 
 ## 5. Kanban — Backlog stage + ticket modal
 
-- The **Backlog** column (currently a stub) renders ticket cards: provider badge (J / L / ⚙), title, status chip. Session cards and ticket cards are visually distinct.
+- The **Backlog** column is rendered **only when ticketing is enabled** for the
+  project (at least one provider configured in `ticketing.yaml`). Disabled →
+  the column is hidden entirely and the board shows Planning → … → Blocked as
+  before. Enabled → the column aggregates ticket cards from **all enabled
+  providers**, each with its provider badge (J / L / ⚙), title, status chip,
+  and the origin (external id / link). Session cards and ticket cards are
+  visually distinct.
 - **Clicking a ticket card opens a modal** (`TicketModal.vue`): full title, provider + source link, description, current status, and the prompt file / `adw_id` when the ticket was run. Buttons: **Run** (primary) and **Close**.
   - **Run** → creates the enumerated prompt file and spawns the ADW (below), sets the ticket to `running` with the `adw_id`, closes the modal.
   - **Close** → dismisses; nothing changes.
@@ -96,7 +102,7 @@ Each adapter returns normalized records (external id, title, description, source
 
 | Route | Behavior |
 |---|---|
-| `GET /api/projects/:project/tickets` | `{enabled, tickets}` — enabled = configured `ticketing.yaml`; tickets reconciled against linked sessions |
+| `GET /api/projects/:project/tickets` | `{enabled, tickets}` — enabled = at least one provider configured; tickets from all enabled providers, reconciled against linked sessions |
 | `POST /api/projects/:project/tickets/sync` | shells to `sssf ticket sync --project <root>`; returns per-provider counts; 400 when ticketing is not configured |
 | `POST /api/projects/:project/tickets/:id/run` | prompt file + spawn (above); 409 if the ticket is already running |
 
@@ -113,13 +119,12 @@ The server shells to the Python CLI (`sssf`) for sync and run — the CLI is ins
 
 - **No write-back** to Jira/Linear (no transitions, comments, or assignment).
 - No webhooks or background polling — sync is on demand (CLI or the board refresh button).
-- One provider per project; no multi-provider merge.
 - No board "add internal ticket" button (CLI `ticket add` covers creation).
 - No attachments, comments, or rich field sync — title, description, and origin only.
 - Ticketing is off by default; no auto-enable heuristics.
 
 ## 10. Verification
 
-- pytest: config load (missing/invalid), adapter parsing from mocked HTTP (Jira search JSON, Linear GraphQL), sync upsert idempotency, `ticket add`, prompt enumeration (`09` after `01-08`), the run command's argv.
+- pytest: config load (missing/invalid, multiple providers), adapter parsing from mocked HTTP (Jira search JSON, Linear GraphQL), multi-provider sync upsert idempotency, `ticket add`, prompt enumeration (`09` after `01-08`), the run command's argv.
 - bun test: tickets read + reconciliation from a temp db, run/sync route behavior with the CLI stubbed.
 - Field: configure `provider: internal`, add a ticket, see it in the Backlog, open the modal, Run → watch it move through Planning → Done, reconcile to `done`; the prompt file lands in `adws/prompts/`.
