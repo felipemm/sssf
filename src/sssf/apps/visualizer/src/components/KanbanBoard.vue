@@ -33,6 +33,12 @@ async function tick() {
   inflight = true
   try {
     sessions.value = await fetchSessions()
+    // Diagnostic: what the board actually received this poll.
+    const dupes = sessions.value.filter(
+      (s, i) => sessions.value.findIndex((x) => x.adw_id === s.adw_id) !== i,
+    )
+    if (dupes.length) console.warn('[board] DUPLICATE adw_id in response:', dupes.map((d) => `${d.adw_id}:${d.status}`))
+    console.debug('[board] poll:', sessions.value.map((s) => `${s.adw_id}:${s.status ?? '?'}`).join(', '))
     apiError.value = null
     loaded.value = true
   } catch (err) {
@@ -122,7 +128,11 @@ const byColumn = computed(() => {
   }
   const seen = new Set<string>()
   for (const s of sessions.value) {
-    if (seen.has(s.adw_id)) continue   // one card per session, always
+    if (seen.has(s.adw_id)) {
+      // Should never fire (the API is deduplicated) — if it does, we have a real duplicate.
+      console.warn('[board] dedupe skipped a repeat:', s.adw_id, s.status)
+      continue
+    }
     seen.add(s.adw_id)
     const status = s.status ?? 'fail'
     if (status === 'running') groups[stageOf(s)].push(s)
