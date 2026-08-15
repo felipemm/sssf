@@ -139,12 +139,19 @@ async function onSweep() {
 </template>
 
 <style scoped>
+.app {
+  /* Shared with .topbar (height) and the trace view (viewport fit). */
+  --topbar-height: 66px;
+}
+
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
   padding: 15px 28px;
+  height: var(--topbar-height);
+  box-sizing: border-box;
   background: rgba(11, 15, 24, 0.72);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
