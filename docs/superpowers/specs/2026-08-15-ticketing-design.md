@@ -21,7 +21,11 @@ linear:
   filter: 'team:ENG state:Backlog'
 ```
 
-- `sssf init` stamps a template (default `provider: internal`).
+- **Ticketing is opt-in.** `sssf init` stamps a **commented-out template** —
+  every key commented, so the file parses as "not configured". A missing or
+  effectively empty `ticketing.yaml` means the feature is **off**: the kanban
+  **hides the Backlog stage entirely**, and the `sssf ticket` commands answer
+  with a friendly "ticketing not configured" instead of failing.
 - **Secrets live in env** — the token_env names an env var; `sssf ticket sync` loads the project's `.env` (python-dotenv, already a dependency) before calling the provider, matching how the roster's provider keys work. The YAML is committable; the `.env` is not.
 - One provider per project (v1); missing/invalid config → clear error naming the file.
 
@@ -39,11 +43,16 @@ CREATE TABLE IF NOT EXISTS tickets (
   status      TEXT NOT NULL DEFAULT 'backlog',   -- backlog | running | done | failed
   prompt_file TEXT,               -- adws/prompts/NN-<slug>.md once run
   adw_id      TEXT,               -- the run spawned for this ticket
-  source_url  TEXT,
+  source_url  TEXT,               -- the ticket's origin link ('' for internal)
   created_at  TEXT, updated_at TEXT
 );
 ```
 
+- **Origin is fully stored**: every ticket persists its provenance — the
+  `provider`, the `external_id` in that system, and the `source_url` back to it
+  (populated for Jira/Linear; empty for internal). The modal and the ticket
+  card render the origin, and the row can always be traced to where it came
+  from.
 - **Dedupe**: upsert on `provider + external_id`; re-syncing never duplicates.
 - **Lifecycle**: `backlog → running → done|failed`. `running` is set when the run is spawned (with the linked `adw_id`); `done|failed` is reconciled lazily from the linked session when tickets are read (a session `success` ⇒ done, `fail` ⇒ failed) — no background machinery.
 
@@ -87,8 +96,8 @@ Each adapter returns normalized records (external id, title, description, source
 
 | Route | Behavior |
 |---|---|
-| `GET /api/projects/:project/tickets` | tickets from the db, reconciled against linked sessions |
-| `POST /api/projects/:project/tickets/sync` | shells to `sssf ticket sync --project <root>`; returns per-provider counts |
+| `GET /api/projects/:project/tickets` | `{enabled, tickets}` — enabled = configured `ticketing.yaml`; tickets reconciled against linked sessions |
+| `POST /api/projects/:project/tickets/sync` | shells to `sssf ticket sync --project <root>`; returns per-provider counts; 400 when ticketing is not configured |
 | `POST /api/projects/:project/tickets/:id/run` | prompt file + spawn (above); 409 if the ticket is already running |
 
 The server shells to the Python CLI (`sssf`) for sync and run — the CLI is installed globally (uv tool), so `Bun.spawn(["sssf", …])` from the project root works; the SQLite db remains the single shared source.
@@ -106,7 +115,8 @@ The server shells to the Python CLI (`sssf`) for sync and run — the CLI is ins
 - No webhooks or background polling — sync is on demand (CLI or the board refresh button).
 - One provider per project; no multi-provider merge.
 - No board "add internal ticket" button (CLI `ticket add` covers creation).
-- No attachments, comments, or rich field sync — title, description, source link only.
+- No attachments, comments, or rich field sync — title, description, and origin only.
+- Ticketing is off by default; no auto-enable heuristics.
 
 ## 10. Verification
 
