@@ -51,7 +51,7 @@ MAX_FIX_LOOPS = 3
 MAX_REVISION_LOOPS = 2
 
 DOCUMENT_NOTES = ("Read diff_path in full before writing. Document only what the "
-                  "diff shows, then copy the write-up into app_docs/ as your task "
+                  "diff shows, then copy the write-up into adws/app_docs/ as your task "
                   "describes.")
 
 

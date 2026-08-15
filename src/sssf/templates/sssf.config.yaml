@@ -48,7 +48,7 @@ agents:
     harness_engineering:
       - adws/adw_data/harness_engineering/subagents.ts    # registers the four subagent_* tools below
     writes:                        # the plan is the only thing it may leave in the repo
-      - specs/
+      - adws/specs/
     tools:                         # full recon + write for plan.md; no edit — the planner never touches repo files
       - read
       - grep
@@ -129,7 +129,7 @@ agents:
       system: adws/adw_data/prompt_engineering/documenter/system.md
       user: adws/adw_data/prompt_engineering/documenter/user.md
     writes:                        # documentation only — "document only" is a rule now,
-      - app_docs/                  # not a line in a prompt the model may drift from.
+      - adws/app_docs/                  # not a line in a prompt the model may drift from.
       - docs/                      # Markdown anywhere, because docs live next to the
       - "**/*.md"                  # code they describe as often as in a docs folder.
       - "*.md"

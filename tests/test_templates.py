@@ -36,3 +36,14 @@ def test_starter_config_validates(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     cfg = agents.load_config(cfg_dir / "sssf.config.yaml")
     agents.validate(cfg, ["planner", "builder", "reviewer", "scout", "documenter"])
+
+
+def test_artifact_folders_live_under_adws():
+    """specs/ and app_docs/ must stay under adws/ in every template — root-level
+    artifact folders clutter the project root and drift from the convention."""
+    for path in [*TEMPLATES.rglob("*.md"), *TEMPLATES.rglob("*.py"),
+                 TEMPLATES / "sssf.config.yaml"]:
+        text = path.read_text()
+        for folder in ("specs/", "app_docs/"):
+            assert (folder not in text or f"adws/{folder}" in text), \
+                f"{path.relative_to(TEMPLATES)} references bare {folder!r}"

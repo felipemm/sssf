@@ -5,6 +5,19 @@ are meant to edit lives in `adws/`, and nothing you are meant to edit lives
 anywhere else. The engine (`sssf.adw_modules`) is package code — changing it is
 contributing, not customizing (see `contributing.md`).
 
+Everything the factory touches lives under `adws/` — including the artifacts
+its agents produce, so the repo root stays clean:
+
+```
+adws/
+├── adw_*.py                  your chains
+├── adw_sssf_config/          sssf.config.yaml (the roster)
+├── adw_data/                 prompts, harness engineering, sessions/, sssf.db
+├── specs/                    plans the planner commits (adws/specs/<adw_id>_<slug>.md)
+├── app_docs/                 write-ups the documenter commits (adws/app_docs/<adw_id>_<slug>.md)
+└── prompts/                  your prompt files, e.g. sssf run <adw> "run prompt adws/prompts/x.md"
+```
+
 Three things are yours to shape per project:
 
 ## Your chains
