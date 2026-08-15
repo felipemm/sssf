@@ -15,6 +15,7 @@
 | `c06feb9` | header logo/brand → home link (`App.vue`); phase detail events newest-first (`PhaseDetail.vue`); (same commit also carried the viz background service) |
 | `110edca` | kanban board: `KanbanBoard.vue`, `sessions | board` toggle + `#/board` routing in `App.vue` |
 | `99564e1` | kanban stage breakdown: Backlog (stub) + Planning/Building/Reviewing for running sessions (nearest-agent-phase rule); success/fail renamed Done/Blocked |
+| `f666b71` | kanban cards gain the archive button; stages collapsible (chevron, localStorage) — the rest of the archive lifecycle is in the archive-sweep plan |
 
 ## Files
 

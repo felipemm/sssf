@@ -33,6 +33,9 @@ A read-only stage board over the same data as the sessions list:
   toggle next to the breadcrumb. `App.vue` branches `board` / `list` / `trace`.
 - **Live**: polls `fetchSessions()` on the same 500 ms cadence as `SessionsList`,
   so a running run moves through the board in real time.
+- **Collapsible stages**: each stage header is a chevron toggle; collapsed state
+  persists in `localStorage['sssf.boardCollapsed']`, the count stays visible,
+  and the archive button lives on each card.
 
 **Deliberately cut (per the approved design):**
 - **No drag-and-drop.** Session status is run state produced by the factory, not human triage — dragging a card between columns would be fiction. (Drag-to-archive or custom columns would be a follow-up.)
