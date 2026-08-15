@@ -61,15 +61,15 @@ def main(prompt: str, config: str = "adws/adw_sssf_config/sssf.config.yaml", adw
     run = session.ensure(cfg, adw_id)
     baseline = git_helper.rev("HEAD")     # pinned before this run commits anything
 
-    def commit(ph, envelope, *, allow_empty=False) -> None:
-        """Commit what the preceding phase produced, in that agent's own words."""
+    def commit(ph, envelope, *, allow_empty=False) -> bool:
+        """Commit what the preceding phase produced, in that agent's own words.
+        Returns True when a commit landed; False when allow_empty allowed a no-op."""
         message = envelope.commit_message or f"sssf({run.adw_id}): {envelope.summary}"
         sha = git_helper.commit_all(message, allow_empty=allow_empty)
         if sha is None:
-            ph.log(note="nothing to commit — the preceding phases changed no files "
-                        "(a no-op re-run: the work was already landed)")
-            return
+            return False
         ph.log(sha=sha, message=message)
+        return True
 
     def record(ph, result) -> None:
         """Log a deterministic block's verdict — the same shape every ADW uses."""
@@ -145,34 +145,47 @@ def main(prompt: str, config: str = "adws/adw_sssf_config/sssf.config.yaml", adw
     verified = (test is not None and test.passed
                 and review is not None and review.approved)
     if verified:
+        no_op = False
         with run.phase(PhaseParams(name="commit_build", kind="code", owner="git",
                                    description="Land the code only now: green suite, approved review")) as ph:
-            # allow_empty: an idempotent re-run whose work an earlier run already
-            # committed is a success, not a failure — log the note and move on.
-            commit(ph, build, allow_empty=True)
+            landed = commit(ph, build, allow_empty=True)
+            if not landed:
+                # Nothing to commit. Two ways to get here, and they must not
+                # both pass: the plan's work is ALREADY implemented (a no-op
+                # re-run — the builder changed nothing and said so), or the
+                # builder CLAIMED changes that never landed (rolled back or
+                # never made). The second is a lie: fail, don't bless it.
+                if build.changed_files:
+                    raise RuntimeError(
+                        "builder reported changed files, but the working tree has "
+                        "no diff — the changes never landed, nothing to commit")
+                ph.log(note="nothing to commit — the plan's work is already "
+                            "implemented and verified (no-op re-run)")
+                no_op = True
 
-        with run.phase(PhaseParams(name="changes", kind="code", owner="git",
-                                   description="Diff the whole run against its pinned baseline, for the documenter")) as ph:
-            changeset = changes.capture(run, ChangeCapture(base=baseline))
-            ph.log(base=f"{changeset.base.label} @ {changeset.base.commit[:7]}",
-                   reason=changeset.base.reason,
-                   files=len(changeset.files) + len(changeset.untracked),
-                   lines=f"+{changeset.insertions} -{changeset.deletions}",
-                   diff=changeset.diff_path)
-            if changeset.empty:
-                raise RuntimeError(
-                    f"nothing changed since {changeset.base.label} "
-                    f"({changeset.base.reason}) — there is nothing to document.")
+        if not no_op:
+            with run.phase(PhaseParams(name="changes", kind="code", owner="git",
+                                       description="Diff the whole run against its pinned baseline, for the documenter")) as ph:
+                changeset = changes.capture(run, ChangeCapture(base=baseline))
+                ph.log(base=f"{changeset.base.label} @ {changeset.base.commit[:7]}",
+                       reason=changeset.base.reason,
+                       files=len(changeset.files) + len(changeset.untracked),
+                       lines=f"+{changeset.insertions} -{changeset.deletions}",
+                       diff=changeset.diff_path)
+                if changeset.empty:
+                    raise RuntimeError(
+                        f"nothing changed since {changeset.base.label} "
+                        f"({changeset.base.reason}) — there is nothing to document.")
 
-        with run.phase(PhaseParams(name="document", kind="agent", owner="documenter", retries=1,
-                                   description="Write up the completed change")) as ph:
-            document = ph.call(AgentCall(output_type=DocumentOutput, prompt=prompt,
-                                         previous=changes.as_envelope(changeset, DOCUMENT_NOTES),
-                                         gates=[gates.artifacts_exist, gates.files_non_empty]))
+            with run.phase(PhaseParams(name="document", kind="agent", owner="documenter", retries=1,
+                                       description="Write up the completed change")) as ph:
+                document = ph.call(AgentCall(output_type=DocumentOutput, prompt=prompt,
+                                             previous=changes.as_envelope(changeset, DOCUMENT_NOTES),
+                                             gates=[gates.artifacts_exist, gates.files_non_empty]))
 
-        with run.phase(PhaseParams(name="commit_docs", kind="code", owner="git",
-                                   description="Ship the write-up in its own commit, beside the code it describes")) as ph:
-            commit(ph, document)
+            with run.phase(PhaseParams(name="commit_docs", kind="code", owner="git",
+                                       description="Ship the write-up in its own commit, beside the code it describes")) as ph:
+                commit(ph, document)
 
     return run.finish(accepted=verified,
                       reason="the suite or the review never came back clean")
