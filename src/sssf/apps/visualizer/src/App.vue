@@ -83,18 +83,20 @@ async function onSweep() {
           <span class="current">{{ phaseCrumb ?? route.phaseId }}</span>
         </template>
       </nav>
-      <ProjectPicker @select="onProjectSelect" />
-      <button
-        class="sweep-btn"
-        type="button"
-        :disabled="sweeping"
-        :title="sweeping ? 'Sweeping…' : 'Archive finished sessions older than 30 days (all projects)'"
-        aria-label="Run the archive sweep"
-        @click="onSweep"
-      >
-        <Recycle :size="16" :stroke-width="2" />
-      </button>
-      <span class="live-hint"><span class="live-dot" /> live</span>
+      <div class="topbar-right">
+        <ProjectPicker @select="onProjectSelect" />
+        <button
+          class="sweep-btn"
+          type="button"
+          :disabled="sweeping"
+          :title="sweeping ? 'Sweeping…' : 'Archive finished sessions older than 30 days (all projects)'"
+          aria-label="Run the archive sweep"
+          @click="onSweep"
+        >
+          <Recycle :size="16" :stroke-width="2" />
+        </button>
+        <span class="live-hint"><span class="live-dot" /> live</span>
+      </div>
     </header>
     <main>
       <KanbanBoard v-if="view === 'board'" />
@@ -117,6 +119,7 @@ async function onSweep() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 18px;
   padding: 15px 28px;
   background: rgba(11, 15, 24, 0.72);
   backdrop-filter: blur(14px);
@@ -124,6 +127,14 @@ async function onSweep() {
   position: sticky;
   top: 0;
   z-index: 10;
+}
+
+/* Project selector, sweep button and live status stay packed on the right. */
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: none;
 }
 
 /* Gradient hairline instead of a hard border — the brand colors, whispered. */
