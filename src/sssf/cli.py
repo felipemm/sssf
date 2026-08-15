@@ -5,7 +5,7 @@ from pathlib import Path
 
 from sssf import __version__
 from sssf import registry
-from sssf.commands import init, obs_cmds, run
+from sssf.commands import init, misc, obs_cmds, run
 from sssf.project import find_project, data_dir
 
 
@@ -55,6 +55,16 @@ def main(argv: list[str] | None = None) -> int:
     p_run.set_defaults(func=lambda a: run.run(Path.cwd(), a.adw, a.args, a.project))
 
     _register_obs(sub)
+
+    p = sub.add_parser("projects", help="list / remove registered projects")
+    p.add_argument("action", nargs="?", default="list", choices=["list", "remove"])
+    p.add_argument("name", nargs="?")
+    p.set_defaults(func=lambda a: misc.projects(a.action, a.name))
+
+    sub.add_parser("doctor", help="check global prerequisites and project state") \
+       .set_defaults(func=lambda a: misc.doctor())
+    sub.add_parser("upgrade", help="uv tool upgrade sssf") \
+       .set_defaults(func=lambda a: misc.upgrade())
 
     args = parser.parse_args(argv)
     if args.version:
