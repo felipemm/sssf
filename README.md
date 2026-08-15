@@ -60,6 +60,7 @@ Three principles:
 | `sssf projects [list|remove <name>]` | manage the registry |
 | `sssf viz [start|stop] [--port N] [--db PATH]` | global trace visualizer as a background service (bun required); `start` opens the browser, `stop` shuts it down |
 | `sssf doctor` | check global prerequisites (`uv`, `pi`, `bun`, `sqlite3`) |
+| `sssf ticket add/sync/list/run [--project]` | ticketing integration (internal add, external sync, backlog run) — optional, per-project `adws/adw_sssf_config/ticketing.yaml` |
 | `sssf upgrade` | `uv tool upgrade sssf` |
 
 ## Requirements

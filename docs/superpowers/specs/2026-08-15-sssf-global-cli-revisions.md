@@ -6,7 +6,8 @@
 > `2026-08-15-engine-run-semantics-{design,plan}.md` ·
 > `2026-08-15-viz-background-service-{design,plan}.md` ·
 > `2026-08-15-visualizer-ux-{design,plan}.md` ·
-> `2026-08-15-archive-sweep-{design,plan}.md`
+> `2026-08-15-archive-sweep-{design,plan}.md` ·
+> `2026-08-15-ticketing-{design,plan}.md`
 
 This spec records every change made to the SSSF global CLI **after** the
 original design was implemented (`4ebb094..388288d` in `~/dev/lab/mvp/sssf`),
@@ -35,6 +36,7 @@ delta.
 | engine | failsafe `sys.excepthook` marks the session failed on **any** uncaught exception | per-phase handling covered in-phase errors; between-phase and `finish()` errors left the session reading `running` forever |
 | templates | planner/documenter artifacts move under `adws/` (`adws/specs/`, `adws/app_docs/`); prompts live at `adws/prompts/` | inkwell refactor: root-level artifact folders clutter the project; baked into templates so every future project follows it (§2.4) |
 | visualizer | kanban board view (`#/board`) — stage columns (Backlog stub, Planning/Building/Reviewing, Done/Blocked), collapsible stages, archive buttons on cards; archive page (`#/archived`); auto-archive 30 days via viz timer + `sssf sweep` CLI + topbar button | status grouping + full archive lifecycle for the review loop |
+| ticketing | opt-in per-project providers (jira via acli, linear, internal) feeding the kanban Backlog; `sssf ticket add/sync/list/run`; tickets leave the board when run (session is first-class) | ticket-driven backlog for the factory (§ spec 2026-08-15-ticketing) |
 
 ## 1. The inkwell incident (why the field fixes exist)
 
