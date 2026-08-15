@@ -53,12 +53,12 @@ function base(): string {
 }
 
 export function fetchSessions(): Promise<SessionSummary[]> {
-  return getJson(`${base()}/api/sessions`) as Promise<SessionSummary[]>
+  return getJson(`${base()}/sessions`) as Promise<SessionSummary[]>
 }
 
 export async function fetchSession(adwId: string): Promise<SessionDetail> {
   const detail = (await getJson(
-    `${base()}/api/sessions/${encodeURIComponent(adwId)}`,
+    `${base()}/sessions/${encodeURIComponent(adwId)}`,
   )) as SessionDetail
   return {
     session: detail.session,
@@ -70,7 +70,7 @@ export async function fetchSession(adwId: string): Promise<SessionDetail> {
 
 export async function fetchEvents(adwId: string, after: number, limit = 500): Promise<EventsPage> {
   const page = (await getJson(
-    `${base()}/api/sessions/${encodeURIComponent(adwId)}/events?after=${after}&limit=${limit}`,
+    `${base()}/sessions/${encodeURIComponent(adwId)}/events?after=${after}&limit=${limit}`,
   )) as EventsPage | EventRow[]
   if (Array.isArray(page)) {
     const cursor = page.reduce((max, e) => Math.max(max, e.rowid), after)
@@ -81,7 +81,7 @@ export async function fetchEvents(adwId: string, after: number, limit = 500): Pr
 
 /** Archive a run out of the review list (or restore it with archived=false). */
 export async function archiveSession(adwId: string, archived = true): Promise<void> {
-  const url = `${base()}/api/sessions/${encodeURIComponent(adwId)}/archive`
+  const url = `${base()}/sessions/${encodeURIComponent(adwId)}/archive`
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -99,7 +99,7 @@ export type { PromptsResponse }
 
 export async function fetchPrompts(adwId: string, agent: string): Promise<PromptsResponse> {
   const res = await fetch(
-    `${base()}/api/sessions/${encodeURIComponent(adwId)}/agents/${encodeURIComponent(agent)}/prompts`,
+    `${base()}/sessions/${encodeURIComponent(adwId)}/agents/${encodeURIComponent(agent)}/prompts`,
   )
   // Not recorded (or endpoint not deployed yet) renders as "no prompts", not an error.
   if (res.status === 404) return { system: null, user: null }
@@ -110,12 +110,12 @@ export async function fetchPrompts(adwId: string, agent: string): Promise<Prompt
 
 export function fetchEnvelopes(adwId: string): Promise<Envelope[]> {
   return getJson(
-    `${base()}/api/sessions/${encodeURIComponent(adwId)}/envelopes`,
+    `${base()}/sessions/${encodeURIComponent(adwId)}/envelopes`,
   ) as Promise<Envelope[]>
 }
 
 export function fetchGates(adwId: string): Promise<GateResult[]> {
   return getJson(
-    `${base()}/api/sessions/${encodeURIComponent(adwId)}/gates`,
+    `${base()}/sessions/${encodeURIComponent(adwId)}/gates`,
   ) as Promise<GateResult[]>
 }
