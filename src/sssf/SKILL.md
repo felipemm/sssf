@@ -17,6 +17,11 @@ inside your phase: read the context handed to you, do the phase's task, and
 return a valid envelope JSON. The CLI owns sequencing, retries, gates, and the
 trace. You do not decide what comes next.
 
+Re-running an adw_id reaps the previous run: the CLI terminates anything the old
+run left in flight and marks its open phases failed before the new run starts.
+A no-op re-run whose work an earlier run already committed is a success, not a
+failure — say so plainly in your envelope rather than manufacturing busywork.
+
 ## Hard rules (enforced across everything the factory generates)
 
 1. **Validate before running** — every ADW declares `REQUIRED_AGENTS` and calls `agents.validate()` first; a missing/misnamed agent fails before anything spawns.

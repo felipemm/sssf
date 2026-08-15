@@ -29,6 +29,23 @@ Three principles:
   `~/.sssf/projects.json`. `sssf viz` is a global service over all of them with
   a project picker in the UI.
 
+## Run semantics
+
+- **Re-runs reap the previous run.** Running an ADW again with the same
+  `--adw-id` terminates any processes the previous run left in flight (the pid
+  is verified against the recorded command first, so a recycled pid is spared)
+  and marks its open phases and session `failed` — no zombie `running` sessions.
+- **Failures always land in the trace.** Per-phase exceptions are recorded by
+  the phase manager; a failsafe hook marks the session failed on *any* other
+  uncaught exception in the ADW process.
+- **No-op re-runs are green.** If `commit_build` finds nothing to commit and the
+  builder reported no changes, the work is already implemented and verified —
+  the run succeeds with a note and skips the document chain. A builder that
+  *claims* changes that never landed is a hard failure.
+- **WAL sidecars stay untracked.** `sssf init` gitignores `sssf.db-wal` /
+  `sssf.db-shm` — if they get committed, agents treat them as clutter and
+  `git checkout` them over the live db, which breaks open reader connections.
+
 ## Commands
 
 | Command | What it does |
@@ -51,5 +68,7 @@ Python 3.11+ (installed as a uv tool), `pi` as the coding agent, `bun` for
 
 - `src/sssf/docs/customizing.md` — chains, roster, definition of done
 - `src/sssf/docs/contributing.md` — engine layout and how to ship changes
-- Design spec: `docs/superpowers/specs/2026-08-14-sssf-global-cli-design.md`
-  (in the source repo)
+- `docs/superpowers/specs/2026-08-14-sssf-global-cli-design.md` — original design
+- `docs/superpowers/plans/2026-08-14-sssf-global-cli.md` — original implementation plan
+- `docs/superpowers/specs/2026-08-15-sssf-global-cli-revisions.md` — post-implementation changes (this doc records them)
+- `docs/superpowers/plans/2026-08-15-sssf-global-cli-revisions.md` — as-executed record with commit map

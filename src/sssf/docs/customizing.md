@@ -51,3 +51,18 @@ Acceptance is per-ADW: pass `accepted=` to `run.finish()` so the exit code, the
 session status, and the banner agree. Custom gates and quality commands are
 **engine-level** — ship them as a project-local module your ADW imports, or as a
 PR to the sssf tool repo (see `contributing.md`).
+
+## Re-runs and no-op runs
+
+- **Re-running an `--adw-id` reaps the previous run.** Any processes it left in
+  flight are terminated (pid verified against the recorded command) and its
+  open phases/session are marked `failed` before the new run starts. A stalled
+  or killed run never lingers as `running` in the trace.
+- **`commit_build` distinguishes "already done" from "did nothing".** When the
+  builder reports no changed files and the suite and review pass, the work is
+  already implemented — the run succeeds with a note and skips documentation.
+  If the builder claims changed files that aren't in the working tree, the run
+  fails.
+- **Keep `adws/adw_data/sssf.db-wal`/`-shm` untracked.** `sssf init` adds them
+  to `.gitignore`; if they are ever committed, agents may git-checkout them
+  over the live db and break the visualizer's open connection.
