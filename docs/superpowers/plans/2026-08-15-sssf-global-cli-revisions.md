@@ -26,6 +26,9 @@
 | `4fc95d5` | revisions spec/plan in-repo; README/customizing/contributing/SKILL updated |
 | `a18113f` | builder must never commit; commit_build three-way diagnosis (HEAD-moved vs never-landed); `diff_files_between` |
 | `a92b3be` | no-op re-runs walk the doc chain: confirm existing write-up ("success run, no updated doc") or produce the missing one |
+| `c06feb9` | viz background service (start/stop, pid/log in ~/.sssf, browser opens on start); logo links home; phase events newest-first |
+| `110edca` | kanban board view (`#/board`) grouped by session status |
+| `eb4291d` | adw_document ends in a commit_docs git phase |
 | `578c889` | docs: record folder convention in revisions spec + plan migration recipe |
 
 Inkwell demo repo (`~/dev/lab/demos/inkwell`):

@@ -28,6 +28,7 @@ delta.
 | engine | `session.ensure()` **reaps** a previous run still marked in flight under the same `adw_id` | re-running an adw_id must kill the stale run (verified against the recorded command) and mark its open phases/session failed — no more zombie "running" sessions |
 | engine | failsafe `sys.excepthook` marks the session failed on **any** uncaught exception | per-phase handling covered in-phase errors; between-phase and `finish()` errors left the session reading `running` forever |
 | templates | planner/documenter artifacts move under `adws/` (`adws/specs/`, `adws/app_docs/`); prompts live at `adws/prompts/` | inkwell refactor: root-level artifact folders clutter the project; baked into templates so every future project follows it (§2.4) |
+| visualizer | kanban board view (`#/board`) — read-only running/success/fail columns over the sessions payload; `sssf viz start` runs detached, opens the browser, `stop` kills by pid | status grouping + background-service UX for the demo loop |
 
 ## 1. The inkwell incident (why the field fixes exist)
 
