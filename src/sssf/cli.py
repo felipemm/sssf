@@ -5,8 +5,21 @@ from pathlib import Path
 
 from sssf import __version__
 from sssf import registry
-from sssf.commands import init, misc, obs_cmds, run, sweep, viz
+from sssf.commands import init, misc, obs_cmds, run, sweep, ticket, viz
 from sssf.project import find_project, data_dir
+
+
+def _dispatch_ticket(a) -> int:
+    action = a.ticket_action
+    if action == "add":
+        return ticket.add(a.title, a.project)
+    if action == "sync":
+        return ticket.sync(a.project)
+    if action == "list":
+        return ticket.list_tickets(a.project)
+    if action == "run":
+        return ticket.run(a.ticket_id, a.project)
+    return 1
 
 
 def _register_obs(sub: argparse._SubParsersAction) -> None:
@@ -78,6 +91,20 @@ def main(argv: list[str] | None = None) -> int:
     p_sweep.add_argument("--project", default=None, help="sweep one project root instead of the whole registry")
     p_sweep.add_argument("--days", type=int, default=30)
     p_sweep.set_defaults(func=lambda a: sweep.run(a.project, a.days))
+
+    p_ticket = sub.add_parser("ticket", help="ticketing integration (add / sync / list / run)")
+    tsub = p_ticket.add_subparsers(dest="ticket_action", required=True)
+    p_add = tsub.add_parser("add", help="create an internal ticket")
+    p_add.add_argument("title")
+    p_add.add_argument("--project", default=None)
+    p_sync = tsub.add_parser("sync", help="fetch external tickets into the backlog")
+    p_sync.add_argument("--project", default=None)
+    p_list = tsub.add_parser("list", help="list tickets")
+    p_list.add_argument("--project", default=None)
+    p_run = tsub.add_parser("run", help="spawn simple_sdlc for a ticket")
+    p_run.add_argument("ticket_id")
+    p_run.add_argument("--project", default=None)
+    p_ticket.set_defaults(func=lambda a: _dispatch_ticket(a))
 
     args = parser.parse_args(argv)
     if args.version:

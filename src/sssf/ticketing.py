@@ -194,3 +194,18 @@ def sync_tickets(root: Path, cfg: TicketingConfig) -> list[ProviderSyncResult]:
         except (RuntimeError, OSError, sqlite3.Error) as error:
             results.append(ProviderSyncResult(provider, error=str(error)))
     return results
+
+
+def next_prompt_name(root: Path, slug: str) -> Path:
+    """The next enumerated prompt path: adws/prompts/NN-<slug>.md (collision suffix)."""
+    prompts = root / "adws" / "prompts"
+    prompts.mkdir(parents=True, exist_ok=True)
+    numbers = [int(p.stem.split("-")[0]) for p in prompts.glob("*.md")
+               if p.stem.split("-")[0].isdigit()]
+    n = (max(numbers, default=0) + 1)
+    candidate = prompts / f"{n:02d}-{slug}.md"
+    i = 1
+    while candidate.exists():
+        i += 1
+        candidate = prompts / f"{n:02d}-{slug}-{i}.md"
+    return candidate
