@@ -214,6 +214,7 @@ async function archive(s: SessionSummary, event: MouseEvent) {
               :key="t.id"
               :ticket="t"
               @open="activeTicket = $event"
+              @ran="void pullTickets()"
             />
           </template>
           <template v-else>

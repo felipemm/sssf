@@ -1,32 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { ExternalLink, Play, X } from 'lucide-vue-next'
+import { ExternalLink, X } from 'lucide-vue-next'
 import type { Ticket } from '../lib/api'
-import { runTicket } from '../lib/api'
 
-const props = defineProps<{ ticket: Ticket }>()
-const emit = defineEmits<{ close: []; ran: [adwId: string | null] }>()
-
-const running = ref(false)
-const error = ref('')
-
-async function run() {
-  running.value = true
-  error.value = ''
-  try {
-    const res = await runTicket(props.ticket.id)
-    if (!res.ok) {
-      error.value = res.output ?? 'run failed'
-    } else {
-      emit('ran', res.adwId ?? null)
-      emit('close')
-    }
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : String(err)
-  } finally {
-    running.value = false
-  }
-}
+defineProps<{ ticket: Ticket }>()
+const emit = defineEmits<{ close: [] }>()
 </script>
 
 <template>
@@ -47,14 +24,11 @@ async function run() {
 
       <div class="m-body">{{ ticket.description || 'no description' }}</div>
 
+      <p v-if="ticket.prompt_file" class="m-link dim">prompt: <code>{{ ticket.prompt_file }}</code></p>
       <p v-if="ticket.adw_id" class="m-link dim">run: <code>{{ ticket.adw_id }}</code></p>
-      <p v-if="error" class="m-error">{{ error }}</p>
 
       <footer class="m-foot">
-        <button class="btn ghost" type="button" @click="emit('close')">Close</button>
-        <button class="btn primary" type="button" :disabled="running" @click="run">
-          <Play :size="15" /> {{ running ? 'Starting…' : 'Run' }}
-        </button>
+        <button class="btn" type="button" @click="emit('close')">Close</button>
       </footer>
     </div>
   </div>
@@ -126,19 +100,18 @@ async function run() {
   line-height: 1.6;
   white-space: pre-wrap;
 }
+.m-link {
+  margin-top: 8px;
+  font-size: 13px;
+}
 .m-link code {
   background: rgba(255, 255, 255, 0.06);
   padding: 1px 6px;
   border-radius: 4px;
 }
-.m-error {
-  color: var(--red);
-  font-size: 13px;
-}
 .m-foot {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
   margin-top: 18px;
 }
 .btn {
@@ -151,13 +124,5 @@ async function run() {
   background: rgba(255, 255, 255, 0.04);
   color: var(--text);
   cursor: pointer;
-}
-.btn.primary {
-  background: rgba(200, 155, 255, 0.2);
-  border-color: rgba(200, 155, 255, 0.5);
-}
-.btn:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 </style>
