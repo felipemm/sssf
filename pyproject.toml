@@ -17,6 +17,14 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sssf"]
+# The asset trees are force-included below; keep hatchling from also
+# auto-discovering them (that double-adds every file and fails the build).
+exclude = [
+  "src/sssf/apps/**",
+  "src/sssf/templates/**",
+  "src/sssf/docs/**",
+  "src/sssf/SKILL.md",
+]
 
 # Non-python assets ship inside the package; init/viz read them via
 # importlib.resources. force-include keeps them in the built wheel too.

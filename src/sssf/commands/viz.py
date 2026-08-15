@@ -9,7 +9,7 @@ from pathlib import Path
 
 from sssf.commands import misc
 
-APP_DIR = Path(resources.files("sssf.apps") / "visualizer")
+APP_DIR = Path(resources.files("sssf") / "apps" / "visualizer")
 
 
 def run(port: int, db_override: str | None, project: str | None) -> int:
