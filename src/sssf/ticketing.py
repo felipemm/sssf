@@ -37,6 +37,18 @@ CREATE TABLE IF NOT EXISTS tickets (
 );
 """
 
+# One row per run of a ticket — history survives retries. `tickets.adw_id`
+# stays the LATEST run; this table keeps every earlier one so a retried
+# ticket shows its full run list instead of losing the failed attempt.
+TICKET_RUNS_DDL = """
+CREATE TABLE IF NOT EXISTS ticket_runs (
+  ticket_id  TEXT NOT NULL,
+  adw_id     TEXT NOT NULL,
+  created_at TEXT,
+  PRIMARY KEY (ticket_id, adw_id)
+);
+"""
+
 
 @dataclass
 class TicketRecord:

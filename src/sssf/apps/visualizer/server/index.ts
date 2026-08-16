@@ -423,6 +423,18 @@ const server = Bun.serve({
       const adwId = output.match(/adw_id ([a-f0-9]+)/)?.[1] ?? null;
       return json({ ok: true, adwId, output });
     }),
+    "/api/projects/:project/tickets/:id/backlog": scoped(async (req) => {
+      const name = param(req, "project");
+      const root = projectRoot(name);
+      const id = param(req, "id");
+      if (!root || !isEnabled(root)) return json({ error: "ticketing not configured" }, 400);
+      const proc = Bun.spawn(["sssf", "ticket", "backlog", id, "--project", root],
+        { stdout: "pipe", stderr: "pipe" });
+      const output = await new Response(proc.stdout).text();
+      await proc.exited;
+      if (proc.exitCode !== 0) return json({ ok: false, output }, 409);
+      return json({ ok: true, output });
+    }),
     "/api/projects/:project/sessions": scoped(sessionsHandler),
     "/api/projects/:project/sessions/:adw_id": scoped(sessionDetailHandler),
     "/api/projects/:project/sessions/:adw_id/restart": scoped(async (req) => {

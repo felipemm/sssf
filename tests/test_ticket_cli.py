@@ -19,6 +19,7 @@ def _project(tmp_path, monkeypatch, ticketing_yaml: str | None = None) -> Path:
 def _db(root: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(root / "adws" / "adw_data" / "sssf.db")
     conn.execute(ticketing.TICKETS_DDL)
+    conn.execute(ticketing.TICKET_RUNS_DDL)
     return conn
 
 
@@ -86,6 +87,90 @@ def test_run_rejects_already_running(tmp_path, monkeypatch, capsys):
     conn.close()
     assert ticket.run("internal:abc", None) == 1
     assert "already running" in capsys.readouterr().err
+
+
+def test_run_records_run_history(tmp_path, monkeypatch, capsys):
+    """Every spawn appends to ticket_runs — a retried ticket accumulates its
+    runs; the ticket row's adw_id is the LATEST run."""
+    root = _project(tmp_path, monkeypatch, CONFIG)
+    conn = _db(root)
+    conn.execute("INSERT INTO tickets (id, provider, external_id, title, description, status)"
+                 " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'backlog')")
+    conn.commit()
+    conn.close()
+    (root / "adws" / "adw_simple_sdlc.py").write_text("print('adw stub')\n")
+
+    class P:
+        pid = 12345
+
+    monkeypatch.setattr(ticket.subprocess, "Popen", lambda argv, **kw: P())
+    assert ticket.run("internal:abc", None) == 0
+    first_id = conn_adw_id(root)
+    assert ticket.run("internal:abc", None) == 0      # retry — a second run
+    second_id = conn_adw_id(root)
+    assert first_id != second_id
+
+    conn = _db(root)
+    rows = conn.execute("SELECT adw_id FROM ticket_runs WHERE ticket_id='internal:abc'"
+                        " ORDER BY created_at").fetchall()
+    conn.close()
+    assert [r[0] for r in rows] == [first_id, second_id]
+
+
+def conn_adw_id(root: Path) -> str:
+    conn = _db(root)
+    row = conn.execute(
+        "SELECT adw_id FROM tickets WHERE id='internal:abc'").fetchone()
+    conn.close()
+    return row[0]
+
+
+def _sessions_ddl(conn: sqlite3.Connection) -> None:
+    conn.execute("CREATE TABLE IF NOT EXISTS sessions ("
+                 " adw_id TEXT PRIMARY KEY, status TEXT, started_at TEXT,"
+                 " ended_at TEXT, total_tokens INTEGER, total_cost REAL)")
+
+
+def test_backlog_keeps_link_and_history(tmp_path, monkeypatch, capsys):
+    """Back to backlog keeps the adw_id + ticket_runs so the failed run stays
+    in the trace — a retried ticket accumulates history instead of losing it."""
+    root = _project(tmp_path, monkeypatch, CONFIG)
+    conn = _db(root)
+    _sessions_ddl(conn)
+    conn.execute("INSERT INTO tickets (id, provider, external_id, title, status, adw_id)"
+                 " VALUES ('internal:abc', 'internal', '', 'X', 'starting', 'sess_fail')")
+    conn.execute("INSERT INTO sessions (adw_id, status) VALUES ('sess_fail', 'fail')")
+    conn.execute("INSERT INTO ticket_runs (ticket_id, adw_id, created_at)"
+                 " VALUES ('internal:abc', 'sess_fail', '2026-08-16T00:00:00+00:00')")
+    conn.commit()
+    conn.close()
+
+    assert ticket.backlog("internal:abc", None) == 0
+    conn = _db(root)
+    row = conn.execute("SELECT status, adw_id FROM tickets WHERE id='internal:abc'").fetchone()
+    runs = conn.execute("SELECT COUNT(*) FROM ticket_runs WHERE ticket_id='internal:abc'").fetchone()[0]
+    conn.close()
+    assert row == ("backlog", "sess_fail")   # link preserved
+    assert runs == 1                           # history preserved
+
+
+def test_backlog_refuses_running_session(tmp_path, monkeypatch, capsys):
+    root = _project(tmp_path, monkeypatch, CONFIG)
+    conn = _db(root)
+    _sessions_ddl(conn)
+    conn.execute("INSERT INTO tickets (id, provider, external_id, title, status, adw_id)"
+                 " VALUES ('internal:abc', 'internal', '', 'X', 'starting', 'sess_run')")
+    conn.execute("INSERT INTO sessions (adw_id, status) VALUES ('sess_run', 'running')")
+    conn.commit()
+    conn.close()
+    assert ticket.backlog("internal:abc", None) == 1
+    assert "running" in capsys.readouterr().err
+
+
+def test_backlog_missing_ticket(tmp_path, monkeypatch, capsys):
+    root = _project(tmp_path, monkeypatch, CONFIG)
+    assert ticket.backlog("internal:nope", None) == 1
+    assert "no ticket" in capsys.readouterr().err
 
 
 def test_next_prompt_name_enumerates(tmp_path):

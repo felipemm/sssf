@@ -68,6 +68,10 @@ const syncing = ref(false)
 // session appears (the container warm-up) — only then does the card vanish.
 const backlogTickets = computed(() => tickets.value.tickets.filter((x) => x.status === 'backlog' || x.status === 'starting'))
 
+// Failed tickets render in the Blocked column (alongside failed sessions) with
+// a manual back-to-backlog action — the healer usually moves them first.
+const failedTickets = computed(() => tickets.value.tickets.filter((x) => x.status === 'failed'))
+
 async function pullTickets() {
   if (!selectedProject.value) return      // adhoc mode has no project scope / backlog
   try {
@@ -279,7 +283,7 @@ function toggleCollapsed(key: string) {
             <ChevronDown v-else :size="15" :stroke-width="2" class="chev" />
             <span class="dot" :style="{ background: col.accent }" />
             <span class="col-name">{{ col.label }}</span>
-            <span class="col-count">{{ col.key === 'backlog' ? backlogTickets.length : byColumn[col.key].length }}</span>
+            <span class="col-count">{{ col.key === 'backlog' ? backlogTickets.length : col.key === 'fail' ? byColumn[col.key].length + failedTickets.length : byColumn[col.key].length }}</span>
           </button>
           <button
             v-if="col.key === 'backlog'"
@@ -301,6 +305,24 @@ function toggleCollapsed(key: string) {
               :ticket="t"
               @open="activeTicket = $event"
               @ran="void pullTickets()"
+              @backlogged="void pullTickets()"
+            />
+          </template>
+          <template v-else-if="col.key === 'fail'">
+            <TicketCard
+              v-for="t in failedTickets"
+              :key="t.id"
+              :ticket="t"
+              @open="activeTicket = $event"
+              @ran="void pullTickets()"
+              @backlogged="void pullTickets()"
+            />
+            <KanbanSessionCard
+              v-for="s in byColumn[col.key]"
+              :key="s.adw_id"
+              :session="s"
+              :now-ms="nowMs"
+              @changed="void tick()"
             />
           </template>
           <template v-else>
@@ -313,7 +335,7 @@ function toggleCollapsed(key: string) {
             />
           </template>
 
-          <div v-if="loaded && (col.key === 'backlog' ? backlogTickets.length === 0 : byColumn[col.key].length === 0)" class="empty">
+          <div v-if="loaded && (col.key === 'backlog' ? backlogTickets.length === 0 : col.key === 'fail' ? byColumn[col.key].length + failedTickets.length === 0 : byColumn[col.key].length === 0)" class="empty">
             {{ col.stub ? 'no backlog tickets' : 'no runs' }}
           </div>
         </div>

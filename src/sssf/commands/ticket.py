@@ -19,6 +19,7 @@ def _root(explicit: str | None) -> Path | None:
 def _db(root: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(root / "adws" / "adw_data" / "sssf.db")
     conn.execute(ticketing.TICKETS_DDL)
+    conn.execute(ticketing.TICKET_RUNS_DDL)
     return conn
 
 
@@ -168,10 +169,53 @@ def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) ->
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     conn.execute("UPDATE tickets SET status='starting', adw_id=?, prompt_file=? WHERE id=?",
                  (adw_id, str(rel_prompt), tid))
+    # The run's history: every spawn is a row, so a retried ticket accumulates
+    # its attempts (the failed run stays linked for the trace and the retry
+    # color). tickets.adw_id remains the LATEST run.
+    conn.execute("INSERT OR IGNORE INTO ticket_runs (ticket_id, adw_id, created_at)"
+                 " VALUES (?,?,?)", (tid, adw_id, _now()))
     conn.commit()
     conn.close()
     print(f"sssf ticket: run spawned for {ticket_id} — adw_id {adw_id}, prompt {rel_prompt}"
           + (" (sandboxed)" if sandboxed else ""))
+    return 0
+
+
+def backlog(ticket_id: str, project: str | None = None) -> int:
+    """Return a ticket to the backlog — the manual retry control.
+
+    The adw_id link and ticket_runs history are PRESERVED: a retried ticket
+    keeps its failed runs visible in the trace and in the ticket modal. The
+    only refusal is a still-running session — no yanking a live run.
+    """
+    root = _root(project)
+    if root is None:
+        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    conn = _db(root)
+    row = conn.execute(
+        "SELECT status, adw_id FROM tickets WHERE id=?", (ticket_id,)).fetchone()
+    if row is None:
+        conn.close()
+        print(f"sssf ticket: no ticket {ticket_id}", file=sys.stderr)
+        return 1
+    stored, adw_id = row
+    if adw_id:
+        try:
+            session = conn.execute(
+                "SELECT status FROM sessions WHERE adw_id=?", (adw_id,)).fetchone()
+            if session and session[0] == "running":
+                conn.close()
+                print(f"sssf ticket: {ticket_id} is still running — wait for it to"
+                      " finish before putting it back", file=sys.stderr)
+                return 1
+        except sqlite3.Error:
+            pass    # no sessions table yet — nothing running
+    conn.execute("UPDATE tickets SET status='backlog', updated_at=? WHERE id=?",
+                 (_now(), ticket_id))
+    conn.commit()
+    conn.close()
+    print(f"sssf ticket: {ticket_id} back to backlog (adw_id kept — history preserved)")
     return 0
 
 

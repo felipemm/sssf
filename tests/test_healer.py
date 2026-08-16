@@ -29,6 +29,15 @@ def test_failed_spawn_returns_ticket():
     assert diagnose(None, "starting", True, True, False, 1.0, 1.0) is None   # still warming up
 
 
+def test_failed_session_ticket_returns_ticket():
+    """A ticket whose RUN FAILED goes back to the backlog (history preserved)
+    — the new linked_session_status branch, distinct from spawn failures."""
+    assert diagnose(None, "starting", False, True, False, None, 1.0, "fail") == "ticket_backlog"
+    assert diagnose(None, "starting", True, True, False, 1.0, 1.0, "running") is None
+    assert diagnose(None, "starting", True, True, False, 1.0, 1.0, "success") is None
+    assert diagnose(None, "backlog", True, True, False, 1.0, 1.0, "fail") is None  # already backlog
+
+
 def test_recover_finalize_marks_failed(tmp_path, monkeypatch):
     """A dead run gets finalized (session + in-flight phases failed)."""
     import subprocess
@@ -57,6 +66,40 @@ def test_recover_finalize_marks_failed(tmp_path, monkeypatch):
     assert conn.execute("SELECT status FROM sessions WHERE adw_id='stuck1'").fetchone()[0] == "fail"
     assert conn.execute("SELECT status FROM phases WHERE adw_id='stuck1'").fetchone()[0] == "fail"
     conn.close()
+
+
+def test_recover_ticket_backlog_keeps_history(tmp_path, monkeypatch):
+    """The healer moves a failed-session ticket back to backlog WITHOUT clearing
+    the adw_id — the failed run stays linked for history and the retry color."""
+    import subprocess
+    import sssf.sandbox as sb
+    root = tmp_path / "proj"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+    data = root / "adws" / "adw_data"
+    data.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(sb.project_db_path(data)))
+    conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
+    conn.execute("CREATE TABLE tickets (id TEXT PRIMARY KEY, provider TEXT, external_id TEXT,"
+                 " title TEXT, description TEXT, status TEXT, prompt_file TEXT, adw_id TEXT,"
+                 " source_url TEXT, created_at TEXT, updated_at TEXT)")
+    conn.execute("CREATE TABLE ticket_runs (ticket_id TEXT, adw_id TEXT, created_at TEXT,"
+                 " PRIMARY KEY(ticket_id, adw_id))")
+    conn.execute("INSERT INTO sessions VALUES ('dead1', 'fail', '2026-08-16T00:00:00+00:00')")
+    conn.execute("INSERT INTO tickets (id, provider, external_id, title, status, adw_id)"
+                 " VALUES ('internal:retry', 'internal', '', 'X', 'starting', 'dead1')")
+    conn.execute("INSERT INTO ticket_runs VALUES ('internal:retry', 'dead1', '2026-08-16T00:00:00+00:00')")
+    conn.commit()
+    conn.close()
+    from sssf.healer import recover
+    actions = recover(root, "dead1", None, "starting", "ticket_backlog", {"restarts": {}})
+    assert "backlog" in actions
+    conn = sqlite3.connect(str(sb.project_db_path(data)))
+    row = conn.execute("SELECT status, adw_id FROM tickets WHERE id='internal:retry'").fetchone()
+    runs = conn.execute("SELECT COUNT(*) FROM ticket_runs WHERE ticket_id='internal:retry'").fetchone()[0]
+    conn.close()
+    assert row == ("backlog", "dead1")   # link preserved — history intact
+    assert runs == 1
 
 
 def test_restart_budget_exhausts_then_finalizes(tmp_path, monkeypatch):
