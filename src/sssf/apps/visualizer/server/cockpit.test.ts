@@ -60,6 +60,7 @@ describe("computeCockpit", () => {
       sssfHome: env.home,
       dockerPs: async () => "sssf-run1\tsssf-runner:latest\tUp 2 minutes\t2026-08-16 15:00:00 +0000 UTC\nsssf-orphanx\tsssf-runner:latest\tUp 1 hour\t2026-08-16 14:00:00 +0000 UTC",
     });
+    expect(data.kpis.dockerOk).toBe(true);
     expect(data.kpis.runningSessions).toBe(1);
     expect(data.kpis.liveContainers).toBe(2);
     expect(data.kpis.orphanContainers).toBe(1);
@@ -100,6 +101,23 @@ describe("computeCockpit", () => {
     expect(pa.stale).toBe(true);
     expect(pa.sessionsRunning).toBe(0);
     expect(data.projects.length).toBe(2); // both projects still listed
+    rmSync(env.root, { recursive: true, force: true });
+  });
+
+  test("docker down → dockerOk false, containers [], error surfaced, projects still listed", async () => {
+    const env = makeEnv();
+    const data = await computeCockpit({
+      registry: env.registry,
+      sssfHome: env.home,
+      dockerPs: async () => {
+        throw new Error("Cannot connect to the Docker daemon at unix:///var/run/docker.sock");
+      },
+    });
+    expect(data.kpis.dockerOk).toBe(false);
+    expect(data.kpis.dockerError).toContain("Cannot connect to the Docker daemon");
+    expect(data.kpis.liveContainers).toBe(0);
+    expect(data.containers).toEqual([]);
+    expect(data.projects.length).toBe(2); // other projects still aggregate
     rmSync(env.root, { recursive: true, force: true });
   });
 

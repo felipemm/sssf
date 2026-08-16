@@ -81,27 +81,38 @@ function readHeal(home: string): HealSummary {
   return { running: alivePid(pid), pid, logTail: logTailLines(join(home, "heal.log")), restarts };
 }
 
-async function parseContainers(dockerPs: () => Promise<string>): Promise<ContainerInfo[]> {
+interface ContainersResult {
+  containers: ContainerInfo[];
+  dockerOk: boolean;
+  dockerError: string;
+}
+
+async function parseContainers(dockerPs: () => Promise<string>): Promise<ContainersResult> {
   let out = "";
   try {
     out = await dockerPs();
-  } catch {
-    return [];
+  } catch (e) {
+    // docker itself is down/unreachable — the container list is meaningless
+    return { containers: [], dockerOk: false, dockerError: (e as Error).message };
   }
-  return out
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [name, image, status, created] = line.split("\t");
-      return {
-        adwId: (name ?? "").replace(/^sssf-/, ""),
-        running: (status ?? "").startsWith("Up"),
-        image: image ?? "",
-        status: status ?? "",
-        created: created ?? "",
-      };
-    });
+  return {
+    containers: out
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [name, image, status, created] = line.split("\t");
+        return {
+          adwId: (name ?? "").replace(/^sssf-/, ""),
+          running: (status ?? "").startsWith("Up"),
+          image: image ?? "",
+          status: status ?? "",
+          created: created ?? "",
+        };
+      }),
+    dockerOk: true,
+    dockerError: "",
+  };
 }
 
 function hasTable(db: Database, table: string): boolean {
@@ -218,7 +229,7 @@ function projectRow(
 export async function computeCockpit(deps: CockpitDeps): Promise<CockpitData> {
   const home = resolve(deps.sssfHome ?? process.env.SSSF_HOME ?? join(homedir(), ".sssf"));
   const projects = deps.registry.list();
-  const containers = await parseContainers(deps.dockerPs ?? realDockerPs);
+  const { containers, dockerOk, dockerError } = await parseContainers(deps.dockerPs ?? realDockerPs);
   const heal = readHeal(home);
 
   const ownedGlobal = new Set<string>();
@@ -229,6 +240,7 @@ export async function computeCockpit(deps: CockpitDeps): Promise<CockpitData> {
       runningSessions: 0, liveContainers: containers.length, orphanContainers: 0,
       sandboxWorktrees: 0, ticketsInFlight: 0, costTodayUsd: 0,
       healRunning: heal.running, healPid: heal.pid,
+      dockerOk, dockerError,
     },
     projects: [], running: [], containers: [], heal, activity: [],
   };
@@ -355,6 +367,8 @@ export async function realDockerPs(): Promise<string> {
     { stdout: "pipe", stderr: "pipe" },
   );
   const out = await new Response(proc.stdout).text();
+  const err = await new Response(proc.stderr).text();
   await proc.exited;
+  if (proc.exitCode !== 0) throw new Error(err.trim() || `docker exited ${proc.exitCode}`);
   return out;
 }

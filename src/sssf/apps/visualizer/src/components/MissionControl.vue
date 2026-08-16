@@ -281,9 +281,11 @@ function fmtRel(iso: string | null): string {
     <!-- Containers (docker ps filtered to sssf) — always visible, even when empty -->
     <section v-if="data" class="panel">
       <h3>Containers <span class="count">{{ data.containers.length }}</span></h3>
-      <div v-if="!data.containers.length" class="empty">
-        no sssf containers — nothing running, or docker unavailable
+      <div v-if="data.kpis.dockerOk === false" class="docker-warn" role="alert">
+        <strong>docker is not running</strong> — container list and log tailing are unavailable.
+        <code>{{ data.kpis.dockerError }}</code>
       </div>
+      <div v-else-if="!data.containers.length" class="empty">no sssf containers running</div>
       <table v-else class="ctable">
         <thead>
           <tr>
@@ -514,6 +516,15 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
 .feed code { font-family: var(--mono); color: var(--dim); }
 .feed-ts { color: var(--faint); font-variant-numeric: tabular-nums; }
 .feed-ev { color: var(--dim); }
+
+/* docker-down warning */
+.docker-warn {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: rgba(232, 182, 74, 0.1); border: 1px solid rgba(232, 182, 74, 0.4);
+  color: var(--amber); border-radius: 8px; padding: 9px 12px;
+  font-size: 13px; margin-bottom: 10px;
+}
+.docker-warn code { font-family: var(--mono); font-size: 12px; color: var(--dim); }
 
 /* containers table */
 .ctable { width: 100%; border-collapse: collapse; font-size: 13px; }

@@ -316,6 +316,8 @@ export interface CockpitKpis {
   costTodayUsd: number
   healRunning: boolean
   healPid: number | null
+  dockerOk: boolean
+  dockerError: string
 }
 
 export interface CockpitProject {
