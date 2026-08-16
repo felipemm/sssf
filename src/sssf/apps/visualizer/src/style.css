@@ -204,3 +204,41 @@ pre {
     opacity: 0.35;
   }
 }
+
+/* Hint tooltips — hover any .hint element to see its data-hint message.
+   Used across the cockpit to explain each metric/column. */
+.hint {
+  position: relative;
+  cursor: help;
+}
+.hint::after {
+  content: attr(data-hint);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #0d1119;
+  border: 1px solid rgba(200, 155, 255, 0.4);
+  color: var(--dim);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  width: max-content;
+  max-width: 300px;
+  white-space: normal;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  z-index: 40;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.hint:hover::after {
+  opacity: 1;
+}
+.hint-line {
+  border-bottom: 1px dotted rgba(255, 255, 255, 0.3);
+}

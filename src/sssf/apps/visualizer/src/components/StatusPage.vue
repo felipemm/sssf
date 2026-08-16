@@ -88,48 +88,48 @@ watch(selectedProject, () => {
           <section class="kpi">
             <h2 class="kpi-title">runs & health</h2>
             <dl>
-              <dt>total</dt><dd>{{ status.totals.runs }}</dd>
-              <dt>failed</dt><dd>{{ status.totals.failed }}</dd>
-              <dt>avg duration</dt><dd>{{ Math.round(status.totals.avg_duration_s / 60) }}m</dd>
-              <dt>archived</dt><dd>{{ status.totals.archived }}</dd>
+              <dt class="hint hint-line" data-hint="All sessions ever run in this project.">total</dt><dd>{{ status.totals.runs }}</dd>
+              <dt class="hint hint-line" data-hint="Sessions that ended in 'fail'. Stopped runs count too — stop finalizes as 'fail'.">failed</dt><dd>{{ status.totals.failed }}</dd>
+              <dt class="hint hint-line" data-hint="Average wall-clock time of successful runs, in minutes.">avg duration</dt><dd>{{ Math.round(status.totals.avg_duration_s / 60) }}m</dd>
+              <dt class="hint hint-line" data-hint="Sessions archived as reviewed (archive buttons / the archive sweep).">archived</dt><dd>{{ status.totals.archived }}</dd>
             </dl>
           </section>
           <section class="kpi">
             <h2 class="kpi-title">cost & tokens</h2>
             <dl>
-              <dt>total cost</dt><dd>{{ fmtCost(status.totals.total_cost) }}</dd>
-              <dt>avg / run</dt><dd>{{ fmtCost(status.totals.avg_cost_per_run) }}</dd>
-              <dt>total tokens</dt><dd>{{ fmtTokens(status.totals.total_tokens) }}</dd>
-              <dt>avg / run</dt><dd>{{ fmtTokens(status.totals.avg_tokens_per_run) }}</dd>
+              <dt class="hint hint-line" data-hint="Sum of sessions.total_cost — real provider billing from agent_end payloads.">total cost</dt><dd>{{ fmtCost(status.totals.total_cost) }}</dd>
+              <dt class="hint hint-line" data-hint="Total cost ÷ total runs.">avg / run</dt><dd>{{ fmtCost(status.totals.avg_cost_per_run) }}</dd>
+              <dt class="hint hint-line" data-hint="Sum of sessions.total_tokens (prompt + completion).">total tokens</dt><dd>{{ fmtTokens(status.totals.total_tokens) }}</dd>
+              <dt class="hint hint-line" data-hint="Total tokens ÷ total runs.">avg / run</dt><dd>{{ fmtTokens(status.totals.avg_tokens_per_run) }}</dd>
             </dl>
           </section>
           <section class="kpi">
             <h2 class="kpi-title">quality</h2>
             <dl>
-              <dt>gate pass</dt><dd>{{ Math.round(status.quality.gate_pass_rate * 100) }}%</dd>
-              <dt>hotspot</dt><dd>{{ status.quality.hotspot_phase ?? '—' }}<span v-if="status.quality.hotspot_phase" class="x">{{ status.quality.hotspot_count }}×</span></dd>
-              <dt>retries</dt><dd>{{ status.quality.total_retries }}</dd>
-              <dt>failed phases</dt><dd>{{ status.quality.failed_phases }}</dd>
+              <dt class="hint hint-line" data-hint="Share of review gates passed — gates success ÷ (success + failed).">gate pass</dt><dd>{{ Math.round(status.quality.gate_pass_rate * 100) }}%</dd>
+              <dt class="hint hint-line" data-hint="The phase that failed the most times (N×) — the weakest step of the runs.">hotspot</dt><dd>{{ status.quality.hotspot_phase ?? '—' }}<span v-if="status.quality.hotspot_phase" class="x">{{ status.quality.hotspot_count }}×</span></dd>
+              <dt class="hint hint-line" data-hint="Total agent retries across phases.">retries</dt><dd>{{ status.quality.total_retries }}</dd>
+              <dt class="hint hint-line" data-hint="Phases that ended in 'fail'.">failed phases</dt><dd>{{ status.quality.failed_phases }}</dd>
             </dl>
           </section>
           <section class="kpi">
             <h2 class="kpi-title">repo</h2>
             <dl>
-              <dt>commits</dt><dd>{{ status.git.commits }}<span class="x" v-if="status.git.commits_30d">+{{ status.git.commits_30d }}/30d</span></dd>
-              <dt>contributors</dt><dd>{{ status.git.contributors.length }}</dd>
-              <dt>branch</dt><dd class="agent"><span class="model">{{ status.git.current_branch ?? '—' }}</span><span class="x">{{ status.git.branches }} total</span></dd>
-              <dt>last commit</dt><dd v-if="status.git.last_commit" class="agent"><span class="model">{{ status.git.last_commit.subject }}</span><span class="x">{{ status.git.last_commit.date }}</span></dd>
+              <dt class="hint hint-line" data-hint="All commits reachable from HEAD (+N/30d = commits in the last 30 days).">commits</dt><dd>{{ status.git.commits }}<span class="x" v-if="status.git.commits_30d">+{{ status.git.commits_30d }}/30d</span></dd>
+              <dt class="hint hint-line" data-hint="Distinct authors from git shortlog.">contributors</dt><dd>{{ status.git.contributors.length }}</dd>
+              <dt class="hint hint-line" data-hint="Current git branch (X total = local branches).">branch</dt><dd class="agent"><span class="model">{{ status.git.current_branch ?? '—' }}</span><span class="x">{{ status.git.branches }} total</span></dd>
+              <dt class="hint hint-line" data-hint="The branch tip commit — subject + date.">last commit</dt><dd v-if="status.git.last_commit" class="agent"><span class="model">{{ status.git.last_commit.subject }}</span><span class="x">{{ status.git.last_commit.date }}</span></dd>
               <dd v-else>—</dd>
-              <dt>uncommitted</dt><dd>{{ status.git.dirty }}<span class="x" v-if="status.git.dirty">dirty</span></dd>
+              <dt class="hint hint-line" data-hint="Working-tree changes not committed (git status --porcelain count).">uncommitted</dt><dd>{{ status.git.dirty }}<span class="x" v-if="status.git.dirty">dirty</span></dd>
             </dl>
           </section>
           <section v-if="status.tickets" class="kpi">
             <h2 class="kpi-title">tickets</h2>
             <dl>
-              <dt>backlog</dt><dd>{{ status.tickets.backlog }}</dd>
-              <dt>running</dt><dd>{{ status.tickets.running }}</dd>
-              <dt>done</dt><dd>{{ status.tickets.done }}</dd>
-              <dt>failed</dt><dd>{{ status.tickets.failed }}</dd>
+              <dt class="hint hint-line" data-hint="Tickets waiting to be run.">backlog</dt><dd>{{ status.tickets.backlog }}</dd>
+              <dt class="hint hint-line" data-hint="Tickets with a live session — stage derives from the SESSION, not the ticket row.">running</dt><dd>{{ status.tickets.running }}</dd>
+              <dt class="hint hint-line" data-hint="Tickets whose session finished 'success'.">done</dt><dd>{{ status.tickets.done }}</dd>
+              <dt class="hint hint-line" data-hint="Tickets whose session finished 'fail'.">failed</dt><dd>{{ status.tickets.failed }}</dd>
             </dl>
           </section>
         </div>
@@ -139,7 +139,13 @@ watch(selectedProject, () => {
           <section class="kpi">
             <h2 class="kpi-title">agents — cost</h2>
             <table class="cost-tbl">
-              <thead><tr><th>role</th><th>model</th><th>tokens</th><th>actual</th><th>share</th></tr></thead>
+              <thead><tr>
+                <th class="hint" data-hint="Agent role in the run — planner, builder, reviewer, documenter, …">role</th>
+                <th class="hint" data-hint="The model the role ran on.">model</th>
+                <th class="hint" data-hint="Actual tokens reported by the role's agent_end events.">tokens</th>
+                <th class="hint" data-hint="Summed provider billing from agent_end payloads — what this role actually cost.">actual</th>
+                <th class="hint" data-hint="Session cost apportioned by token share — this role's share of the run cost.">share</th>
+              </tr></thead>
               <tbody>
                 <tr v-for="a in status.agents" :key="a.role">
                   <td>{{ a.role }}</td>
@@ -155,7 +161,13 @@ watch(selectedProject, () => {
           <section class="kpi">
             <h2 class="kpi-title">models — cost</h2>
             <table class="cost-tbl">
-              <thead><tr><th>model</th><th>tokens</th><th>runs</th><th>actual</th><th>share</th></tr></thead>
+              <thead><tr>
+                <th class="hint" data-hint="Model used for the runs.">model</th>
+                <th class="hint" data-hint="Actual tokens billed to this model.">tokens</th>
+                <th class="hint" data-hint="Sessions that used this model.">runs</th>
+                <th class="hint" data-hint="Summed provider billing from agent_end payloads.">actual</th>
+                <th class="hint" data-hint="Session cost apportioned by token share.">share</th>
+              </tr></thead>
               <tbody>
                 <tr v-for="m in status.models" :key="m.model">
                   <td class="m">{{ m.model }}</td>

@@ -215,13 +215,26 @@ function fmtRel(iso: string | null): string {
 
     <!-- KPI strip -->
     <div v-if="data" class="kpis">
-      <div class="kpi"><span class="kpi-n">{{ data.kpis.runningSessions }}</span><span class="kpi-l">running sessions</span></div>
-      <div class="kpi"><span class="kpi-n">{{ data.kpis.liveContainers }}</span><span class="kpi-l">containers<template v-if="data.kpis.orphanContainers"> · {{ data.kpis.orphanContainers }} orphan</template></span></div>
-      <div class="kpi"><span class="kpi-n">{{ data.kpis.sandboxWorktrees }}</span><span class="kpi-l">sandboxes</span></div>
-      <div class="kpi"><span class="kpi-n">{{ data.kpis.ticketsInFlight }}</span><span class="kpi-l">tickets in flight</span></div>
-      <div class="kpi"><span class="kpi-n">{{ fmtUsd(data.kpis.costTodayUsd) }}</span><span class="kpi-l">cost today</span></div>
-      <div class="kpi"><span class="kpi-n">{{ fmtUsd(data.kpis.costTotalUsd) }}</span><span class="kpi-l">total cost</span></div>
-      <div class="kpi heal" :class="data.heal.running ? 'ok' : 'off'">
+      <div class="kpi hint" data-hint="Sessions currently running (status 'running') — live ADW runs that haven't finished or been stopped. Stopped runs finalize as 'fail'.">
+        <span class="kpi-n">{{ data.kpis.runningSessions }}</span><span class="kpi-l hint-line">running sessions</span>
+      </div>
+      <div class="kpi hint" data-hint="sssf-* Docker containers owned by registered projects — one per running sandboxed run. 'orphan' = containers mapping to no registered project.">
+        <span class="kpi-n">{{ data.kpis.liveContainers }}</span><span class="kpi-l hint-line">containers<template v-if="data.kpis.orphanContainers"> · {{ data.kpis.orphanContainers }} orphan</template></span>
+      </div>
+      <div class="kpi hint" data-hint="Per-run git worktree dirs under ~/.sssf/sandboxes/&lt;project&gt;/ — one per run, auto-torn-down when the run finishes. Leftovers are cleaned by the healer.">
+        <span class="kpi-n">{{ data.kpis.sandboxWorktrees }}</span><span class="kpi-l hint-line">sandboxes</span>
+      </div>
+      <div class="kpi hint" data-hint="Tickets leaving the backlog — spawned ('starting') or with a live session. The stage derives from the SESSION, not the ticket row (the ticket is provenance).">
+        <span class="kpi-n">{{ data.kpis.ticketsInFlight }}</span><span class="kpi-l hint-line">tickets in flight</span>
+      </div>
+      <div class="kpi hint" data-hint="Sum of sessions.total_cost for sessions started today (UTC — flips at 21:00 BRT). Real provider billing from agent_end payloads.">
+        <span class="kpi-n">{{ fmtUsd(data.kpis.costTodayUsd) }}</span><span class="kpi-l hint-line">cost today</span>
+      </div>
+      <div class="kpi hint" data-hint="Sum of sessions.total_cost across ALL sessions (all time), not just today.">
+        <span class="kpi-n">{{ fmtUsd(data.kpis.costTotalUsd) }}</span><span class="kpi-l hint-line">total cost</span>
+      </div>
+      <div class="kpi heal hint" :class="data.heal.running ? 'ok' : 'off'"
+           data-hint="The self-healing monitor daemon (sssf heal): watches running sessions, restarts hung ones (max 3× per session), finalizes dead ones. Start/stop toggles it.">
         <HeartPulse :size="16" />
         <div>
           <div class="kpi-n">{{ data.heal.running ? 'healing' : 'healer off' }}</div>
@@ -242,32 +255,42 @@ function fmtRel(iso: string | null): string {
       <table v-else class="ptable">
         <thead>
           <tr>
-            <th>project</th><th>running</th><th>today</th><th>tickets</th>
-            <th>ctrs</th><th>wt</th><th>cost today</th><th>total</th><th>last activity</th><th class="actions">actions</th>
+            <th class="hint" data-hint="Project name in the registry. Click to drill down to its status page (#/p/&lt;name&gt;).">project</th>
+            <th class="hint" data-hint="Sessions currently in 'running' status right now.">running</th>
+            <th class="hint" data-hint="Sessions started today (UTC). The red N✗ is the count failed today — stopped runs count too, since stop finalizes as 'fail'.">today</th>
+            <th class="hint" data-hint="Tickets in-flight / backlog. In-flight = spawned or with a live session; backlog = waiting to be run. Only populated when ticketing is enabled.">tickets</th>
+            <th class="hint" data-hint="sssf-* Docker containers owned by this project (matched by the session's adw_id or a sandbox worktree dir).">ctrs</th>
+            <th class="hint" data-hint="Per-run git worktree dirs under ~/.sssf/sandboxes/&lt;project&gt;/ — one per run, cleaned by auto-teardown.">wt</th>
+            <th class="hint" data-hint="Sum of sessions.total_cost for sessions started today (UTC).">cost today</th>
+            <th class="hint" data-hint="Sum of sessions.total_cost over ALL sessions (all time).">total</th>
+            <th class="hint" data-hint="Most recent event timestamp in this project's db — how fresh the project is. Falls back to the registry's last_run.">last activity</th>
+            <th class="actions">actions</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="p in data.projects" :key="p.name" :class="{ stale: p.stale }">
+          <tr v-for="p in data.projects" :key="p.name" :class="{ stale: p.stale }"
+              :title="p.stale ? 'Stale — db unreadable (missing/corrupt/partial schema) or idle past the healer\'s 10-min threshold. Values render as zeros.' : ''">
             <td>
               <a class="proj" :title="p.root" @click.prevent="navigate({ project: p.name, tab: 'status' })">
                 {{ p.name }}
               </a>
             </td>
-            <td>{{ p.sessionsRunning }}</td>
-            <td :class="{ bad: p.sessionsFailedToday > 0 }">
+            <td class="hint hint-line" data-hint="Live sessions in 'running' status.">{{ p.sessionsRunning }}</td>
+            <td class="hint hint-line" :class="{ bad: p.sessionsFailedToday > 0 }"
+                data-hint="Started today (UTC); red ✗ = failed today (stopped runs count as failed).">
               {{ p.sessionsToday }}<template v-if="p.sessionsFailedToday"> · {{ p.sessionsFailedToday }}✗</template>
             </td>
-            <td>{{ p.ticketsInFlight }} / {{ p.ticketsBacklog }}</td>
-            <td>{{ p.containers }}</td>
-            <td>{{ p.worktrees }}</td>
-            <td>{{ fmtUsd(p.costTodayUsd) }}</td>
-            <td>{{ fmtUsd(p.costTotalUsd) }}</td>
-            <td>{{ fmtRel(p.lastActivity) }}</td>
+            <td class="hint hint-line" data-hint="In-flight / backlog tickets (stage derived from the session).">{{ p.ticketsInFlight }} / {{ p.ticketsBacklog }}</td>
+            <td class="hint hint-line" data-hint="sssf-* Docker containers owned by this project.">{{ p.containers }}</td>
+            <td class="hint hint-line" data-hint="Sandbox git worktree dirs for this project.">{{ p.worktrees }}</td>
+            <td class="hint hint-line" data-hint="Sessions started today (UTC) — real provider billing.">{{ fmtUsd(p.costTodayUsd) }}</td>
+            <td class="hint hint-line" data-hint="All-time session cost.">{{ fmtUsd(p.costTotalUsd) }}</td>
+            <td class="hint hint-line" data-hint="Latest event time in the project db.">{{ fmtRel(p.lastActivity) }}</td>
             <td class="actions">
-              <button class="icon" title="refresh templates" :disabled="pending.has(`refresh:${p.name}`)" @click="onRefresh(p.name)">
+              <button class="icon" title="Refresh — sssf init --refresh --auto: accept all template updates, non-interactive" :disabled="pending.has(`refresh:${p.name}`)" @click="onRefresh(p.name)">
                 <RefreshCw :size="14" :class="{ spin: pending.has(`refresh:${p.name}`) }" />
               </button>
-              <button class="icon" title="remove from registry" @click="onRemove(p.name)">
+              <button class="icon" title="Remove from the registry (confirm dialog). Does not delete the project's files." @click="onRemove(p.name)">
                 <Trash2 :size="14" />
               </button>
             </td>
@@ -282,15 +305,15 @@ function fmtRel(iso: string | null): string {
       <div v-if="!data.running.length" class="empty">nothing running across projects</div>
       <div v-else class="runs">
         <div v-for="r in data.running" :key="r.adwId" class="run">
-          <span class="chip">{{ r.project }}</span>
-          <code>{{ r.adwId }}</code>
-          <span class="phase">{{ r.phase ?? '—' }}</span>
-          <span class="age">{{ fmtAge(r.ageSec) }}</span>
+          <span class="chip hint" data-hint="The registered project this session belongs to.">{{ r.project }}</span>
+          <code class="hint" data-hint="The run's id — the same id in the trace URL (#/p/&lt;project&gt;/s/&lt;id&gt;).">{{ r.adwId }}</code>
+          <span class="phase hint" data-hint="The phase currently executing (latest running phase).">{{ r.phase ?? '—' }}</span>
+          <span class="age hint" data-hint="How long the session has been running (mm:ss).">{{ fmtAge(r.ageSec) }}</span>
           <span class="run-actions">
-            <button class="icon" title="stop" :disabled="pending.has(`stop:${r.adwId}`)" @click="onStop(r.project, r.adwId)">
+            <button class="icon" title="Stop — finalizes the session + in-flight phases as 'fail' (stopped by the engineer)" :disabled="pending.has(`stop:${r.adwId}`)" @click="onStop(r.project, r.adwId)">
               <Square :size="13" />
             </button>
-            <button class="icon" title="restart" :disabled="pending.has(`restart:${r.adwId}`)" @click="onRestart(r.project, r.adwId)">
+            <button class="icon" title="Restart — reuses the adw_id + request and attaches to the same branch" :disabled="pending.has(`restart:${r.adwId}`)" @click="onRestart(r.project, r.adwId)">
               <RotateCw :size="13" />
             </button>
           </span>
@@ -309,19 +332,24 @@ function fmtRel(iso: string | null): string {
       <table v-else class="ctable">
         <thead>
           <tr>
-            <th>container</th><th>project</th><th>image</th><th>status</th><th>created</th><th></th>
+            <th class="hint" data-hint="sssf-&lt;adwId&gt; — the Docker container running the sandboxed ADW.">container</th>
+            <th class="hint" data-hint="Owning project. 'orphan' = no registered project owns this container (stale from a crashed teardown).">project</th>
+            <th class="hint" data-hint="Docker image — sssf-runner (python + git + node/pi + sssf).">image</th>
+            <th class="hint" data-hint="docker ps status — 'Up N' = running, 'Exited' = finished.">status</th>
+            <th class="hint" data-hint="When the container was created.">created</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="c in data.containers" :key="c.name" :class="{ selected: logName === c.name }">
-            <td><code>{{ c.name }}</code></td>
-            <td><span class="chip">{{ c.project || 'orphan' }}</span></td>
-            <td class="dim">{{ c.image }}</td>
-            <td :class="c.running ? 'up' : 'down'">{{ c.status }}</td>
-            <td class="dim">{{ c.created }}</td>
+            <td><code class="hint" data-hint="sssf-&lt;adwId&gt; — container name = the run's adw_id.">{{ c.name }}</code></td>
+            <td><span class="chip hint" data-hint="Owning project ('' = orphan).">{{ c.project || 'orphan' }}</span></td>
+            <td class="dim hint" data-hint="The Docker image the container runs.">{{ c.image }}</td>
+            <td :class="c.running ? 'up' : 'down'" class="hint" data-hint="docker ps status.">{{ c.status }}</td>
+            <td class="dim hint" data-hint="Container creation time.">{{ c.created }}</td>
             <td>
               <button class="strip-archive" :class="{ on: logName === c.name }"
-                      :title="logName === c.name ? 'close logs' : 'tail logs'"
+                      :title="logName === c.name ? 'Close logs' : 'Tail the container logs — docker logs --tail N --timestamps, auto-refreshed every 5s while open'"
                       @click="toggleLogs(c.name)">
                 <Terminal :size="15" :stroke-width="2" />
               </button>
@@ -356,12 +384,12 @@ function fmtRel(iso: string | null): string {
     <div v-if="data" class="lower">
       <!-- Healer panel -->
       <section class="panel">
-        <h3>Healer <span class="count" :class="data.heal.running ? 'ok' : ''">{{ data.heal.running ? `pid ${data.heal.pid}` : 'stopped' }}</span></h3>
-        <div v-if="!data.heal.running" class="empty">the self-healing monitor is off — running sessions are not being watched</div>
+        <h3>Healer <span class="count hint" :class="data.heal.running ? 'ok' : ''" data-hint="The self-healing monitor daemon (sssf heal) — pid from ~/.sssf/heal.pid, alive-checked.">{{ data.heal.running ? `pid ${data.heal.pid}` : 'stopped' }}</span></h3>
+        <div v-if="!data.heal.running" class="empty hint" data-hint="The daemon is off — running sessions are not being watched. Start it to enable auto-recovery.">the self-healing monitor is off — running sessions are not being watched</div>
         <template v-else>
-          <pre class="log">{{ data.heal.logTail.join('\n') || '(no log lines yet)' }}</pre>
+          <pre class="log hint" data-hint="The daemon's log tail (~/.sssf/heal.log) — every recovery action it takes.">{{ data.heal.logTail.join('\n') || '(no log lines yet)' }}</pre>
           <div v-if="Object.keys(data.heal.restarts).length" class="restarts">
-            <span v-for="(n, id) in data.heal.restarts" :key="id" class="restart-chip"><code>{{ id }}</code> → {{ n }}/3</span>
+            <span v-for="(n, id) in data.heal.restarts" :key="id" class="restart-chip hint" data-hint="Restart budget: this session was restarted N/3 times by the healer. At 3 it's finalized as failed instead of restarted again."><code>{{ id }}</code> → {{ n }}/3</span>
           </div>
           <div v-else class="empty small">no restarts yet — no session has been recovered</div>
         </template>
@@ -373,10 +401,10 @@ function fmtRel(iso: string | null): string {
         <div v-if="!data.activity.length" class="empty">no events yet</div>
         <ul v-else class="feed">
           <li v-for="(a, i) in data.activity" :key="i">
-            <span class="feed-ts">{{ a.ts.slice(11, 16) }}</span>
-            <span class="chip">{{ a.project }}</span>
-            <code>{{ a.adwId.slice(0, 8) }}</code>
-            <span class="feed-ev">{{ a.event }}</span>
+            <span class="feed-ts hint" data-hint="Event time (UTC, HH:MM).">{{ a.ts.slice(11, 16) }}</span>
+            <span class="chip hint" data-hint="The project that produced the event.">{{ a.project }}</span>
+            <code class="hint" data-hint="The session the event belongs to (first 8 chars).">{{ a.adwId.slice(0, 8) }}</code>
+            <span class="feed-ev hint" data-hint="Event type — agent_start / agent_end / commit_plan / …">{{ a.event }}</span>
           </li>
         </ul>
       </section>
@@ -386,7 +414,7 @@ function fmtRel(iso: string | null): string {
     <section class="panel add">
       <h3>Add project</h3>
       <form class="add-form" @submit.prevent="onAdd">
-        <input v-model="newRoot" class="root-input" placeholder="/path/to/project (with adws/)" spellcheck="false" />
+        <input v-model="newRoot" class="root-input hint" data-hint="Filesystem path to a project (must contain adws/). Registered in ~/.sssf/projects.json — the project's runs become visible to the cockpit." placeholder="/path/to/project (with adws/)" spellcheck="false" />
         <button class="primary" type="submit" :disabled="adding || !newRoot.trim()">
           <Plus :size="15" style="vertical-align: -2px; margin-right: 5px" />Add
         </button>
