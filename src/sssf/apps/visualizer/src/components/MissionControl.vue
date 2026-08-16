@@ -293,16 +293,17 @@ function fmtRel(iso: string | null): string {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="c in data.containers" :key="c.name">
+          <tr v-for="c in data.containers" :key="c.name" :class="{ selected: logName === c.name }">
             <td><code>{{ c.name }}</code></td>
             <td><span class="chip">{{ c.project || 'orphan' }}</span></td>
             <td class="dim">{{ c.image }}</td>
             <td :class="c.running ? 'up' : 'down'">{{ c.status }}</td>
             <td class="dim">{{ c.created }}</td>
             <td>
-              <button class="icon" :title="logName === c.name ? 'close logs' : 'tail logs'"
+              <button class="strip-archive" :class="{ on: logName === c.name }"
+                      :title="logName === c.name ? 'close logs' : 'tail logs'"
                       @click="toggleLogs(c.name)">
-                <Terminal :size="14" />
+                <Terminal :size="15" :stroke-width="2" />
               </button>
             </td>
           </tr>
@@ -516,6 +517,37 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
 .feed code { font-family: var(--mono); color: var(--dim); }
 .feed-ts { color: var(--faint); font-variant-numeric: tabular-nums; }
 .feed-ev { color: var(--dim); }
+
+/* log button — same style as the run-strip archive buttons on project pages */
+.strip-archive {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(11, 15, 24, 0.9);
+  color: var(--dim);
+  cursor: pointer;
+}
+.strip-archive:hover {
+  color: var(--text);
+  border-color: rgba(200, 155, 255, 0.5);
+}
+.strip-archive.on {
+  color: var(--purple);
+  background: rgba(200, 155, 255, 0.14);
+  border-color: rgba(200, 155, 255, 0.45);
+}
+/* the container whose logs are open is highlighted */
+.ctable tr.selected {
+  background: rgba(200, 155, 255, 0.07);
+}
+.ctable tr.selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--purple);
+}
 
 /* docker-down warning */
 .docker-warn {
