@@ -100,6 +100,7 @@ try { shrinkInitial = localStorage.getItem('sssf:board-shrink-to-fit') === '1' }
 const shrinkFit = ref<boolean>(shrinkInitial)
 const zoom = ref(1)
 const xOffset = ref(0)   // centering offset when shrunk: half the leftover width
+const naturalW = ref(0)  // the grid's content width (columns box = its content in fit mode)
 const naturalH = ref(0)
 const columnsEl = ref<HTMLElement | null>(null)
 const zoomWrapEl = ref<HTMLElement | null>(null)
@@ -109,12 +110,13 @@ function computeZoom() {
   const el = columnsEl.value
   const wrap = zoomWrapEl.value
   if (!el || !wrap) return
-  const naturalW = el.scrollWidth
+  naturalW.value = el.scrollWidth
   const avail = wrap.clientWidth
   naturalH.value = el.offsetHeight
-  zoom.value = shrinkFit.value && naturalW > 0 ? Math.min(1, avail / naturalW) : 1
+  zoom.value = shrinkFit.value && naturalW.value > 0 ? Math.min(1, avail / naturalW.value) : 1
   // equal margins on both sides: shift the scaled content by half the leftover
-  xOffset.value = shrinkFit.value && naturalW > 0 ? Math.max(0, (avail - naturalW * zoom.value) / 2) : 0
+  xOffset.value = shrinkFit.value && naturalW.value > 0
+    ? Math.max(0, (avail - naturalW.value * zoom.value) / 2) : 0
 }
 
 function toggleShrinkFit() {
@@ -280,7 +282,7 @@ async function archive(s: SessionSummary, event: MouseEvent) {
     </div>
 
     <div ref="zoomWrapEl" class="board-zoom" :class="{ fit: shrinkFit }" :style="shrinkFit ? { height: `${Math.round(naturalH * zoom)}px` } : undefined">
-    <div ref="columnsEl" class="columns" :class="{ fit: shrinkFit }" :style="shrinkFit ? { transform: `translateX(${xOffset}px) scale(${zoom})`, transformOrigin: 'top left' } : undefined">
+    <div ref="columnsEl" class="columns" :class="{ fit: shrinkFit }" :style="shrinkFit ? { width: `${naturalW}px`, transform: `translateX(${xOffset}px) scale(${zoom})`, transformOrigin: 'top left' } : undefined">
       <section v-for="col in columns" :key="col.key" class="col">
         <div class="col-head">
           <button
