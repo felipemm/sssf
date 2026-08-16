@@ -6,15 +6,17 @@ import { runSweep, setProject } from './lib/api'
 import SessionsList from './components/SessionsList.vue'
 import SessionTrace from './components/SessionTrace.vue'
 import KanbanBoard from './components/KanbanBoard.vue'
+import StatusPage from './components/StatusPage.vue'
 import ProjectPicker from './components/ProjectPicker.vue'
 
 const route = useRoute()
 
-// The board is the default landing page: #/ and #/board both show it.
-// #/sessions, #/archived are the other views; anything else is a trace.
+// The status dashboard is the default landing page: #/ and #/status show it.
+// #/board, #/sessions, #/archived are the other views; anything else is a trace.
 const view = computed(() => {
   const id = route.value.adwId
-  if (!id || id === 'board') return 'board'
+  if (!id || id === 'status') return 'status'
+  if (id === 'board') return 'board'
   if (id === 'sessions') return 'list'
   if (id === 'archived') return 'archived'
   return 'trace'
@@ -24,7 +26,8 @@ const view = computed(() => {
 const traceAdwId = computed(() => route.value.adwId ?? '')
 
 // A project switch changes the meaning of every hash route, so land on the
-// L1 sessions list; the picker itself reloads the project list on mount.
+// default view (the status dashboard at #/); the picker itself reloads the
+// project list on mount.
 function onProjectSelect(name: string) {
   setProject(name)
   navigate()
@@ -76,6 +79,14 @@ async function onSweep() {
           <a
             :href="hrefFor()"
             class="tab"
+            :class="{ active: view === 'status' }"
+            role="tab"
+            :aria-selected="view === 'status'"
+            >status</a
+          >
+          <a
+            :href="hrefFor('board')"
+            class="tab"
             :class="{ active: view === 'board' }"
             role="tab"
             :aria-selected="view === 'board'"
@@ -124,6 +135,7 @@ async function onSweep() {
     </header>
     <main>
       <KanbanBoard v-if="view === 'board'" />
+      <StatusPage v-else-if="view === 'status'" />
       <SessionsList v-else-if="view === 'list'" />
       <SessionsList v-else-if="view === 'archived'" archived />
       <SessionTrace v-else :key="traceAdwId" :adw-id="traceAdwId" :phase-id="route.phaseId" />

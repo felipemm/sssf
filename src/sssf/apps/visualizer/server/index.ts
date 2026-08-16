@@ -23,6 +23,7 @@ import { SssfDb, resolveDbPath } from "./db.ts";
 import { ProjectRegistry } from "./registry.ts";
 import { sweepAll } from "./sweep.ts";
 import { isEnabled, readTickets } from "./tickets.ts";
+import { computeStatus } from "./status.ts";
 import type { AgentPrompts, ApiError, HealthResponse } from "../shared/types.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
@@ -326,6 +327,16 @@ const server = Bun.serve({
       const db = dbForProject(name);
       if (!db) return notFound("no trace db for project");
       return json({ enabled: isEnabled(root), tickets: readTickets(db.path) });
+    }),
+    "/api/projects/:project/status": scoped((req) => {
+      const name = param(req, "project");
+      const root = projectRoot(name);
+      if (!root) return notFound(`no project ${name}`);
+      const db = dbForProject(name);
+      if (!db) return notFound("no trace db for project");
+      const w = intQuery(req, "window", 30);
+      const windowDays = [7, 30, 90].includes(w) ? w : 30;
+      return json(computeStatus(db.path, root, name, windowDays));
     }),
     "/api/projects/:project/tickets/sync": scoped(async (req) => {
       const name = param(req, "project");

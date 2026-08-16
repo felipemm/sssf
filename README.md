@@ -33,6 +33,13 @@ Three principles:
   `~/.sssf/projects.json`. `sssf viz` is a global service over all of them with
   a project picker in the UI.
 
+## Visualizer
+
+- **Status dashboard** — per-project KPIs: runs/health, cost & tokens (actual
+  billing + token-share per agent and per model), quality gates, per-agent
+  models, git repo stats + yearly contributions heatmap, trend charts
+  (7/30/90d), ticket pipeline. Served at `#/status`.
+
 ## Run semantics
 
 - **Re-runs reap the previous run.** Running an ADW again with the same
