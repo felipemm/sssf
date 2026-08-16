@@ -11,12 +11,12 @@ import ProjectPicker from './components/ProjectPicker.vue'
 
 const route = useRoute()
 
-// The board is the default landing page: #/ and #/board both show it.
-// #/status, #/sessions, #/archived are the other views; anything else is a trace.
+// The status dashboard is the default landing page: #/ and #/status show it.
+// #/board, #/sessions, #/archived are the other views; anything else is a trace.
 const view = computed(() => {
   const id = route.value.adwId
-  if (!id || id === 'board') return 'board'
-  if (id === 'status') return 'status'
+  if (!id || id === 'status') return 'status'
+  if (id === 'board') return 'board'
   if (id === 'sessions') return 'list'
   if (id === 'archived') return 'archived'
   return 'trace'
@@ -26,7 +26,8 @@ const view = computed(() => {
 const traceAdwId = computed(() => route.value.adwId ?? '')
 
 // A project switch changes the meaning of every hash route, so land on the
-// L1 sessions list; the picker itself reloads the project list on mount.
+// default view (the status dashboard at #/); the picker itself reloads the
+// project list on mount.
 function onProjectSelect(name: string) {
   setProject(name)
   navigate()
@@ -78,18 +79,18 @@ async function onSweep() {
           <a
             :href="hrefFor()"
             class="tab"
-            :class="{ active: view === 'board' }"
-            role="tab"
-            :aria-selected="view === 'board'"
-            >board</a
-          >
-          <a
-            :href="hrefFor('status')"
-            class="tab"
             :class="{ active: view === 'status' }"
             role="tab"
             :aria-selected="view === 'status'"
             >status</a
+          >
+          <a
+            :href="hrefFor('board')"
+            class="tab"
+            :class="{ active: view === 'board' }"
+            role="tab"
+            :aria-selected="view === 'board'"
+            >board</a
           >
           <a
             :href="hrefFor('sessions')"
