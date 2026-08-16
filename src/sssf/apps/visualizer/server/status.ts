@@ -2,6 +2,8 @@
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { contributions, gitStats } from "./git";
+import type { ContributionDay, GitStats } from "./git";
 
 export interface ProjectInfo {
   name: string;
@@ -74,6 +76,8 @@ export interface StatusResponse {
   models: ModelStat[];
   tickets: TicketsCounts | null;
   trends: { window: number; buckets: TrendBucket[] };
+  git: GitStats;
+  contributions: ContributionDay[];
 }
 
 const AGENT_ROLES = ["planner", "builder", "reviewer", "documenter"];
@@ -104,6 +108,11 @@ export function computeStatus(dbPath: string, root: string, name: string, window
     models: [],
     tickets: null,
     trends: { window: windowDays, buckets: [] },
+    git: {
+      commits: 0, commits_30d: 0, commits_year: 0, contributors: [],
+      branches: 0, current_branch: null, last_commit: null, dirty: 0, first_commit: null,
+    },
+    contributions: [],
   };
   try {
     const has = (table: string): boolean =>
@@ -319,6 +328,8 @@ export function computeStatus(dbPath: string, root: string, name: string, window
       project: { name, root, ticketing_enabled: ticketingEnabled(root), last_run: lastRun },
       totals, quality, agents, models, tickets,
       trends: { window: windowDays, buckets },
+      git: gitStats(root),
+      contributions: contributions(root),
     };
   } catch (err) {
     // Any read problem degrades to the zeroed payload — a dashboard never 500s.

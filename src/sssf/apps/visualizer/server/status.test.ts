@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -159,6 +160,38 @@ describe("computeStatus", () => {
     const d3 = status.trends.buckets.find((b) => b.day === days[2])!;
     expect(d3.runs).toBe(1);
     expect(d3.fail).toBe(1);
+
+    // git: the fixture root is NOT a git repo → graceful zeros
+    expect(status.git.commits).toBe(0);
+    expect(status.git.contributors).toEqual([]);
+    expect(status.contributions).toEqual([]);
+  });
+
+  test("git stats + contributions when the root is a git repo", () => {
+    const { dbPath, root } = setup();
+    const git = (args: string[], env: Record<string, string> = {}) => {
+      const r = spawnSync("git", ["-C", root, ...args], {
+        env: { ...process.env, ...env },
+        encoding: "utf8",
+      });
+      if (r.status !== 0) throw new Error(`git ${args.join(" ")}: ${r.stderr}`);
+    };
+    git(["init", "-b", "main", "-q"]);
+    git(["config", "user.email", "t@t"]);
+    git(["config", "user.name", "Test"]);
+    writeFileSync(join(root, "f.txt"), "x\n");
+    const now = new Date();
+    git(["add", "."]);
+    git(["commit", "-m", "c0", "-q"], {
+      GIT_AUTHOR_DATE: now.toISOString(),
+      GIT_COMMITTER_DATE: now.toISOString(),
+    });
+    const status = computeStatus(dbPath, root, "fixture", 30);
+    expect(status.git.commits).toBe(1);
+    expect(status.git.current_branch).toBe("main");
+    expect(status.git.last_commit?.subject).toBe("c0");
+    expect(status.contributions).toHaveLength(364);
+    expect(status.contributions[363]!.count).toBe(1); // today
   });
 
   test("ticketing enabled when ticketing.yaml has providers", () => {
