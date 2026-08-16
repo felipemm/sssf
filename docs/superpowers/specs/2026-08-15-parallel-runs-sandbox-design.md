@@ -105,8 +105,9 @@ host repo (base branch)                       per-run sandbox
      both: teardown container (stop+rm), `git worktree remove` the sandbox —
      the branch sssf/<adw_id> REMAINS as a ref (pushable/PR-able with no checkout)
      reject additionally marks the run failed (ADW exits non-zero → tracer)
-7. Engineer creates the PR (push sssf/<adw_id> + MR via their tooling), then
-   `sssf sandbox prune <adw_id>` (optional cleanup helper)
+7. Engineer creates the PR (push sssf/<adw_id> + MR via their tooling); once
+   the PR is merged (or the run is discarded), `sssf sandbox prune <adw_id>`
+   deletes the branch and any leftover artifacts
 ```
 
 ### The review stage (generic — any project type)
@@ -181,7 +182,7 @@ The app inside every container listens on the same container port
 | `sssf run reject <adw_id>` | reject the review → teardown, run marked failed, branch stays |
 | `sssf sandbox build` | build/refresh the `sssf-runner` image |
 | `sssf sandbox list` | adw_id · status · branch · container · worktree (incl. finished runs awaiting resolution) |
-| `sssf sandbox prune [<adw_id>|--all]` | tear down kept sandboxes (after the engineer merged/PR'd) |
+| `sssf sandbox prune [<adw_id>|--all]` | delete a run's branch `sssf/<adw_id>` and any leftover worktree/container — the engineer runs it once the PR is merged (or to discard a failed run). Approve/reject already tore the container+worktree down; **prune is what removes the branch** |
 
 ## Viz changes
 
