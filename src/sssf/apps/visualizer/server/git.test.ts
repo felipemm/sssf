@@ -40,7 +40,13 @@ describe("gitStats", () => {
     const s = gitStats(root);
     expect(s.commits).toBe(5);
     expect(s.commits_30d).toBe(3);       // 2 today + 1 yesterday
-    expect(s.commits_year).toBe(4);      // excludes the 400-day-old commit
+    // commits in the current UTC year — expectation derived from the fixture's
+    // own dates so the assertion survives year boundaries (e.g. January runs)
+    const thisYear = new Date().getUTCFullYear();
+    const expectedYear = [0, 0, 1, 40].filter(
+      (n) => new Date(Date.now() - n * 86400_000).getUTCFullYear() === thisYear,
+    ).length;
+    expect(s.commits_year).toBe(expectedYear);
     expect(s.contributors).toEqual([{ name: "Test <t@t>", commits: 5 }]);
     expect(s.branches).toBe(1);
     expect(s.current_branch).toBe("main");

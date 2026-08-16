@@ -253,19 +253,37 @@ export function computeStatus(dbPath: string, root: string, name: string, window
       }
       models.sort((a, b) => b.cost_actual - a.cost_actual);
 
-      // merge agent_sessions metadata (model, sessions, context_tokens) for each role
+      // merge agent_sessions metadata (model, sessions, context_tokens) for each role.
+      // Model = most recent agent_sessions row per role (MAX(last_used_at)); a tie
+      // picks arbitrarily. Counts/tokens come from a separate aggregate so the
+      // most-recent join never double-counts.
       const meta = has("agent_sessions")
-        ? db.query<{ agent: string; model: string | null; n: number; tokens: number }, []>(
-            `SELECT agent, MAX(model) model, COUNT(DISTINCT adw_id) n, COALESCE(SUM(context_tokens),0) tokens
-               FROM agent_sessions GROUP BY agent`,
-          ).all()
-        : [];
-      const metaByAgent = new Map(meta.map((m) => [m.agent, m]));
+        ? (() => {
+            const byAgent = new Map<string, { model: string | null; n: number; tokens: number }>();
+            const models = db.query<{ agent: string; model: string | null }, []>(
+              `SELECT a.agent, a.model FROM agent_sessions a
+                 JOIN (SELECT agent, MAX(last_used_at) m FROM agent_sessions GROUP BY agent) mx
+                   ON mx.agent = a.agent AND mx.m = a.last_used_at`,
+            ).all();
+            for (const row of models) byAgent.set(row.agent, { model: row.model, n: 0, tokens: 0 });
+            const counts = db.query<{ agent: string; n: number; tokens: number }, []>(
+              `SELECT agent, COUNT(DISTINCT adw_id) n, COALESCE(SUM(context_tokens),0) tokens
+                 FROM agent_sessions GROUP BY agent`,
+            ).all();
+            for (const row of counts) {
+              const e = byAgent.get(row.agent) ?? { model: null, n: 0, tokens: 0 };
+              e.n = row.n;
+              e.tokens = Number(row.tokens ?? 0);
+              byAgent.set(row.agent, e);
+            }
+            return byAgent;
+          })()
+        : new Map<string, { model: string | null; n: number; tokens: number }>();
 
       const allRoles = new Set([...AGENT_ROLES, ...tokensByAgent.keys()]);
       const roleOrder = [...AGENT_ROLES, ...Array.from(allRoles).filter((r) => !AGENT_ROLES.includes(r)).sort()];
       for (const role of roleOrder) {
-        const m = metaByAgent.get(role);
+        const m = meta.get(role);
         agents.push({
           role,
           model: m?.model ?? null,
