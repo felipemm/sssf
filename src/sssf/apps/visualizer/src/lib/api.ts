@@ -1,5 +1,7 @@
 import { ref } from 'vue'
 import type {
+  CockpitData,
+  ControlResult,
   Envelope,
   EventRow,
   EventsPage,
@@ -43,6 +45,37 @@ export function setProject(name: string | null): void {
   if (name) {
     try { localStorage.setItem(PROJECT_KEY, name) } catch { /* private mode */ }
   }
+}
+
+// ── Mission Control cockpit (cross-project) ─────────────────────────────────
+
+async function postJson(url: string, body?: unknown): Promise<ControlResult> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  return (await res.json()) as ControlResult
+}
+
+export async function fetchCockpit(): Promise<CockpitData> {
+  return (await getJson('/api/cockpit')) as CockpitData
+}
+
+export function refreshProject(name: string): Promise<ControlResult> {
+  return postJson(`/api/cockpit/projects/${encodeURIComponent(name)}/refresh`)
+}
+
+export function addProject(root: string): Promise<ControlResult> {
+  return postJson('/api/cockpit/projects/add', { root })
+}
+
+export function removeProject(name: string, confirm: boolean): Promise<ControlResult> {
+  return postJson(`/api/cockpit/projects/${encodeURIComponent(name)}/remove`, { confirm })
+}
+
+export function healControl(action: 'start' | 'stop'): Promise<ControlResult> {
+  return postJson(`/api/cockpit/heal/${action}`)
 }
 
 export async function fetchProjects(): Promise<ProjectInfo[]> {

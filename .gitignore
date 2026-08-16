@@ -5,3 +5,19 @@ dist/
 build/
 *.egg-info/
 node_modules/
+
+# local env
+.venv/
+.env
+
+# runtime state (stamped projects)
+adws/adw_data/
+
+# sqlite trace dbs + sidecars
+*.db
+*.db-wal
+*.db-shm
+
+# os / editor / logs
+.DS_Store
+*.log

@@ -35,10 +35,20 @@ Three principles:
 
 ## Visualizer
 
-- **Status dashboard** — per-project KPIs: runs/health, cost & tokens (actual
-  billing + token-share per agent and per model), quality gates, per-agent
-  models, git repo stats + yearly contributions heatmap, trend charts
-  (7/30/90d), ticket pipeline. Served at `#/status`.
+`sssf viz` serves a global, multi-project UI as a background service
+(`sssf viz start` / `sssf viz stop`, default port 4600). Views:
+
+- **Status dashboard** (`#/status`, the landing page) — per-project KPIs:
+  runs/health, cost & tokens (actual billing + token-share per agent and per
+  model), quality gates, git repo stats + yearly contributions heatmap, trend
+  charts (7/30/90d), ticket pipeline.
+- **Kanban board** (`#/board`) — sessions and tickets by stage
+  (Backlog · Planning · Building · Reviewing · Done/Blocked); cards open a
+  detail modal; backlog tickets can be run or closed.
+- **Sessions** (`#/list`) and **Archived** (`#/archived`) — the session list,
+  with archive buttons and the sweep control.
+- **Traces** (`#/<adw_id>` / `#/<adw_id>/<phase_id>`) — the waterfall of
+  phases, envelopes, costs, and events for one run.
 
 ## Run semantics
 
@@ -65,38 +75,78 @@ parallel without touching the project tree. The ADW runs its normal stages
 inside the container; when it exits (success or fail) a monitor tears the
 sandbox down automatically (container + worktree). The branch `sssf/<adw_id>`
 survives as the deliverable — the engineer merges it or opens a PR with their
-own tooling.
+own tooling. Each run keeps its own per-run db; a forward-only sync streams
+progress into the project db without lock fights.
 
 - `sssf sandbox build` — build/refresh the runner image
 - `sssf sandbox list` — show sandboxes and their branches
 - `sssf sandbox prune [<adw_id>|--all]` — delete a resolved run's branch + leftovers
 - `sssf run stop <adw_id>` — kill a live run (sandbox torn down, run marked failed)
-- `--no-sandbox` — run in the current dir (today's behavior), for debugging
+- `sssf run restart <adw_id>` — re-run a session on its existing branch
+- `--no-sandbox` — run in the current dir instead, for debugging
+
+## Self-healing monitor
+
+`sssf heal` is a daemon that scans every registered project and recovers what
+is stuck:
+
+- **Dead sandbox** (container or worktree gone while the session is `running`)
+  → finalize the run as failed.
+- **Torn terminal state** → sync the per-run db forward and tear the sandbox
+  down.
+- **Hung agent** (no progress for a long interval) → `sssf run restart` the
+  session, with a restart budget (`MAX_RESTARTS`) per run; exhausted budget
+  finalizes it.
+- **Spawn-failed ticket** (a ticket stuck in `starting`) → return it to the
+  backlog and clean up the sandbox.
+
+```bash
+sssf heal start    # daemon, logs to the heal log (interval 30s)
+sssf heal status   # running? pid? recent heal actions
+sssf heal stop
+```
 
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `sssf init [--refresh] [--force]` | stamp chains/config/prompts into the project, register it |
-| `sssf run <adw> "<prompt>" [--adw-id X]` | execute a chain (the `adw_` prefix is optional) |
+| `sssf run <adw> "<prompt>" [--adw-id X] [--project P] [--no-sandbox]` | execute a chain (`adw_` prefix optional) |
+| `sssf run stop / restart <adw_id>` | kill a live run / re-run a session on its branch |
 | `sssf sessions / phases <id> / tail <id> / procs <id>` | trace queries over the WAL db |
-| `sssf projects [list|remove <name>]` | manage the registry |
-| `sssf viz [start|stop] [--port N] [--db PATH]` | global trace visualizer as a background service (bun required); `start` opens the browser, `stop` shuts it down |
-| `sssf doctor` | check global prerequisites (`uv`, `pi`, `bun`, `sqlite3`) |
+| `sssf projects [list\|remove <name>]` | manage the registry |
+| `sssf viz [start\|stop] [--port N] [--db PATH]` | global trace visualizer as a background service (bun required) |
+| `sssf sweep [--project P] [--days N]` | archive finished sessions older than N days (default 30) |
+| `sssf sandbox build\|list\|prune [--all]` | runner image / sandbox lifecycle |
+| `sssf heal start\|stop\|status` | self-healing monitor daemon |
 | `sssf ticket add/sync/list/run [--project]` | ticketing integration (internal add, external sync, backlog run) — optional, per-project `adws/adw_sssf_config/ticketing.yaml` |
+| `sssf doctor` | check global prerequisites (`uv`, `pi`, `bun`, `sqlite3`) |
 | `sssf upgrade` | `uv tool upgrade sssf` |
 
 ## Requirements
 
 Python 3.11+ (installed as a uv tool), `pi` as the coding agent, `bun` for
-`sssf viz`, and a registered model in the coding agent's catalog
-(`sssf doctor` checks all of it).
+`sssf viz`, `docker` for sandboxed runs, and a registered model in the coding
+agent's catalog (`sssf doctor` checks all of it).
+
+## Development
+
+```bash
+uv sync --group dev && uv run pytest     # engine + CLI suite
+cd src/sssf/apps/visualizer && bun test  # visualizer server suite
+```
+
+Engine layout, session-lifecycle invariants, and the visualizer workflow are
+documented in [CONTRIBUTING.md](CONTRIBUTING.md) (and, deeper, in
+`src/sssf/docs/contributing.md`).
 
 ## Docs
 
+- [CHANGELOG.md](CHANGELOG.md) — release history
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute
+- [SECURITY.md](SECURITY.md) — reporting vulnerabilities
 - `src/sssf/docs/customizing.md` — chains, roster, definition of done
-- `src/sssf/docs/contributing.md` — engine layout and how to ship changes
-- `docs/superpowers/specs/2026-08-14-sssf-global-cli-design.md` — original design
-- `docs/superpowers/plans/2026-08-14-sssf-global-cli.md` — original implementation plan
-- `docs/superpowers/specs/2026-08-15-sssf-global-cli-revisions.md` — post-implementation changes (this doc records them)
-- `docs/superpowers/plans/2026-08-15-sssf-global-cli-revisions.md` — as-executed record with commit map
+- `docs/superpowers/specs/` + `docs/superpowers/plans/` — the design specs and
+  implementation plans behind every feature (global CLI, run semantics,
+  archive sweep, status page, visualizer UX, ticketing, parallel runs, viz
+  background service, mission control)
