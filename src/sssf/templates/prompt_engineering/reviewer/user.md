@@ -14,6 +14,14 @@
 
 {{context_handoff_dir}}
 
+## Working tree state — read this first
+
+The changes under review are intentionally **UNCOMMITTED**. The factory commits
+them only after your approval — that is the pipeline's order, not a gap. Do not
+treat a missing commit, missing staging, or a dirty `git status` as a finding,
+a blocking issue, or a requirement. You are verifying the **content** of the
+changed files against the spec, nothing else.
+
 ## Task
 
 Confirm that the work reported in `previous_envelope` is what was asked for.

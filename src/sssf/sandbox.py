@@ -332,14 +332,21 @@ def stop_run(project_root: Path, adw_id: str, data_dir: Path) -> int:
 
 
 def stamp_adw_template(wt: Path) -> None:
-    """Stamp the CURRENT adw_simple_sdlc.py into the worktree. The worktree's
-    copy is the project's committed template (stamped at init, possibly stale
-    after an sssf upgrade) — sandboxed runs must use the installed template so
-    the run matches the installed sssf exactly."""
+    """Stamp the CURRENT templates into the worktree: the ADW entry file and
+    the prompt_engineering tree. The worktree's copies are the project's
+    committed templates (stamped at init, possibly stale after an sssf
+    upgrade) — sandboxed runs must use the installed templates so the run
+    matches the installed sssf exactly."""
     import shutil
     import sssf
-    template = Path(sssf.__file__).parent / "templates" / "adws" / "adw_simple_sdlc.py"
-    if template.exists():
+    templates = Path(sssf.__file__).parent / "templates"
+    adw = templates / "adws" / "adw_simple_sdlc.py"
+    if adw.exists():
         dest = wt / "adws" / "adw_simple_sdlc.py"
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(template, dest)
+        shutil.copy(adw, dest)
+    src_prompts = templates / "prompt_engineering"
+    if src_prompts.exists():
+        dest_prompts = wt / "adws" / "adw_data" / "prompt_engineering"
+        shutil.rmtree(dest_prompts, ignore_errors=True)
+        shutil.copytree(src_prompts, dest_prompts)
