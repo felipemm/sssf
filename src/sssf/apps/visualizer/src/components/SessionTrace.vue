@@ -657,7 +657,7 @@ function selectPhase(p: Phase) {
 /* No detail open: the trace fills the viewport below the topbar and the
    waterfall scrolls internally, so the page itself never scrolls. */
 .trace.fit {
-  height: calc(100dvh - var(--topbar-height, 66px));
+  height: calc(100dvh - var(--topbar-h, 66px));
   padding-bottom: 0;
   overflow: hidden;
 }
