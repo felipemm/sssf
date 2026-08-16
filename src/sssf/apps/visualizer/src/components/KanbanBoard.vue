@@ -106,11 +106,23 @@ const columnsEl = ref<HTMLElement | null>(null)
 const zoomWrapEl = ref<HTMLElement | null>(null)
 let resizeObs: ResizeObserver | undefined
 
+/** The grid's natural (unfixed) width. The fit-mode width binding would make
+ * scrollWidth return the fixed value, freezing the measurement at whatever it
+ * was when the board first rendered (e.g. before tickets loaded) — so clear
+ * the binding, measure, and restore. */
+function naturalWidthOf(el: HTMLElement): number {
+  const prev = el.style.width
+  el.style.width = ''
+  const w = el.scrollWidth
+  el.style.width = prev
+  return w
+}
+
 function computeZoom() {
   const el = columnsEl.value
   const wrap = zoomWrapEl.value
   if (!el || !wrap) return
-  naturalW.value = el.scrollWidth
+  naturalW.value = naturalWidthOf(el)
   const avail = wrap.clientWidth
   naturalH.value = el.offsetHeight
   zoom.value = shrinkFit.value && naturalW.value > 0 ? Math.min(1, avail / naturalW.value) : 1
@@ -131,6 +143,9 @@ onMounted(() => {
   timer = setInterval(() => void tick(), 500)
   resizeObs = new ResizeObserver(() => computeZoom())
   if (zoomWrapEl.value) resizeObs.observe(zoomWrapEl.value)
+  // observe the columns too: card/ticket renders change the layout height (and
+  // the ticketing toggle changes the column count) — re-measure on those
+  if (columnsEl.value) resizeObs.observe(columnsEl.value)
   computeZoom()
 })
 
