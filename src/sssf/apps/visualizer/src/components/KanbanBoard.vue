@@ -277,7 +277,7 @@ async function archive(s: SessionSummary, event: MouseEvent) {
     </div>
 
     <div ref="zoomWrapEl" class="board-zoom" :class="{ fit: shrinkFit }" :style="shrinkFit ? { height: `${Math.round(naturalH * zoom)}px` } : undefined">
-    <div ref="columnsEl" class="columns" :style="shrinkFit ? { transform: `scale(${zoom})`, transformOrigin: 'top left' } : undefined">
+    <div ref="columnsEl" class="columns" :class="{ fit: shrinkFit }" :style="shrinkFit ? { transform: `scale(${zoom})`, transformOrigin: 'top left' } : undefined">
       <section v-for="col in columns" :key="col.key" class="col">
         <div class="col-head">
           <button
@@ -429,6 +429,12 @@ async function archive(s: SessionSummary, event: MouseEvent) {
    their natural layout so scrollWidth/offsetHeight measure unzoomed. */
 .board-zoom.fit {
   overflow: hidden;
+}
+/* In fit mode the columns' own horizontal scroll must go away — it is
+   computed on the UNtransformed layout, so it would linger (scaled) even
+   though the zoomed content fits the wrapper. */
+.columns.fit {
+  overflow: visible;
 }
 
 .error-bar {
