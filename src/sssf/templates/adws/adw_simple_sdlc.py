@@ -45,6 +45,7 @@ from sssf.adw_modules import agents, changes, gates, git_helper, quality, sessio
 from sssf.adw_modules.data_types import (AgentCall, BuildOutput, ChangeCapture,
                                     DocumentOutput, PhaseParams, PlanOutput,
                                     ReviewOutput)
+from sssf.adw_modules.review import human_review
 
 REQUIRED_AGENTS = ["planner", "builder", "reviewer", "documenter"]
 MAX_FIX_LOOPS = 3
@@ -130,6 +131,12 @@ def main(prompt: str, config: str = "adws/adw_sssf_config/sssf.config.yaml", adw
             build = ph.call(AgentCall(output_type=BuildOutput, prompt=prompt, previous=review,
                                       gates=[gates.diff_matches_claims]))
             revised = True
+
+    with run.phase(PhaseParams(name="review", kind="human", owner=run.engineer,
+                               description="Engineer tests the running app, then approves or rejects")) as ph:
+        approved = human_review(run, cfg, ph, prompt)
+        if not approved:
+            raise RuntimeError("engineer rejected the run")
 
     # A revision edited code after the suite last ran, so the green light is
     # stale. Re-run it rather than commit on a result that predates the change.
