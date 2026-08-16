@@ -11,7 +11,7 @@ import {
   type TicketsResponse,
 } from '../lib/api'
 import { ts } from '../lib/format'
-import SessionCard from './SessionCard.vue'
+import KanbanSessionCard from './KanbanSessionCard.vue'
 import TicketCard from './TicketCard.vue'
 import TicketModal from './TicketModal.vue'
 
@@ -27,7 +27,6 @@ let timer: ReturnType<typeof setInterval> | undefined
 let inflight = false
 
 async function tick() {
-  nowMs.value = Date.now()
   if (inflight) return
   if (!projectsLoaded.value) return   // wait for the project situation before fetching
   inflight = true
@@ -125,8 +124,6 @@ function toggleShrinkFit() {
   try { localStorage.setItem('sssf:board-shrink-to-fit', shrinkFit.value ? '1' : '0') } catch { /* private mode */ }
   requestAnimationFrame(() => computeZoom())
 }
-
-const nowMs = ref(Date.now())   // SessionCard's duration chip ticks with the poll
 
 onMounted(() => {
   void tick()
@@ -304,12 +301,11 @@ function toggleCollapsed(key: string) {
             />
           </template>
           <template v-else>
-            <SessionCard
+            <KanbanSessionCard
               v-for="s in byColumn[col.key]"
               :key="s.adw_id"
               :session="s"
-              :now-ms="nowMs"
-              @archived="void tick()"
+              @changed="void tick()"
             />
           </template>
 
