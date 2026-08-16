@@ -197,8 +197,11 @@ def sync_run_db(conn: sqlite3.Connection, per_run_db: Path, adw_id: str) -> None
     try:
         src = sqlite3.connect(str(tmp), isolation_level=None)
         try:
+            # tickets is PROJECT-owned (the host's ticket commands write it; the
+            # per-run db never contains tickets) — syncing it would DELETE the
+            # run's ticket row and insert nothing.
             for table in ("sessions", "phases", "events", "envelopes",
-                          "gate_results", "processes", "agent_sessions", "tickets"):
+                          "gate_results", "processes", "agent_sessions"):
                 try:
                     cols = [r[1] for r in src.execute(f"PRAGMA table_info({table})")]
                     if not cols or "adw_id" not in cols:
