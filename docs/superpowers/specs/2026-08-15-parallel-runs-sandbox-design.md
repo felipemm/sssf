@@ -28,6 +28,13 @@ back) natively in sssf's Python — **no new runtime dependencies**:
 - **Shared live data = the host's `adws/adw_data/`** bind-mounted read-write
   into the container (db + session events; board/trace/status stay live)
 - **No auto-merge**: the branch is the deliverable; the engineer PRs it
+- **Deterministic sandbox lifecycle**: sandbox creation, port allocation,
+  container spawn, and teardown are plain Python code — never agent-driven,
+  never ad-hoc manual steps. The ADW runs only its phases (including the
+  review wait); the host CLI owns everything around it. Creation and teardown
+  are **idempotent**: a crash mid-teardown leaves re-runnable `prune`/cleanup
+  (worktree already removed → skip; container already gone → skip; port
+  released on removal).
 
 Reference patterns (from research):
 - disler/inkwell-agent-sandboxes: credential boundary (host keeps secrets,
