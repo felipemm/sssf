@@ -278,10 +278,13 @@ function fmtRel(iso: string | null): string {
       </div>
     </section>
 
-    <!-- Containers (docker ps filtered to sssf) -->
-    <section v-if="data && data.containers.length" class="panel">
+    <!-- Containers (docker ps filtered to sssf) — always visible, even when empty -->
+    <section v-if="data" class="panel">
       <h3>Containers <span class="count">{{ data.containers.length }}</span></h3>
-      <table class="ctable">
+      <div v-if="!data.containers.length" class="empty">
+        no sssf containers — nothing running, or docker unavailable
+      </div>
+      <table v-else class="ctable">
         <thead>
           <tr>
             <th>container</th><th>project</th><th>image</th><th>status</th><th>created</th><th></th>
