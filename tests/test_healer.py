@@ -74,7 +74,10 @@ def test_recover_finalize_marks_failed(tmp_path, monkeypatch):
     assert "finalized" in actions
     conn = sqlite3.connect(str(sb.project_db_path(data)))
     assert conn.execute("SELECT status FROM sessions WHERE adw_id='stuck1'").fetchone()[0] == "fail"
-    assert conn.execute("SELECT status FROM phases WHERE adw_id='stuck1'").fetchone()[0] == "fail"
+    # The healer's finalize records WHAT IT DID, not the engineer's stop.
+    err = conn.execute("SELECT error FROM phases WHERE adw_id='stuck1'").fetchone()[0]
+    assert "finalized by the healer" in err and "dead run" in err
+    assert "engineer" not in err
     conn.close()
 
 
@@ -128,7 +131,9 @@ def test_restart_budget_exhausts_then_finalizes(tmp_path, monkeypatch):
     data.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(sb.project_db_path(data)))
     conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
+    conn.execute("CREATE TABLE phases (phase_id TEXT PRIMARY KEY, adw_id TEXT, status TEXT, error TEXT, ended_at TEXT)")
     conn.execute("INSERT INTO sessions VALUES ('hung1', 'running', NULL)")
+    conn.execute("INSERT INTO phases VALUES ('hp1', 'hung1', 'running', NULL, NULL)")
     conn.commit()
     conn.close()
     from sssf.healer import MAX_RESTARTS, recover
@@ -140,6 +145,9 @@ def test_restart_budget_exhausts_then_finalizes(tmp_path, monkeypatch):
     assert "budget exhausted" in out
     conn = sqlite3.connect(str(sb.project_db_path(data)))
     assert conn.execute("SELECT status FROM sessions WHERE adw_id='hung1'").fetchone()[0] == "fail"
+    err = conn.execute("SELECT error FROM phases WHERE adw_id='hung1'").fetchone()[0]
+    assert "finalized by the healer" in err and "budget" in err
+    assert "engineer" not in err
     conn.close()
 
 

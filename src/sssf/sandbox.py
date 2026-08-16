@@ -419,12 +419,15 @@ def _session_status(data_dir: Path, adw_id: str) -> str | None:
         return None
 
 
-def stop_run(project_root: Path, adw_id: str, data_dir: Path) -> int:
+def stop_run(project_root: Path, adw_id: str, data_dir: Path,
+             reason: str = "stopped by the engineer") -> int:
     """Terminate a run: kill the container and remove the worktree. If the
     session is still marked running afterwards (a stale run whose ADW died
     without its failsafe — e.g. SIGKILL teardown), finalize it as failed so it
     becomes archivable, and mark every in-flight/queued PHASE failed — the
     trace must show the run stopped cleanly, never a phase stuck 'running'.
+    `reason` is what the trace records as the phase error — the healer says
+    what IT did; only the engineer's own stop says 'stopped by the engineer'.
     The branch stays for inspection (prune deletes it once resolved)."""
     stop_remove(container_name(adw_id))
     remove_worktree(sandbox_dir(project_root, adw_id))
@@ -438,7 +441,7 @@ def stop_run(project_root: Path, adw_id: str, data_dir: Path) -> int:
         tracer.conn.execute(
             "UPDATE phases SET status='fail', error=?, ended_at=? "
             "WHERE adw_id=? AND status IN ('running','queued')",
-            ("stopped by the engineer", now, adw_id))
+            (reason, now, adw_id))
         tracer.session_finish(adw_id, ok=False)   # a cancelled run is failed
     return 0
 

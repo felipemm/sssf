@@ -164,7 +164,9 @@ def recover(root: Path, adw_id: str, session_status: str | None,
 
     if action == "finalize":
         from sssf.sandbox import stop_run
-        stop_run(root, adw_id, project_db.parent)   # marks session+phases failed
+        stop_run(root, adw_id, project_db.parent,
+                 reason="finalized by the healer: dead run — no container or "
+                        "worktree left, nothing could be recovered")
         return f"{adw_id}: finalized (dead run)"
 
     if action == "sync_teardown":
@@ -181,7 +183,9 @@ def recover(root: Path, adw_id: str, session_status: str | None,
         count = _restart_count(state, adw_id)
         if count >= MAX_RESTARTS:
             from sssf.sandbox import stop_run
-            stop_run(root, adw_id, project_db.parent)
+            stop_run(root, adw_id, project_db.parent,
+                     reason=f"finalized by the healer: restart budget exhausted "
+                            f"({MAX_RESTARTS} attempts)")
             state.setdefault("restarts", {}).pop(adw_id, None)
             return f"{adw_id}: restart budget exhausted — finalized"
         state.setdefault("restarts", {})[adw_id] = count + 1
