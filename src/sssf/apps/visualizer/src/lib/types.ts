@@ -20,6 +20,7 @@ export type {
   PromptsResponse,
   HealthResponse,
   CockpitData,
+  CockpitCompletedPoint,
   CockpitContainer,
   ContainerLogsResponse,
   CockpitProject,

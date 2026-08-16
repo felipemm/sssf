@@ -84,3 +84,46 @@ def test_create_duplicate_raises(repo, tmp_path):
     create_worktree(repo, "dup1")
     with pytest.raises(SandboxError):
         create_worktree(repo, "dup1")   # branch already checked out
+
+
+def test_sync_merges_live_totals_monotonically(tmp_path):
+    """Card tokens/cost update in-flight: a mid-run sync carries totals that
+    only grow, and a torn copy (fewer tokens than the last sync) never
+    regresses the project db."""
+    import sqlite3
+    from sssf.sandbox import sync_run_db
+
+    conn = sqlite3.connect(str(tmp_path / "proj.db"))
+    conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, "
+                 "started_at TEXT, ended_at TEXT, total_tokens INTEGER DEFAULT 0, "
+                 "total_cost REAL DEFAULT 0)")
+    conn.commit()
+    per = tmp_path / "per-run" / "adws" / "adw_data"
+    per.mkdir(parents=True)
+    per_db = per / "sssf.db"
+    src = sqlite3.connect(str(per_db))
+    src.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, "
+                "started_at TEXT, ended_at TEXT, total_tokens INTEGER DEFAULT 0, "
+                "total_cost REAL DEFAULT 0)")
+    src.execute("INSERT INTO sessions VALUES ('r1','running','2026-08-16T10:00:00',NULL,100,1.5)")
+    src.commit()
+
+    sync_run_db(conn, per_db, "r1")
+    assert conn.execute("SELECT total_tokens FROM sessions WHERE adw_id='r1'").fetchone()[0] == 100
+
+    # torn mid-run copy with FEWER tokens — the max-merge must not regress
+    src.execute("UPDATE sessions SET total_tokens=40, total_cost=0.5 WHERE adw_id='r1'")
+    src.commit()
+    sync_run_db(conn, per_db, "r1")
+    assert conn.execute("SELECT total_tokens FROM sessions WHERE adw_id='r1'").fetchone()[0] == 100
+
+    # real growth merges forward
+    src.execute("UPDATE sessions SET total_tokens=250, total_cost=3.0 WHERE adw_id='r1'")
+    src.commit()
+    sync_run_db(conn, per_db, "r1")
+    row = conn.execute("SELECT total_tokens, total_cost FROM sessions WHERE adw_id='r1'").fetchone()
+    assert tuple(row) == (250, 3.0)
+    # status stays 'running' — never downgraded by a mid-run copy
+    assert conn.execute("SELECT status FROM sessions WHERE adw_id='r1'").fetchone()[0] == "running"
+    conn.close()
+    src.close()

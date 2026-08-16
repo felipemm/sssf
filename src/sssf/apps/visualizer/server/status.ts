@@ -219,39 +219,41 @@ export function computeStatus(dbPath: string, root: string, name: string, window
         shareByAgent.set(row.agent, (shareByAgent.get(row.agent) ?? 0) + tot.cost * (Number(row.tokens) / tot.tokens));
       }
       // models: per-model tokens/cost/share via agent_sessions join
-      const modelRows = db.query<{ model: string; tokens: number; cost: number; n: number }, []>(
-        `SELECT ag.model model, SUM(e.tokens) tokens,
-                SUM(json_extract(e.payload_json, '$.cost')) cost, COUNT(DISTINCT e.adw_id) n
-           FROM events e
-           JOIN phases p ON p.phase_id = e.phase_id
-           JOIN agent_sessions ag ON ag.adw_id = e.adw_id AND ag.agent = p.owner
-          WHERE e.type = 'agent_end' AND e.tokens IS NOT NULL AND ag.model IS NOT NULL
-          GROUP BY ag.model`,
-      ).all();
-      const modelShare = new Map<string, number>();
-      const perSessionModel = db.query<{ adw_id: string; model: string; tokens: number }, []>(
-        `SELECT e.adw_id, ag.model model, SUM(e.tokens) tokens
-           FROM events e
-           JOIN phases p ON p.phase_id = e.phase_id
-           JOIN agent_sessions ag ON ag.adw_id = e.adw_id AND ag.agent = p.owner
-          WHERE e.type = 'agent_end' AND e.tokens IS NOT NULL AND ag.model IS NOT NULL
-          GROUP BY e.adw_id, ag.model`,
-      ).all();
-      for (const row of perSessionModel) {
-        const tot = sessionTotals.get(row.adw_id);
-        if (!tot || tot.tokens <= 0) continue;
-        modelShare.set(row.model, (modelShare.get(row.model) ?? 0) + tot.cost * (Number(row.tokens) / tot.tokens));
+      if (has("agent_sessions")) {
+        const modelRows = db.query<{ model: string; tokens: number; cost: number; n: number }, []>(
+          `SELECT ag.model model, SUM(e.tokens) tokens,
+                  SUM(json_extract(e.payload_json, '$.cost')) cost, COUNT(DISTINCT e.adw_id) n
+             FROM events e
+             JOIN phases p ON p.phase_id = e.phase_id
+             JOIN agent_sessions ag ON ag.adw_id = e.adw_id AND ag.agent = p.owner
+            WHERE e.type = 'agent_end' AND e.tokens IS NOT NULL AND ag.model IS NOT NULL
+            GROUP BY ag.model`,
+        ).all();
+        const modelShare = new Map<string, number>();
+        const perSessionModel = db.query<{ adw_id: string; model: string; tokens: number }, []>(
+          `SELECT e.adw_id, ag.model model, SUM(e.tokens) tokens
+             FROM events e
+             JOIN phases p ON p.phase_id = e.phase_id
+             JOIN agent_sessions ag ON ag.adw_id = e.adw_id AND ag.agent = p.owner
+            WHERE e.type = 'agent_end' AND e.tokens IS NOT NULL AND ag.model IS NOT NULL
+            GROUP BY e.adw_id, ag.model`,
+        ).all();
+        for (const row of perSessionModel) {
+          const tot = sessionTotals.get(row.adw_id);
+          if (!tot || tot.tokens <= 0) continue;
+          modelShare.set(row.model, (modelShare.get(row.model) ?? 0) + tot.cost * (Number(row.tokens) / tot.tokens));
+        }
+        for (const row of modelRows) {
+          models.push({
+            model: row.model,
+            tokens: Number(row.tokens ?? 0),
+            sessions: row.n,
+            cost_actual: Number(row.cost ?? 0),
+            cost_share: modelShare.get(row.model) ?? 0,
+          });
+        }
+        models.sort((a, b) => b.cost_actual - a.cost_actual);
       }
-      for (const row of modelRows) {
-        models.push({
-          model: row.model,
-          tokens: Number(row.tokens ?? 0),
-          sessions: row.n,
-          cost_actual: Number(row.cost ?? 0),
-          cost_share: modelShare.get(row.model) ?? 0,
-        });
-      }
-      models.sort((a, b) => b.cost_actual - a.cost_actual);
 
       // merge agent_sessions metadata (model, sessions, context_tokens) for each role.
       // Model = most recent agent_sessions row per role (MAX(last_used_at)); a tie
@@ -334,7 +336,7 @@ export function computeStatus(dbPath: string, root: string, name: string, window
                 COALESCE(SUM(total_cost),0) cost, COALESCE(SUM(total_tokens),0) tokens,
                 SUM(status='success') success, SUM(status='fail') fail
            FROM sessions
-          WHERE started_at IS NOT NULL AND date(started_at) >= ? AND COALESCE(archived,0)=0
+          WHERE started_at IS NOT NULL AND date(started_at) >= ?
           GROUP BY day ORDER BY day ASC`,
       ).all(cutoff);
       for (const row of rows) {

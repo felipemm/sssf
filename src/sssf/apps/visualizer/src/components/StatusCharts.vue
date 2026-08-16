@@ -1,135 +1,111 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { areaY, barY, defineChart, lineY } from '@tanstack/charts'
+import { scaleLinear } from '@tanstack/charts/scales/linear'
+import { scalePoint } from '@tanstack/charts/scales/point'
+import { tooltip } from '@tanstack/charts/tooltip'
+import { Chart } from '@tanstack/charts/vue'
 import type { StatusTrendBucket } from '../lib/api'
-import { fmtCost, fmtTokens } from '../lib/format'
 
+// Status-page trends, rendered with TanStack Charts (v0.14) — sssf palette:
+// runs purple · cost cyan · success-rate green · tokens blue.
 const props = defineProps<{ buckets: StatusTrendBucket[] }>()
 
-// Extra headroom (PAD) so value labels sit above the tallest bar/point.
-const W = 300
-const H = 96
-const PAD = 12
-
-function max(vals: number[]): number {
-  return Math.max(1, ...vals)
-}
-
-// Label every point for small windows; thin out as bars get crowded.
-// The most recent bucket is always labelled.
-const step = computed(() =>
-  props.buckets.length <= 14 ? 1 : props.buckets.length <= 45 ? 2 : 3,
-)
-const lab = (i: number): boolean =>
-  i % step.value === 0 || i === props.buckets.length - 1
-
-// runs/day — bars
-const runBars = computed(() => {
-  const vals = props.buckets.map((b) => b.runs)
-  const m = max(vals)
-  return props.buckets.map((b, i) => {
-    const h = (b.runs / m) * (H - PAD * 2)
-    return {
-      x: PAD + (i * (W - PAD * 2)) / props.buckets.length,
-      w: Math.max(2, (W - PAD * 2) / props.buckets.length - 2),
-      y: H - PAD - h,
-      h,
-      day: b.day,
-      runs: b.runs,
-      lab: lab(i),
-    }
-  })
-})
-
-// cost/day — area
-const costArea = computed(() => {
-  const vals = props.buckets.map((b) => b.cost)
-  const m = max(vals)
-  const pts = props.buckets.map((b, i) => {
-    const x = PAD + (i * (W - PAD * 2)) / Math.max(1, props.buckets.length - 1)
-    const y = H - PAD - (b.cost / m) * (H - PAD * 2)
-    return { x, y, day: b.day, cost: b.cost, lab: lab(i) }
-  })
-  const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
-  const area = pts.length
-    ? `${line} L${pts[pts.length - 1]!.x.toFixed(1)},${H - PAD} L${pts[0]!.x.toFixed(1)},${H - PAD} Z`
-    : ''
-  return { line, area, pts }
-})
-
-// success-rate/day — line (rate of finished runs that succeeded)
-const rateLine = computed(() => {
-  const pts = props.buckets.map((b, i) => {
-    const fin = b.success + b.fail
-    const rate = fin > 0 ? b.success / fin : 0
-    const x = PAD + (i * (W - PAD * 2)) / Math.max(1, props.buckets.length - 1)
-    const y = H - PAD - rate * (H - PAD * 2)
-    return { x, y, day: b.day, rate: Math.round(rate * 100), lab: lab(i) }
-  })
-  const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
-  return { line, pts }
-})
-
-// tokens/day — bars
-const tokenBars = computed(() => {
-  const vals = props.buckets.map((b) => b.tokens)
-  const m = max(vals)
-  return props.buckets.map((b, i) => {
-    const h = (b.tokens / m) * (H - PAD * 2)
-    return {
-      x: PAD + (i * (W - PAD * 2)) / props.buckets.length,
-      w: Math.max(2, (W - PAD * 2) / props.buckets.length - 2),
-      y: H - PAD - h,
-      h,
-      day: b.day,
-      tokens: b.tokens,
-      lab: lab(i),
-    }
-  })
-})
-
 const empty = computed(() => props.buckets.length === 0)
+
+const MARGIN = { left: 46, right: 12, top: 10, bottom: 26 } // y labels + rotated x labels get explicit room
+const xScale = () => scalePoint<string>().padding(0.3)
+// Taller charts + explicit tick config so bars and axis labels never overlap:
+// y labels thinned/spaced, x day labels rotated and collision-thinned.
+const xAxis = {
+  ticks: { spacing: 72 },
+  tickLabels: { rotate: -35, thin: { minGap: 6, priority: 'ends' as const } },
+}
+const yAxis = {
+  ticks: { spacing: 26 },
+  tickLabels: { thin: { minGap: 4 } },
+}
+const yLinear = { scale: scaleLinear, nice: true, grid: true, axis: yAxis }
+
+const runs = computed(() =>
+  defineChart({
+    marks: [barY(props.buckets, { id: 'runs', x: 'day', y: 'runs', fill: '#c89bff', fillOpacity: 0.85 })],
+    x: { scale: xScale, axis: xAxis },
+    y: yLinear,
+    tooltip,
+    margin: MARGIN,
+    clip: true,
+  }),
+)
+
+const cost = computed(() =>
+  defineChart({
+    marks: [
+      areaY(props.buckets, { id: 'cost-area', x: 'day', y: 'cost', fill: '#5ad2dd', fillOpacity: 0.16 }),
+      lineY(props.buckets, { id: 'cost', x: 'day', y: 'cost', stroke: '#5ad2dd', strokeWidth: 2 }),
+    ],
+    x: { scale: xScale, axis: xAxis },
+    y: yLinear,
+    tooltip,
+    margin: MARGIN,
+    clip: true,
+  }),
+)
+
+const rate = computed(() =>
+  defineChart({
+    marks: [
+      lineY(props.buckets, {
+        id: 'rate',
+        x: 'day',
+        y: (b) => (b.success + b.fail > 0 ? b.success / (b.success + b.fail) : 0),
+        stroke: '#4ade80',
+        strokeWidth: 2,
+      }),
+    ],
+    x: { scale: xScale, axis: xAxis },
+    y: { ...yLinear, tickFormat: (v: number) => `${Math.round(v * 100)}%` },
+    tooltip,
+    margin: MARGIN,
+    clip: true,
+  }),
+)
+
+const tokens = computed(() =>
+  defineChart({
+    marks: [barY(props.buckets, { id: 'tokens', x: 'day', y: 'tokens', fill: '#6cb6ff', fillOpacity: 0.85 })],
+    x: { scale: xScale, axis: xAxis },
+    y: yLinear,
+    tooltip,
+    margin: MARGIN,
+    clip: true,
+  }),
+)
 </script>
 
 <template>
   <div class="charts">
     <figure class="chart">
       <figcaption>runs / day</figcaption>
-      <svg v-if="!empty" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="runs per day">
-        <rect v-for="b in runBars" :key="b.day" :x="b.x" :y="b.y" :width="b.w" :height="b.h" rx="2" fill="var(--purple)" />
-        <text v-for="b in runBars.filter((x) => x.lab)" :key="'l' + b.day" :x="b.x + b.w / 2" :y="b.y - 4" class="val" text-anchor="middle">{{ b.runs }}</text>
-        <title v-for="b in runBars" :key="'t' + b.day">{{ b.day }}: {{ b.runs }} run(s)</title>
-      </svg>
+      <Chart v-if="!empty" :definition="runs" aria-label="runs per day" :aspect-ratio="2.0" />
       <div v-else class="chart-empty">no runs in window</div>
     </figure>
 
     <figure class="chart">
       <figcaption>cost / day</figcaption>
-      <svg v-if="!empty" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="cost per day">
-        <path v-if="costArea.area" :d="costArea.area" fill="rgba(34,211,238,0.15)" />
-        <path :d="costArea.line" fill="none" stroke="var(--cyan)" stroke-width="2" stroke-linejoin="round" />
-        <text v-for="p in costArea.pts.filter((x) => x.lab)" :key="'l' + p.day" :x="p.x" :y="p.y - 5" class="val" text-anchor="middle">{{ fmtCost(p.cost) }}</text>
-        <title v-for="p in costArea.pts" :key="'t' + p.day">{{ p.day }}: {{ fmtCost(p.cost) }}</title>
-      </svg>
+      <Chart v-if="!empty" :definition="cost" aria-label="cost per day" :aspect-ratio="2.0" />
       <div v-else class="chart-empty">no runs in window</div>
     </figure>
 
     <figure class="chart">
       <figcaption>success rate / day</figcaption>
-      <svg v-if="!empty" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="success rate per day">
-        <path :d="rateLine.line" fill="none" stroke="var(--green)" stroke-width="2" stroke-linejoin="round" />
-        <text v-for="p in rateLine.pts.filter((x) => x.lab)" :key="'l' + p.day" :x="p.x" :y="p.y - 5" class="val" text-anchor="middle">{{ p.rate }}%</text>
-        <title v-for="p in rateLine.pts" :key="'t' + p.day">{{ p.day }}: {{ p.rate }}%</title>
-      </svg>
+      <Chart v-if="!empty" :definition="rate" aria-label="success rate per day" :aspect-ratio="2.0" />
       <div v-else class="chart-empty">no finished runs in window</div>
     </figure>
 
     <figure class="chart">
       <figcaption>tokens / day</figcaption>
-      <svg v-if="!empty" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="tokens per day">
-        <rect v-for="b in tokenBars" :key="b.day" :x="b.x" :y="b.y" :width="b.w" :height="b.h" rx="2" fill="var(--blue)" />
-        <text v-for="b in tokenBars.filter((x) => x.lab)" :key="'l' + b.day" :x="b.x + b.w / 2" :y="b.y - 4" class="val" text-anchor="middle">{{ fmtTokens(b.tokens) }}</text>
-        <title v-for="b in tokenBars" :key="'t' + b.day">{{ b.day }}: {{ fmtTokens(b.tokens) }}</title>
-      </svg>
+      <Chart v-if="!empty" :definition="tokens" aria-label="tokens per day" :aspect-ratio="2.0" />
       <div v-else class="chart-empty">no runs in window</div>
     </figure>
   </div>
@@ -155,14 +131,23 @@ const empty = computed(() => props.buckets.length === 0)
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.chart svg {
-  width: 100%;
-  height: auto;
-  display: block;
+/* dark theme for the TanStack host: axis text inherits the host color, the
+   tooltip colors are driven by the ts-chart-tooltip-* custom properties. */
+.chart :deep(.ts-chart-host) {
+  color: var(--dim);
+  --ts-chart-tooltip-background: #0d1119;
+  --ts-chart-tooltip-border: 1px solid rgba(200, 155, 255, 0.4);
+  --ts-chart-tooltip-color: var(--text);
+  --ts-chart-tooltip-padding: 8px 10px;
+  --ts-chart-tooltip-border-radius: 8px;
+  --ts-chart-tooltip-font: 12px var(--sans);
 }
-.val {
-  font-size: 8px;
-  fill: var(--faint);
+.chart :deep(.ts-chart-host text) {
+  fill: var(--dim);
+}
+.chart :deep(.ts-chart-host .ts-chart-grid line),
+.chart :deep(.ts-chart-host [data-ts-chart-role='grid'] line) {
+  stroke: var(--border-soft);
 }
 .chart-empty {
   height: 84px;

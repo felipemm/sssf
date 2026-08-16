@@ -51,6 +51,8 @@ export interface SessionSummary extends Session {
   /** Full phase rows, ordered by seq — one dot each. */
   phases: Phase[];
   phase_count: number;
+  /** The originating ticket id ('jira:<key>' | 'internal:<uuid>'), when this run came from a ticket. */
+  ticket_id: string | null;
   /**
    * The session's agents, same shape and merge rules as SessionDetail.agents —
    * so an L1 card can color its per-agent dots without a request per card.
@@ -314,6 +316,7 @@ export interface CockpitKpis {
   sandboxWorktrees: number
   ticketsInFlight: number
   costTodayUsd: number
+  costTotalUsd: number
   healRunning: boolean
   healPid: number | null
   dockerOk: boolean
@@ -331,6 +334,7 @@ export interface CockpitProject {
   containers: number
   worktrees: number
   costTodayUsd: number
+  costTotalUsd: number
   lastActivity: string | null
   stale: boolean
 }
@@ -348,6 +352,8 @@ export interface HealSummary {
   pid: number | null
   logTail: string[]
   restarts: Record<string, number>
+  /** Recovery actions taken in the last 7 days (from heal-state.json). */
+  healed7d: number
 }
 
 export interface ActivityItem {
@@ -355,6 +361,11 @@ export interface ActivityItem {
   adwId: string
   ts: string
   event: string
+}
+
+export interface CockpitCompletedPoint {
+  date: string
+  count: number
 }
 
 export interface CockpitData {
@@ -365,6 +376,10 @@ export interface CockpitData {
   containers: CockpitContainer[]
   heal: HealSummary
   activity: ActivityItem[]
+  /** Per-hour completed-session counts, last 14 days (oldest first). */
+  completedHourly: CockpitCompletedPoint[]
+  /** Completed sessions before the 14-day window — the chart's cumulative baseline. */
+  completedBaseline: number
 }
 
 export interface ControlResult {

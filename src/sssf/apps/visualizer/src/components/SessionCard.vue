@@ -238,7 +238,10 @@ const hiddenRowCount = computed(() =>
     >
       <RotateCw :size="15" :stroke-width="2" />
     </button>
-    <span class="card-id">{{ session.adw_id }}</span>
+    <span class="card-head">
+      <span class="card-id">{{ session.adw_id }}</span>
+      <span v-if="session.ticket_id" class="card-ticket" :title="session.ticket_id">{{ session.ticket_id }}</span>
+    </span>
     <span class="card-adw" :title="session.adw_name ?? ''">{{ session.adw_name ?? '—' }}</span>
     <span class="card-req" :title="session.request ?? ''">{{ session.request }}</span>
 
@@ -293,13 +296,12 @@ const hiddenRowCount = computed(() =>
 <style scoped>
 .card {
   /* Uniform size: the grid fixes the width, this fixes the height — content
-     clamps and truncates rather than resizing the card. Grew by one 40px row
-     slot when the timeline went from three to four. */
-  height: 420px;
+     clamps and truncates rather than resizing the card. */
+  height: 296px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 20px 22px;
+  gap: 6px;
+  padding: 12px 14px;
   position: relative;          /* anchors the archive button */
   border: 1px solid var(--border-soft);
   border-radius: 16px;
@@ -377,18 +379,39 @@ const hiddenRowCount = computed(() =>
 
 /* Text rows must never absorb flex shrink — the fixed-height card squeezes
    overflow into .tl (which clips), not into the text. */
+.card-head {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
 .card-id {
   flex: none;
   font-family: var(--mono);
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--purple);
+}
+.card-ticket {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--amber);
+  background: rgba(232, 182, 74, 0.12);
+  border: 1px solid rgba(232, 182, 74, 0.35);
+  border-radius: 999px;
+  padding: 1px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
 }
 
 .card-adw {
   flex: none;
   font-family: var(--mono);
-  font-size: 16px;
+  font-size: 12px;
   color: var(--cyan);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -397,7 +420,7 @@ const hiddenRowCount = computed(() =>
 
 .card-req {
   flex: none;
-  font-size: 16px;
+  font-size: 12px;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -407,10 +430,9 @@ const hiddenRowCount = computed(() =>
 .tl {
   display: flex;
   flex-direction: column;
-  margin-top: 4px;
-  /* Fixed region: axis (28 + 6) + four 40px row slots, roster size or not.
-     Four slots is what lets three agents show alongside a "+N more" line. */
-  height: 194px;
+  margin-top: 2px;
+  /* Compact fixed region: axis + four tight row slots. */
+  height: 118px;
   flex: none;
   overflow: hidden;
 }

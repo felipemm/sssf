@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
-import { Archive, ChevronDown, ChevronRight, RefreshCw, RotateCw, Square } from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { Archive, ChevronDown, ChevronRight, Maximize2, Minimize2, RefreshCw, RotateCw, Square } from 'lucide-vue-next'
 import type { SessionSummary } from '../lib/types'
 import {
   archiveSession,
@@ -25,6 +25,7 @@ import TicketModal from './TicketModal.vue'
 const sessions = shallowRef<SessionSummary[]>([])
 const apiError = ref<string | null>(null)
 const loaded = ref(false)
+const ticketsLoaded = ref(false)
 
 let timer: ReturnType<typeof setInterval> | undefined
 let inflight = false
@@ -74,8 +75,8 @@ async function pullTickets() {
   if (!selectedProject.value) return      // adhoc mode has no project scope / backlog
   try {
     tickets.value = await fetchTickets()
-  } catch {
-    tickets.value = { enabled: false, tickets: [] }
+  } finally {
+    ticketsLoaded.value = true
   }
 }
 
@@ -89,13 +90,72 @@ async function onSync() {
   void pullTickets()
 }
 
+// ── shrink to fit ──────────────────────────────────────────────────────────
+// 'Shrink to fit' zooms the board out so every stage fits the viewport (no
+// horizontal scroll); off = the normal shape with horizontal scroll. Uses
+// transform: scale (not CSS zoom) so scrollWidth stays the unzoomed content
+// width — no circular measurement. A height-compensated wrapper keeps the
+// layout box in sync with the scaled content.
+// On page load the toggle is IGNORED: the board renders normally first. The
+// saved preference is applied only once the board is fully loaded (sessions +
+// tickets), so the fit measurement always sees the final column layout.
+let savedFit = false
+try { savedFit = localStorage.getItem('sssf:board-shrink-to-fit') === '1' } catch { /* private mode */ }
+const shrinkFit = ref<boolean>(false)
+const zoom = ref(1)
+const xOffset = ref(0)   // centering offset when shrunk: half the leftover width
+const naturalW = ref(0)  // the grid's content width (columns box = its content in fit mode)
+const naturalH = ref(0)
+const columnsEl = ref<HTMLElement | null>(null)
+const zoomWrapEl = ref<HTMLElement | null>(null)
+let resizeObs: ResizeObserver | undefined
+
+function computeZoom() {
+  const el = columnsEl.value
+  const wrap = zoomWrapEl.value
+  if (!el || !wrap) return
+  naturalW.value = el.scrollWidth
+  const avail = wrap.clientWidth
+  naturalH.value = el.offsetHeight
+  zoom.value = shrinkFit.value && naturalW.value > 0 ? Math.min(1, avail / naturalW.value) : 1
+  // equal margins on both sides: shift the scaled content by half the leftover
+  xOffset.value = shrinkFit.value && naturalW.value > 0
+    ? Math.max(0, (avail - naturalW.value * zoom.value) / 2) : 0
+}
+
+function toggleShrinkFit() {
+  shrinkFit.value = !shrinkFit.value
+  try { localStorage.setItem('sssf:board-shrink-to-fit', shrinkFit.value ? '1' : '0') } catch { /* private mode */ }
+  requestAnimationFrame(() => computeZoom())
+}
+
 onMounted(() => {
   void tick()
   void pullTickets()
   timer = setInterval(() => void tick(), 500)
+  resizeObs = new ResizeObserver(() => computeZoom())
+  if (zoomWrapEl.value) resizeObs.observe(zoomWrapEl.value)
+  computeZoom()
 })
 
+onBeforeUnmount(() => resizeObs?.disconnect())
 onUnmounted(() => clearInterval(timer))
+
+// Once sessions + tickets are loaded, apply the saved toggle (if any) and
+// measure — the first fit measurement therefore always sees the final layout.
+let appliedSaved = false
+watch([() => loaded.value, () => ticketsLoaded.value, () => columns.value.length], () => {
+  if (appliedSaved) {
+    // re-measure when the layout re-renders (ticketing toggle, column change)
+    if (shrinkFit.value) void nextTick(() => requestAnimationFrame(() => computeZoom()))
+    return
+  }
+  if (loaded.value && ticketsLoaded.value) {
+    appliedSaved = true
+    shrinkFit.value = savedFit
+    if (savedFit) void nextTick(() => requestAnimationFrame(() => computeZoom()))
+  }
+})
 
 const AGENT_STAGE: Record<string, string> = {
   planner: 'planning',
@@ -219,11 +279,25 @@ async function archive(s: SessionSummary, event: MouseEvent) {
   <div class="board">
     <div v-if="apiError" class="error-bar">api unreachable — retrying {{ apiError }}</div>
 
-    <div v-if="loaded && total" class="board-head dim">
-      {{ total }} runs · grouped by stage — click a card for its trace
+    <div class="board-head dim">
+      <span v-if="loaded && total">{{ total }} runs · grouped by stage — click a card for its trace</span>
+      <span v-else-if="loaded">no sessions yet — run an ADW to see it here</span>
+      <span v-else>loading sessions…</span>
+      <button
+        class="fit-btn"
+        type="button"
+        :aria-pressed="shrinkFit"
+        :title="shrinkFit ? 'Restore — stages use horizontal scroll' : 'Shrink to fit — zoom out so every stage fits the viewport'"
+        @click="toggleShrinkFit"
+      >
+        <Maximize2 v-if="!shrinkFit" :size="14" :stroke-width="2" />
+        <Minimize2 v-else :size="14" :stroke-width="2" />
+        <span>{{ shrinkFit ? 'fit' : 'shrink' }}</span>
+      </button>
     </div>
 
-    <div class="columns">
+    <div ref="zoomWrapEl" class="board-zoom" :class="{ fit: shrinkFit }" :style="shrinkFit ? { height: `${Math.round(naturalH * zoom)}px` } : undefined">
+    <div ref="columnsEl" class="columns" :class="{ fit: shrinkFit }" :style="shrinkFit ? { width: `${naturalW}px`, transform: `translateX(${xOffset}px) scale(${zoom})`, transformOrigin: 'top left' } : undefined">
       <section v-for="col in columns" :key="col.key" class="col">
         <div class="col-head">
           <button
@@ -321,6 +395,7 @@ async function archive(s: SessionSummary, event: MouseEvent) {
         </div>
       </section>
     </div>
+    </div>
 
     <TicketModal
       v-if="activeTicket"
@@ -343,6 +418,43 @@ async function archive(s: SessionSummary, event: MouseEvent) {
 .board-head {
   padding: 16px 24px 0;
   font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.fit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(11, 15, 24, 0.9);
+  color: var(--dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+.fit-btn:hover {
+  color: var(--text);
+  border-color: rgba(200, 155, 255, 0.5);
+}
+.fit-btn[aria-pressed='true'] {
+  color: var(--purple);
+  background: rgba(200, 155, 255, 0.14);
+  border-color: rgba(200, 155, 255, 0.45);
+}
+
+/* shrink-to-fit wrapper: clips the scaled content; the columns inside keep
+   their natural layout so scrollWidth/offsetHeight measure unzoomed. */
+.board-zoom.fit {
+  overflow: hidden;
+}
+/* In fit mode the columns' own horizontal scroll must go away — it is
+   computed on the UNtransformed layout, so it would linger (scaled) even
+   though the zoomed content fits the wrapper. */
+.columns.fit {
+  overflow: visible;
 }
 
 .error-bar {
@@ -356,11 +468,15 @@ async function archive(s: SessionSummary, event: MouseEvent) {
 }
 
 .columns {
+  /* Stages stay side-by-side (never wrap); horizontal scroll when the
+     viewport is too narrow for the column minimums. */
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(280px, 1fr);
   gap: 18px;
   padding: 16px 24px 28px;
   align-items: start;
+  overflow-x: auto;
 }
 
 .col {

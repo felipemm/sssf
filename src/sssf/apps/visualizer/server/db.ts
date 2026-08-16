@@ -130,6 +130,16 @@ export class SssfDb {
    * NULL for the rest of the process even after the data arrived. Once seen,
    * a column never goes away, so it latches.
    */
+  private hasTable(table: string): boolean {
+    return (
+      this.db
+        .query<{ n: number }, [string]>(
+          "SELECT COUNT(*) n FROM sqlite_master WHERE type='table' AND name=?",
+        )
+        .get(table)?.n ?? 0
+    ) > 0;
+  }
+
   private hasColumn(table: string, column: string): boolean {
     const key = `${table}.${column}`;
     if (!this.columnCache.get(key)) {
@@ -210,6 +220,18 @@ export class SssfDb {
     // dots are colored per agent — without this it would be one request per card.
     const agentsByAdw = this.agentsFor(ids);
 
+    // each run's ticket id (tickets are provenance — one ticket per run)
+    let ticketByAdw = new Map<string, string>();
+    try {
+      const ticketRows = this.db
+        .query<{ adw_id: string; id: string }, string[]>(
+          `SELECT adw_id, id FROM tickets WHERE adw_id IN (${placeholders})`)
+        .all(...ids);
+      ticketByAdw = new Map(ticketRows.map((t) => [t.adw_id, t.id]));
+    } catch {
+      /* db predates the tickets table — no ticket ids */
+    }
+
     const summaries: SessionSummary[] = [];
     for (const session of rows) {
       const phases = byAdw.get(session.adw_id) ?? [];
@@ -218,6 +240,7 @@ export class SssfDb {
           phases,
           phase_count: phases.length,
           agents: agentsByAdw.get(session.adw_id) ?? [],
+          ticket_id: ticketByAdw.get(session.adw_id) ?? null,
         }),
       );
     }
@@ -270,6 +293,10 @@ export class SssfDb {
       if (list) list.push(agent);
       else byAdw.set(adwId, [agent]);
     };
+
+    // a db that predates agent_sessions (or never ran an agent session) has no
+    // per-agent metadata — return an empty roster instead of throwing
+    if (!this.hasTable("agent_sessions")) return byAdw;
 
     const color = this.optionalColumn("agent_sessions", "color");
     const ctxUsed = this.optionalColumn("agent_sessions", "context_tokens");
