@@ -147,3 +147,62 @@ Rules:
 - No per-agent cost split (not derivable).
 - No CSV/export, no cross-project aggregate view.
 - No new DB columns or schema changes.
+
+---
+
+# Revision 2 (2026-08-15): contributions, cost attribution, git stats
+
+Extensions to the status page, same architecture (one aggregate `/status` endpoint + hand-rolled client).
+
+## Cost per agent & per model (actual + token-share)
+
+**Discovery:** `agent_end` events carry the real provider billing per call
+(`payload_json.cost`) and full usage (`payload_json.usage.total_tokens`;
+also mirrored in the `events.tokens` column). Verified against inkwell:
+`SUM(agent_end cost)` == `SUM(sessions.total_cost)` exactly, and
+`SUM(agent_end tokens)` per session == `sessions.total_tokens` exactly.
+
+- **cost_actual per agent** = SUM(`json_extract(payload_json,'$.cost')`) over
+  `agent_end` events, grouped by the phase owner (JOIN phases).
+- **cost_actual per model** = same, grouped by model via `agent_sessions`
+  (JOIN on `adw_id` + phase owner = agent).
+- **tokens per agent/model** = SUM(`events.tokens`) over `agent_end` events,
+  same joins.
+- **cost_share (token-share estimate)** = per session, `session.total_cost ×
+  (agent tokens / session total_tokens)`, summed — shown alongside to expose
+  price-per-token differences (e.g. gpt-5.5: ~19% of tokens, ~93% of cost).
+- `agents[]` becomes **dynamic** — one entry per role present in the data
+  (canonical four + extras like `scout`), each with `{role, model, sessions,
+  context_tokens, tokens, cost_actual, cost_share}`.
+- New `models[]` — one entry per model `{model, tokens, sessions, cost_actual,
+  cost_share}`.
+- **Footnote** (client, under the cost section): *"actual = summed provider
+  billing per agent call; token-share = each run's cost split by token count —
+  the gap reflects models with different $/token."*
+- No embedded price table (actual billing supersedes it).
+
+## Git repo stats + contributions heatmap
+
+New `server/git.ts` — shells `git -C <root>` (Bun.spawnSync; same permission
+model as the ticket routes — fixed commands, no user input).
+
+- `gitStats(root)` → `{ commits, commits_30d, commits_year, contributors:
+  [{name, commits}], branches, current_branch, last_commit: {date, subject} |
+  null, dirty, first_commit: date | null }` — all nullable/zeroed when the
+  root is not a git repo.
+- `contributions(root)` → last 364 days: `[{date: 'YYYY-MM-DD', count}]`
+  (commits/day from `git log --since=1 year`).
+- Rendered as a **Repo KPI card** (commits, contributors, branches, last
+  commit, dirty badge, repo age) and a **GitHub-style contributions heatmap**
+  (52 weeks × 7 days, intensity buckets 0/1-2/3-5/6-9/10+, hover tooltip,
+  month labels) — hand-rolled, no deps.
+
+## Layout & fixes
+
+- **Full width:** remove `max-width: 1100px` from `.status-page`; grids span
+  the viewport (padding retained).
+- **Model overflow:** agent card `.model` gets `min-width: 0` on flex children
+  + proper ellipsis so model names truncate instead of overflowing.
+- Page order: main info strip → KPI cards (Runs | Cost | Quality | Repo) →
+  Agents & Models side-by-side → Trends → Contributions heatmap → Tickets →
+  footnote under the cost section.
