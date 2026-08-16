@@ -5,13 +5,22 @@ import { fmtCost, fmtTokens } from '../lib/format'
 
 const props = defineProps<{ buckets: StatusTrendBucket[] }>()
 
+// Extra headroom (PAD) so value labels sit above the tallest bar/point.
 const W = 300
-const H = 84
-const PAD = 4
+const H = 96
+const PAD = 12
 
 function max(vals: number[]): number {
   return Math.max(1, ...vals)
 }
+
+// Label every point for small windows; thin out as bars get crowded.
+// The most recent bucket is always labelled.
+const step = computed(() =>
+  props.buckets.length <= 14 ? 1 : props.buckets.length <= 45 ? 2 : 3,
+)
+const lab = (i: number): boolean =>
+  i % step.value === 0 || i === props.buckets.length - 1
 
 // runs/day — bars
 const runBars = computed(() => {
@@ -26,6 +35,7 @@ const runBars = computed(() => {
       h,
       day: b.day,
       runs: b.runs,
+      lab: lab(i),
     }
   })
 })
@@ -37,7 +47,7 @@ const costArea = computed(() => {
   const pts = props.buckets.map((b, i) => {
     const x = PAD + (i * (W - PAD * 2)) / Math.max(1, props.buckets.length - 1)
     const y = H - PAD - (b.cost / m) * (H - PAD * 2)
-    return { x, y, day: b.day, cost: b.cost }
+    return { x, y, day: b.day, cost: b.cost, lab: lab(i) }
   })
   const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
   const area = pts.length
@@ -53,7 +63,7 @@ const rateLine = computed(() => {
     const rate = fin > 0 ? b.success / fin : 0
     const x = PAD + (i * (W - PAD * 2)) / Math.max(1, props.buckets.length - 1)
     const y = H - PAD - rate * (H - PAD * 2)
-    return { x, y, day: b.day, rate: Math.round(rate * 100) }
+    return { x, y, day: b.day, rate: Math.round(rate * 100), lab: lab(i) }
   })
   const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
   return { line, pts }
@@ -72,6 +82,7 @@ const tokenBars = computed(() => {
       h,
       day: b.day,
       tokens: b.tokens,
+      lab: lab(i),
     }
   })
 })
@@ -85,6 +96,7 @@ const empty = computed(() => props.buckets.length === 0)
       <figcaption>runs / day</figcaption>
       <svg v-if="!empty" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="runs per day">
         <rect v-for="b in runBars" :key="b.day" :x="b.x" :y="b.y" :width="b.w" :height="b.h" rx="2" fill="var(--purple)" />
+        <text v-for="b in runBars.filter((x) => x.lab)" :key="'l' + b.day" :x="b.x + b.w / 2" :y="b.y - 4" class="val" text-anchor="middle">{{ b.runs }}</text>
         <title v-for="b in runBars" :key="'t' + b.day">{{ b.day }}: {{ b.runs }} run(s)</title>
       </svg>
       <div v-else class="chart-empty">no runs in window</div>
@@ -95,6 +107,7 @@ const empty = computed(() => props.buckets.length === 0)
       <svg v-if="!empty" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="cost per day">
         <path v-if="costArea.area" :d="costArea.area" fill="rgba(34,211,238,0.15)" />
         <path :d="costArea.line" fill="none" stroke="var(--cyan)" stroke-width="2" stroke-linejoin="round" />
+        <text v-for="p in costArea.pts.filter((x) => x.lab)" :key="'l' + p.day" :x="p.x" :y="p.y - 5" class="val" text-anchor="middle">{{ fmtCost(p.cost) }}</text>
         <title v-for="p in costArea.pts" :key="'t' + p.day">{{ p.day }}: {{ fmtCost(p.cost) }}</title>
       </svg>
       <div v-else class="chart-empty">no runs in window</div>
@@ -104,6 +117,7 @@ const empty = computed(() => props.buckets.length === 0)
       <figcaption>success rate / day</figcaption>
       <svg v-if="!empty" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="success rate per day">
         <path :d="rateLine.line" fill="none" stroke="var(--green)" stroke-width="2" stroke-linejoin="round" />
+        <text v-for="p in rateLine.pts.filter((x) => x.lab)" :key="'l' + p.day" :x="p.x" :y="p.y - 5" class="val" text-anchor="middle">{{ p.rate }}%</text>
         <title v-for="p in rateLine.pts" :key="'t' + p.day">{{ p.day }}: {{ p.rate }}%</title>
       </svg>
       <div v-else class="chart-empty">no finished runs in window</div>
@@ -113,6 +127,7 @@ const empty = computed(() => props.buckets.length === 0)
       <figcaption>tokens / day</figcaption>
       <svg v-if="!empty" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="tokens per day">
         <rect v-for="b in tokenBars" :key="b.day" :x="b.x" :y="b.y" :width="b.w" :height="b.h" rx="2" fill="var(--blue)" />
+        <text v-for="b in tokenBars.filter((x) => x.lab)" :key="'l' + b.day" :x="b.x + b.w / 2" :y="b.y - 4" class="val" text-anchor="middle">{{ fmtTokens(b.tokens) }}</text>
         <title v-for="b in tokenBars" :key="'t' + b.day">{{ b.day }}: {{ fmtTokens(b.tokens) }}</title>
       </svg>
       <div v-else class="chart-empty">no runs in window</div>
@@ -144,6 +159,10 @@ const empty = computed(() => props.buckets.length === 0)
   width: 100%;
   height: auto;
   display: block;
+}
+.val {
+  font-size: 8px;
+  fill: var(--faint);
 }
 .chart-empty {
   height: 84px;

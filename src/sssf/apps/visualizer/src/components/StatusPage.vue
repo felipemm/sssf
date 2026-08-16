@@ -116,7 +116,20 @@ watch(projectsLoaded, () => {
               <dt>uncommitted</dt><dd>{{ status.git.dirty }}<span class="x" v-if="status.git.dirty">dirty</span></dd>
             </dl>
           </section>
-          <section class="kpi kpi-wide">
+          <section v-if="status.tickets" class="kpi">
+            <h2 class="kpi-title">tickets</h2>
+            <dl>
+              <dt>backlog</dt><dd>{{ status.tickets.backlog }}</dd>
+              <dt>running</dt><dd>{{ status.tickets.running }}</dd>
+              <dt>done</dt><dd>{{ status.tickets.done }}</dd>
+              <dt>failed</dt><dd>{{ status.tickets.failed }}</dd>
+            </dl>
+          </section>
+        </div>
+
+        <!-- agent & model costs side by side -->
+        <div class="cost-row">
+          <section class="kpi">
             <h2 class="kpi-title">agents — cost</h2>
             <table class="cost-tbl">
               <thead><tr><th>role</th><th>model</th><th>tokens</th><th>actual</th><th>share</th></tr></thead>
@@ -132,7 +145,7 @@ watch(projectsLoaded, () => {
             </table>
           </section>
 
-          <section class="kpi kpi-wide">
+          <section class="kpi">
             <h2 class="kpi-title">models — cost</h2>
             <table class="cost-tbl">
               <thead><tr><th>model</th><th>tokens</th><th>runs</th><th>actual</th><th>share</th></tr></thead>
@@ -175,16 +188,6 @@ watch(projectsLoaded, () => {
           <ContributionsHeatmap :days="status.contributions" />
         </section>
 
-        <!-- tickets -->
-        <section v-if="status.tickets" class="tickets">
-          <h2 class="kpi-title">tickets</h2>
-          <div class="ticket-row">
-            <span class="t-cell">backlog <b>{{ status.tickets.backlog }}</b></span>
-            <span class="t-cell">running <b>{{ status.tickets.running }}</b></span>
-            <span class="t-cell">done <b>{{ status.tickets.done }}</b></span>
-            <span class="t-cell">failed <b>{{ status.tickets.failed }}</b></span>
-          </div>
-        </section>
       </template>
     </template>
 
@@ -239,7 +242,12 @@ watch(projectsLoaded, () => {
   gap: 14px;
   margin-bottom: 20px;
 }
-.kpi-wide { grid-column: span 2; }
+.cost-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
 .cost-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .cost-tbl th {
   text-align: left; font-weight: 500; color: var(--faint);
@@ -269,13 +277,6 @@ watch(projectsLoaded, () => {
   padding: 5px 12px; font-size: 13px; cursor: pointer;
 }
 .seg button.on { background: rgba(167,139,250,0.15); color: var(--purple); }
-.tickets {
-  padding: 14px 16px; border: 1px solid var(--border-soft);
-  border-radius: 12px; background: var(--surface);
-}
-.ticket-row { display: flex; gap: 18px; flex-wrap: wrap; }
-.t-cell { font-size: 13px; color: var(--faint); }
-.t-cell b { color: var(--text); font-size: 16px; margin-left: 4px; }
 .board-empty {
   padding: 40px 0; text-align: center; color: var(--faint); font-size: 14px;
 }
