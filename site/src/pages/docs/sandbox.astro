@@ -1,0 +1,88 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+
+const description =
+  'Parallel-safe isolation: every run gets its own git worktree + container, torn down automatically when the ADW exits.';
+---
+<DocsLayout
+  title="Sandboxed runs"
+  description={description}
+  current="/docs/sandbox"
+  prev={{ href: '/docs/run-semantics', label: 'Run semantics' }}
+  next={{ href: '/docs/healer', label: 'Healer' }}
+>
+  <p>
+    Each run executes in its own sandbox: a git worktree (branch
+    <code class="hl">sssf/&lt;adw_id&gt;</code>) bind-mounted into a
+    <code class="hl">sssf-runner</code> container. Multiple runs proceed in parallel without ever
+    touching the project tree. When the ADW exits (success or fail), a monitor tears the sandbox
+    down automatically (container + worktree).
+  </p>
+
+  <h2>Why sandboxes</h2>
+  <ul>
+    <li><strong>Parallel-safe by construction.</strong> The cwd is never touched; each run works on
+      its own branch and its own filesystem.</li>
+    <li><strong>The branch is the deliverable.</strong> <code class="hl">sssf/&lt;adw_id&gt;</code>
+      survives after teardown: you merge it or open a PR with your own tooling.</li>
+    <li><strong>Agents cannot touch what is not theirs.</strong> The container + worktree boundary
+      is isolation that <code class="hl">writes:</code> cannot provide.</li>
+  </ul>
+
+  <h2>How a run is sandboxed</h2>
+  <pre><code>1. adw_id minted (or reused on restart)
+2. worktree created on branch sssf/&lt;adw_id&gt;
+3. sssf-runner container spawned, worktree bind-mounted in
+4. ADW runs its normal stages inside the container
+5. on exit (success or fail), the monitor tears down: container + worktree
+6. branch sssf/&lt;adw_id&gt; remains as the deliverable</code></pre>
+  <p>
+    Each run keeps its own per-run db; a <strong>forward-only sync</strong> streams progress into
+    the project db (<code class="hl">adws/adw_data/sssf.db</code>) without lock fights, so the
+    visualizer shows live progress while the run is still inside its container.
+  </p>
+
+  <h2>Commands</h2>
+  <pre><code>sssf sandbox build              # build/refresh the sssf-runner image
+sssf sandbox list               # show sandboxes (adw_id · status · branch · container · worktree)
+sssf sandbox prune &lt;adw_id&gt;     # delete a resolved run's branch + leftovers
+sssf sandbox prune --all        # delete every sandbox</code></pre>
+  <p>
+    Sandbox state lives under <code class="hl">~/.sssf/sandboxes/&lt;project&gt;/</code> (override
+    the root with <code class="hl">SSSF_HOME</code>).
+  </p>
+  <div class="note" data-impeccable-ignore="side-tab">
+    <strong>Docker is required for sandboxed runs.</strong> <span class="cmd">sssf run</span>
+    checks availability first; if docker is not running it suggests
+    <span class="cmd">sssf sandbox build</span> or <code class="hl">--no-sandbox</code>.
+  </div>
+
+  <h2>Running without a sandbox</h2>
+  <p>
+    <code class="hl">--no-sandbox</code> runs the ADW in the current directory instead: the
+    debugging path for iterating on a chain without container round-trips. Sandboxing is also
+    gated by <code class="hl">sandbox.enabled</code> in <code class="hl">sssf.config.yaml</code>.
+  </p>
+
+  <h2>Run control in the sandbox world</h2>
+  <table>
+    <thead>
+      <tr><th>Command</th><th>What happens</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code class="hl">sssf run stop &lt;adw_id&gt;</code></td><td>Kill the live run: container removed, worktree removed, run marked failed.</td></tr>
+      <tr><td><code class="hl">sssf run restart &lt;adw_id&gt;</code></td><td>Re-run the session on its existing <code class="hl">sssf/&lt;adw_id&gt;</code> branch, with the original request as the prompt.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Failure handling</h2>
+  <ul>
+    <li><strong>Spawn failure</strong> (container or worktree fails to come up): the sandbox is
+      aborted (stuck container + worktree removed) and the run reports the error cleanly.</li>
+    <li><strong>Dead sandbox mid-run</strong> (container or worktree gone while the session is
+      <code class="hl">running</code>): the <a href="/sssf/docs/healer">healer</a> finalizes the
+      run as failed.</li>
+    <li><strong>Torn terminal state</strong> (monitor crashed before teardown): the healer syncs
+      the per-run db forward and tears the sandbox down.</li>
+  </ul>
+</DocsLayout>

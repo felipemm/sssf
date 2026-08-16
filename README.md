@@ -6,6 +6,8 @@ acceptance; coding agents (Pi) work inside bounded phases; typed JSON envelopes
 carry context between them; everything streams into SQLite for a polled
 visualizer. **Agent proposes, code disposes.**
 
+> **Website:** [felipemm.github.io/sssf](https://felipemm.github.io/sssf) — the homepage and full documentation (Astro, in `site/`).
+
 > **Origin:** a repackaging of [Super Simple Software Factory](https://github.com/disler/super-simple-software-factory)
 > by [IndyDevDan](https://github.com/disler) — the engine and visualizer are ported from that
 > project's skill; this repo ships it as a globally installed CLI. MIT, same license.

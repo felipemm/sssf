@@ -1,0 +1,28 @@
+---
+interface Lane {
+  kind: string;
+  name: string;
+  chip: string;
+  cls: string;
+}
+const lanes: Lane[] = [
+  { kind: 'engineer', name: 'request', chip: 'you', cls: 'lane--code' },
+  { kind: 'agent', name: 'planner', chip: '#a78bfa · kimi-k3', cls: 'lane--planner' },
+  { kind: 'code', name: 'commit_plan', chip: 'git', cls: 'lane--code' },
+  { kind: 'agent', name: 'builder', chip: '#22d3ee · gemini-3.6-flash', cls: 'lane--builder' },
+  { kind: 'code', name: 'test', chip: 'pytest', cls: 'lane--code' },
+  { kind: 'agent', name: 'reviewer', chip: '#fb7185 · gpt-5.6-terra', cls: 'lane--reviewer' },
+  { kind: 'code', name: 'commit_build', chip: 'git', cls: 'lane--code' },
+];
+---
+<div class="lanes" role="img" aria-label="A phase waterfall: engineer, agent, and code lanes">
+  {
+    lanes.map((l) => (
+      <div class={`lane ${l.cls}`}>
+        <span class="lane__kind">{l.kind}</span>
+        <span class="lane__name">{l.name}</span>
+        <span class="lane__chip">{l.chip}</span>
+      </div>
+    ))
+  }
+</div>

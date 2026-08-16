@@ -1,0 +1,179 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+
+const description =
+  'How the factory is put together: the engine, the command layer, and the operational subsystems: sandbox, healer, ticketing, registry.';
+---
+<DocsLayout
+  title="Architecture"
+  description={description}
+  current="/docs/architecture"
+  prev={{ href: '/docs/core-concepts', label: 'Core concepts' }}
+  next={{ href: '/docs/configuration', label: 'Configuration' }}
+>
+  <p>
+    The system is a thin dispatch layer over focused modules. The CLI entry point
+    (<code class="hl">src/sssf/cli.py</code>) only parses arguments and delegates; the logic lives
+    in <code class="hl">src/sssf/commands/</code>, the engine lives in
+    <code class="hl">src/sssf/adw_modules/</code>, and the operational subsystems
+    (sandbox, healer, ticketing, registry) sit beside them.
+  </p>
+
+  <pre><code>src/sssf/
+├── cli.py                 # argparse dispatch only
+├── registry.py            # ~/.sssf/projects.json: the global project registry
+├── project.py             # find_project / data_dir resolution
+├── obs.py                 # read-side queries over the WAL trace db
+├── sandbox.py             # worktree + container lifecycle (spawn, monitor, teardown)
+├── healer.py              # self-healing monitor daemon
+├── ticketing.py           # ticket schema, providers, sync
+├── adw_modules/           # the engine: everything ADWs import
+│   ├── session.py         #   session lifecycle + tracer
+│   ├── runner.py          #   phase execution, retries, gates
+│   ├── agents.py          #   config load/validate, roster resolution
+│   ├── agent_pi.py        #   the pi coding-agent adapter (tail JSONL -> events)
+│   ├── agent_cc.py        #   claude_code adapter (schema-valid, stubbed in v1)
+│   ├── data_types.py      #   ALL typed envelopes, params, config models
+│   ├── gates.py           #   deterministic acceptance gates
+│   ├── quality.py         #   known-command checks (lint / typecheck / build / test)
+│   ├── git_helper.py      #   commits, diffs, baseline capture
+│   ├── changes.py         #   change capture (what the working tree contains)
+│   ├── permissions.py     #   post-call enforcement of writes: + protected_files
+│   ├── prompts.py         #   prompt assembly from prompt_engineering/ templates
+│   ├── tracer.py          #   event insertion into the trace db
+│   ├── console.py         #   rich console rendering
+│   └── utils.py
+├── commands/              # one module per CLI group
+│   ├── init.py  run.py  obs_cmds.py  viz.py  sweep.py
+│   ├── sandbox_cmd.py  heal.py  ticket.py  misc.py
+└── templates/             # EXACTLY what `sssf init` stamps into a project
+    ├── adws/adw_*.py              # the starter chains
+    ├── sssf.config.yaml           # the starter roster
+    ├── prompt_engineering/&#123;agent&#125;/
+    ├── harness_engineering/       # pi extensions
+    └── env.sample</code></pre>
+
+  <h2>The engine: adw_modules</h2>
+  <p>
+    ADW scripts stay thin on purpose: all low-level logic lives in
+    <code class="hl">adw_modules/</code>. The most important pieces:
+  </p>
+
+  <h3>session.py: lifecycle + trace</h3>
+  <p>
+    <code class="hl">session.ensure(cfg, adw_id)</code> pins or creates the run session: same
+    dirs, same <code class="hl">context_handoff/</code>, and each agent resumes its existing
+    context window through <code class="hl">agent_map.json</code> instead of starting cold. That is
+    how you chain workflows: supply the same <code class="hl">--adw-id</code> and the run joins
+    that session.
+  </p>
+
+  <h3>runner.py: phases, retries, gates</h3>
+  <p>
+    The <code class="hl">run.phase(PhaseParams(...))</code> context manager executes the phase,
+    flips its status, records it, and runs the declared gates. Retries re-prompt the same session
+    with a correction; they never restart cold.
+  </p>
+
+  <h3>agents.py: the roster</h3>
+  <p>
+    Loads <code class="hl">sssf.config.yaml</code>, merges per-agent overrides over
+    <code class="hl">defaults</code>, and validates that every name in
+    <code class="hl">REQUIRED_AGENTS</code> exists and every model is written
+    <code class="hl">provider/model-id</code> before anything spawns.
+  </p>
+
+  <h3>agent_pi.py: the pi adapter</h3>
+  <p>
+    The v1 coding agent is <span class="cmd">pi</span>. The adapter builds the exact pi invocation
+    (mode, JSON output, provider, model, session id), spawns it, and tails its JSONL stdout line by
+    line, folding each event into the trace while the agent is still working. Pi announces a tool
+    call across three raw events; the interface folds them into exactly one
+    <code class="hl">tool_call</code> row per real call.
+  </p>
+
+  <h3>permissions.py: writes is the boundary</h3>
+  <p>
+    After every agent call, the repo&rsquo;s state is compared against the agent&rsquo;s declared
+    <code class="hl">writes:</code> and <code class="hl">defaults.protected_files</code>.
+    Unauthorized changes are rolled back and the phase dies. A read-only agent is read-only with
+    respect to the <em>repo</em>: the session runtime under <code class="hl">data_dir</code> is
+    always writable, so it is never mute.
+  </p>
+
+  <h3>quality.py: known commands as code</h3>
+  <p>
+    Lint, typecheck, build, and test suites are invoked through
+    <code class="hl">quality.py</code> as <code class="hl">kind="code"</code> phases. The shipped
+    blocks are placeholders that exit 0; wiring your real commands here is the first thing to
+    customize (see <a href="/sssf/docs/configuration">Configuration</a>).
+  </p>
+
+  <h3>git_helper.py + changes.py</h3>
+  <p>
+    Commits, diffs, and baseline capture. The commit phase is the whole pattern in miniature: the
+    builder <em>proposes</em> a commit message as a field on its envelope, code decides whether to
+    use it (falling back when empty) and performs the write. The agent never runs
+    <code class="hl">git commit</code> itself.
+  </p>
+
+  <h2>The trace db</h2>
+  <p>
+    Seven tables, ten event types, WAL mode. The writer is the tracer
+    (<code class="hl">adw_modules/tracer.py</code>); the reader is
+    <code class="hl">obs.py</code> plus the visualizer&rsquo;s own queries. One cursor query
+    (<code class="hl">where adw_id = ? and rowid &gt; ?</code>) is the entire transport: live view
+    and history are the same query at different cadence.
+  </p>
+
+  <h2>Operational subsystems</h2>
+
+  <h3>sandbox.py: parallel-safe runs</h3>
+  <p>
+    Each run executes in its own git worktree (branch <code class="hl">sssf/&lt;adw_id&gt;</code>)
+    bind-mounted into a <code class="hl">sssf-runner</code> container. A monitor tears the sandbox
+    down when the ADW exits (success or fail). Each run keeps its own per-run db; a forward-only
+    sync streams progress into the project db without lock fights. See
+    <a href="/sssf/docs/sandbox">Sandboxed runs</a>.
+  </p>
+
+  <h3>healer.py: the monitor daemon</h3>
+  <p>
+    Scans every registered project and recovers the stuck: dead sandboxes, torn terminal state,
+    hung agents (no progress for 10 minutes), spawn-failed tickets, with a restart budget of 3
+    per session. State lives in <code class="hl">~/.sssf/heal-state.json</code>. See
+    <a href="/sssf/docs/healer">Healer</a>.
+  </p>
+
+  <h3>ticketing.py: the backlog</h3>
+  <p>
+    A <code class="hl">tickets</code> table in the project db, an internal provider, and a sync
+    interface for external providers (per-project <code class="hl">ticketing.yaml</code>). Tickets
+    flow Backlog → Planning → Building → Reviewing → Done/Blocked on the kanban. See
+    <a href="/sssf/docs/ticketing">Ticketing</a>.
+  </p>
+
+  <h3>registry.py: one install, many projects</h3>
+  <p>
+    <code class="hl">~/.sssf/projects.json</code> maps project name → root → last run. Every
+    registered project is a first-class citizen of <span class="cmd">sssf viz</span>, the sweep,
+    and the healer.
+  </p>
+
+  <h2>The visualizer</h2>
+  <p>
+    A Vue + Vite app served by Bun (<code class="hl">src/sssf/apps/visualizer/</code>), polled
+    against the trace db. It runs as a background service under <span class="cmd">sssf viz</span>
+    with its state in <code class="hl">~/.sssf/</code> (<code class="hl">viz.pid</code>,
+    <code class="hl">viz.log</code>). Every view is documented in
+    <a href="/sssf/docs/visualizer">Visualizer</a>.
+  </p>
+
+  <h2>What is stamped vs. what is package code</h2>
+  <p>
+    <span class="cmd">sssf init</span> stamps only the <strong>customization surface</strong>:
+    chains, roster, prompts, harness engineering. The engine is package code: changing it is
+    contributing, not customizing. This boundary is what makes <span class="cmd">sssf upgrade</span>
+    safe: your project&rsquo;s stamped files are yours, the engine moves forward underneath them.
+  </p>
+</DocsLayout>
