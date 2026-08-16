@@ -314,6 +314,7 @@ export interface CockpitKpis {
   sandboxWorktrees: number
   ticketsInFlight: number
   costTodayUsd: number
+  costTotalUsd: number
   healRunning: boolean
   healPid: number | null
   dockerOk: boolean
@@ -331,6 +332,7 @@ export interface CockpitProject {
   containers: number
   worktrees: number
   costTodayUsd: number
+  costTotalUsd: number
   lastActivity: string | null
   stale: boolean
 }

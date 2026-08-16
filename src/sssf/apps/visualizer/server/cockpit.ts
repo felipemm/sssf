@@ -133,7 +133,7 @@ function projectRow(
     name, root,
     sessionsRunning: 0, sessionsToday: 0, sessionsFailedToday: 0,
     ticketsBacklog: 0, ticketsInFlight: 0,
-    containers: 0, worktrees: 0, costTodayUsd: 0,
+    containers: 0, worktrees: 0, costTodayUsd: 0, costTotalUsd: 0,
     lastActivity: deps.registry.list().find((p) => p.name === name)?.lastRun ?? null,
     stale: false, _running: [], _activity: [], _owned: new Set<string>(),
   };
@@ -153,12 +153,14 @@ function projectRow(
     const hasSessions = hasTable(db, "sessions");
     if (hasSessions) {
       const t = db.query<{
-        running: number; today: number; failedToday: number; cost: number; lastActivity: string | null;
+        running: number; today: number; failedToday: number; cost: number; costTotal: number;
+        lastActivity: string | null;
       }, []>(
         `SELECT SUM(status='running') running,
                 SUM(date(started_at)=date('now')) today,
                 SUM(status='fail' AND date(started_at)=date('now')) failedToday,
                 COALESCE(SUM(CASE WHEN date(started_at)=date('now') THEN total_cost ELSE 0 END),0) cost,
+                COALESCE(SUM(total_cost),0) costTotal,
                 MAX((SELECT MAX(started_at) FROM events WHERE events.adw_id = sessions.adw_id)) lastActivity
            FROM sessions`,
       ).get()!;
@@ -166,6 +168,7 @@ function projectRow(
       empty.sessionsToday = Number(t.today ?? 0);
       empty.sessionsFailedToday = Number(t.failedToday ?? 0);
       empty.costTodayUsd = Number(t.cost ?? 0);
+      empty.costTotalUsd = Number(t.costTotal ?? 0);
       if (t.lastActivity) empty.lastActivity = t.lastActivity;
       // running-now detail + adw_id ownership for container mapping
       const running = db.query<{ adw_id: string; started_at: string }, []>(
@@ -192,11 +195,29 @@ function projectRow(
       }
     }
     if (hasTable(db, "tickets")) {
-      const tk = db.query<{ backlog: number; inflight: number }, []>(
-        `SELECT SUM(status='backlog') backlog,
-                SUM(status IN ('starting','running')) inflight FROM tickets`).get()!;
-      empty.ticketsBacklog = Number(tk.backlog ?? 0);
-      empty.ticketsInFlight = Number(tk.inflight ?? 0);
+      // A ticket's stage is derived from its SESSION (the session is the
+      // first-class citizen; the ticket is provenance). A ticket whose run
+      // finished is done/failed even if its row still says 'starting'/'running'
+      // (mirrors server/status.ts).
+      const rows = db.query<{ status: string; adw_id: string | null }, []>(
+        "SELECT status, adw_id FROM tickets").all();
+      let backlog = 0;
+      let inflight = 0;
+      for (const r of rows) {
+        let status = r.status;
+        if (r.adw_id) {
+          const srow = hasTable(db, "sessions")
+            ? db.query<{ status: string }, [string]>(
+                "SELECT status FROM sessions WHERE adw_id=?").get(r.adw_id)
+            : null;
+          if (srow) status = srow.status === "success" ? "done" : srow.status === "fail" ? "failed" : "running";
+        }
+        if (status === "starting") status = "running"; // spawned, run warming up
+        if (status === "backlog") backlog++;
+        else if (status === "running") inflight++;
+      }
+      empty.ticketsBacklog = backlog;
+      empty.ticketsInFlight = inflight;
     }
     if (hasTable(db, "events")) {
       const evs = db.query<{ adw_id: string; started_at: string; type: string }, []>(
@@ -238,7 +259,7 @@ export async function computeCockpit(deps: CockpitDeps): Promise<CockpitData> {
     generatedAt: new Date().toISOString(),
     kpis: {
       runningSessions: 0, liveContainers: containers.length, orphanContainers: 0,
-      sandboxWorktrees: 0, ticketsInFlight: 0, costTodayUsd: 0,
+      sandboxWorktrees: 0, ticketsInFlight: 0, costTodayUsd: 0, costTotalUsd: 0,
       healRunning: heal.running, healPid: heal.pid,
       dockerOk, dockerError,
     },
@@ -252,6 +273,7 @@ export async function computeCockpit(deps: CockpitDeps): Promise<CockpitData> {
     out.kpis.sandboxWorktrees += row.worktrees;
     out.kpis.ticketsInFlight += row.ticketsInFlight;
     out.kpis.costTodayUsd += row.costTodayUsd;
+    out.kpis.costTotalUsd += row.costTotalUsd;
     out.running.push(...row._running);
     activity = activity.concat(row._activity);
   }

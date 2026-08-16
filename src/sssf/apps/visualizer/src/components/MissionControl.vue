@@ -202,6 +202,7 @@ function fmtRel(iso: string | null): string {
       <div class="kpi"><span class="kpi-n">{{ data.kpis.sandboxWorktrees }}</span><span class="kpi-l">sandboxes</span></div>
       <div class="kpi"><span class="kpi-n">{{ data.kpis.ticketsInFlight }}</span><span class="kpi-l">tickets in flight</span></div>
       <div class="kpi"><span class="kpi-n">{{ fmtUsd(data.kpis.costTodayUsd) }}</span><span class="kpi-l">cost today</span></div>
+      <div class="kpi"><span class="kpi-n">{{ fmtUsd(data.kpis.costTotalUsd) }}</span><span class="kpi-l">total cost</span></div>
       <div class="kpi heal" :class="data.heal.running ? 'ok' : 'off'">
         <HeartPulse :size="16" />
         <div>
@@ -224,7 +225,7 @@ function fmtRel(iso: string | null): string {
         <thead>
           <tr>
             <th>project</th><th>running</th><th>today</th><th>tickets</th>
-            <th>ctrs</th><th>wt</th><th>cost today</th><th>last activity</th><th class="actions">actions</th>
+            <th>ctrs</th><th>wt</th><th>cost today</th><th>total</th><th>last activity</th><th class="actions">actions</th>
           </tr>
         </thead>
         <tbody>
@@ -242,6 +243,7 @@ function fmtRel(iso: string | null): string {
             <td>{{ p.containers }}</td>
             <td>{{ p.worktrees }}</td>
             <td>{{ fmtUsd(p.costTodayUsd) }}</td>
+            <td>{{ fmtUsd(p.costTotalUsd) }}</td>
             <td>{{ fmtRel(p.lastActivity) }}</td>
             <td class="actions">
               <button class="icon" title="refresh templates" :disabled="pending.has(`refresh:${p.name}`)" @click="onRefresh(p.name)">

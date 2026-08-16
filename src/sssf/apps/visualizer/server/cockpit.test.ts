@@ -73,11 +73,13 @@ describe("computeCockpit", () => {
     expect(data.kpis.sandboxWorktrees).toBe(1);
     expect(data.kpis.ticketsInFlight).toBe(0);
     expect(data.kpis.costTodayUsd).toBeGreaterThan(0);
+    expect(data.kpis.costTotalUsd).toBeGreaterThan(0);
     expect(data.kpis.healRunning).toBe(false);
     const pa = data.projects.find((p) => p.name === "proj-a")!;
     expect(pa.sessionsRunning).toBe(1);
     expect(pa.sessionsToday).toBe(2);
     expect(pa.ticketsBacklog).toBe(1);
+    expect(pa.costTotalUsd).toBeGreaterThan(0);
     expect(pa.containers).toBe(1); // sssf-run1 owned by proj-a
     expect(data.projects.find((p) => p.name === "proj-b")!.containers).toBe(0);
     expect(data.running[0]!.adwId).toBe("run1");
@@ -86,6 +88,19 @@ describe("computeCockpit", () => {
     expect(data.heal.restarts).toEqual({ run1: 2 });
     expect(data.heal.logTail).toEqual(["h2", "h3", "h4", "h5", "h6"]); // last 5 of 6 lines
     expect(data.activity[0]!.event).toBe("agent_end");
+    rmSync(env.root, { recursive: true, force: true });
+  });
+
+  test("a ticket whose session finished is done, not in-flight (session is first-class)", async () => {
+    const env = makeEnv();
+    const da = new Database(join(env.root, "proj-a", "adws", "adw_data", "sssf.db"));
+    // done1's session is success; tie a 'running'-stale ticket to it
+    da.run(`INSERT INTO tickets VALUES ('internal:t2','running','done1','2026-08-16T08:00:00')`);
+    da.close();
+    const data = await computeCockpit({ registry: env.registry, sssfHome: env.home, dockerPs: async () => "" });
+    const pa = data.projects.find((p) => p.name === "proj-a")!;
+    expect(pa.ticketsInFlight).toBe(0); // both tickets' sessions are terminal
+    expect(pa.ticketsBacklog).toBe(1);  // t1 still backlog
     rmSync(env.root, { recursive: true, force: true });
   });
 
