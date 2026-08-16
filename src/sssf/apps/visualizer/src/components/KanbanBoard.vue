@@ -25,6 +25,7 @@ import TicketModal from './TicketModal.vue'
 const sessions = shallowRef<SessionSummary[]>([])
 const apiError = ref<string | null>(null)
 const loaded = ref(false)
+const ticketsLoaded = ref(false)
 
 let timer: ReturnType<typeof setInterval> | undefined
 let inflight = false
@@ -74,8 +75,8 @@ async function pullTickets() {
   if (!selectedProject.value) return      // adhoc mode has no project scope / backlog
   try {
     tickets.value = await fetchTickets()
-  } catch {
-    tickets.value = { enabled: false, tickets: [] }
+  } finally {
+    ticketsLoaded.value = true
   }
 }
 
@@ -95,9 +96,12 @@ async function onSync() {
 // transform: scale (not CSS zoom) so scrollWidth stays the unzoomed content
 // width — no circular measurement. A height-compensated wrapper keeps the
 // layout box in sync with the scaled content.
-let shrinkInitial = false
-try { shrinkInitial = localStorage.getItem('sssf:board-shrink-to-fit') === '1' } catch { /* private mode */ }
-const shrinkFit = ref<boolean>(shrinkInitial)
+// On page load the toggle is IGNORED: the board renders normally first. The
+// saved preference is applied only once the board is fully loaded (sessions +
+// tickets), so the fit measurement always sees the final column layout.
+let savedFit = false
+try { savedFit = localStorage.getItem('sssf:board-shrink-to-fit') === '1' } catch { /* private mode */ }
+const shrinkFit = ref<boolean>(false)
 const zoom = ref(1)
 const xOffset = ref(0)   // centering offset when shrunk: half the leftover width
 const naturalW = ref(0)  // the grid's content width (columns box = its content in fit mode)
@@ -137,9 +141,20 @@ onMounted(() => {
 onBeforeUnmount(() => resizeObs?.disconnect())
 onUnmounted(() => clearInterval(timer))
 
-// re-measure once the data/ticketing re-renders the column layout
-watch([() => loaded.value, () => columns.value.length], () => {
-  if (shrinkFit.value) void nextTick(() => requestAnimationFrame(() => computeZoom()))
+// Once sessions + tickets are loaded, apply the saved toggle (if any) and
+// measure — the first fit measurement therefore always sees the final layout.
+let appliedSaved = false
+watch([() => loaded.value, () => ticketsLoaded.value, () => columns.value.length], () => {
+  if (appliedSaved) {
+    // re-measure when the layout re-renders (ticketing toggle, column change)
+    if (shrinkFit.value) void nextTick(() => requestAnimationFrame(() => computeZoom()))
+    return
+  }
+  if (loaded.value && ticketsLoaded.value) {
+    appliedSaved = true
+    shrinkFit.value = savedFit
+    if (savedFit) void nextTick(() => requestAnimationFrame(() => computeZoom()))
+  }
 })
 
 const AGENT_STAGE: Record<string, string> = {
