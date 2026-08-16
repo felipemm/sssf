@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watchEffect } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
 import type {
   AgentSession,
   AgentStartPayload,
@@ -12,7 +12,7 @@ import type {
   SessionUsage,
 } from '../lib/types'
 import { Archive, ArchiveRestore, Bot, RotateCw, Square, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
-import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, restartRun, stopRun, type Ticket as TicketInfo } from '../lib/api'
+import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, restartRun, stopRun, useProjects, type Ticket as TicketInfo } from '../lib/api'
 import { axisTicks, fmtCost, fmtDate, payloadOk, ts } from '../lib/format'
 import { modelIcon, modelName } from '../lib/models'
 import { agentColor, hexAlpha, parseAgentStart } from '../lib/events'
@@ -55,8 +55,13 @@ let timer: ReturnType<typeof setInterval> | undefined
 
 const SIDE_TABLE_TYPES = new Set(['gate_pass', 'gate_fail', 'handoff', 'agent_end', 'phase_end', 'error'])
 
+// The trace must not fetch before the project situation resolves — on a hard
+// refresh base() falls back to /api (adhoc) and 404s, flashing the error bar.
+const { projectsLoaded, selectedProject } = useProjects()
+
 async function tick() {
   if (inflight) return
+  if (!projectsLoaded.value || !selectedProject.value) return   // wait for the project
   inflight = true
   try {
     const detail = await fetchSession(props.adwId)
@@ -108,6 +113,9 @@ async function tick() {
 onMounted(() => {
   void tick()
   timer = setInterval(() => void tick(), 500)
+})
+watch(projectsLoaded, () => {
+  if (projectsLoaded.value) void tick()   // the project resolved — fetch for real
 })
 
 onUnmounted(() => {
