@@ -331,6 +331,7 @@ export interface CockpitProject {
   sessionsFailedToday: number
   ticketsBacklog: number
   ticketsInFlight: number
+  ticketsDone: number
   containers: number
   worktrees: number
   costTodayUsd: number
@@ -378,6 +379,8 @@ export interface CockpitData {
   activity: ActivityItem[]
   /** Per-hour completed-session counts, last 14 days (oldest first). */
   completedHourly: CockpitCompletedPoint[]
+  /** Per-minute completed-session counts, last 120 minutes (oldest first) — feeds the 1h window. */
+  completedMinute: CockpitCompletedPoint[]
   /** Completed sessions before the 14-day window — the chart's cumulative baseline. */
   completedBaseline: number
 }

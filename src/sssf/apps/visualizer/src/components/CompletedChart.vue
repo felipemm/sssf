@@ -7,12 +7,12 @@ import { tooltip } from '@tanstack/charts/tooltip'
 import { Chart } from '@tanstack/charts/vue'
 import type { CockpitCompletedPoint } from '../lib/types'
 
-// Live cumulative completed-sessions line (TanStack Charts v0.14) — cyan line
-// over a soft area fill, sssf palette. The parent slices + cumulates the
-// window; this renders the resulting cumulative points.
+// Live completed-sessions chart (TanStack Charts v0.14) — cyan line over a
+// soft area fill, sssf palette. The parent slices the window; this renders
+// the per-instant completed count per bucket (not cumulative).
 const props = defineProps<{ points: CockpitCompletedPoint[] }>()
 
-const total = computed(() => (props.points.length ? props.points[props.points.length - 1]!.count : 0))
+const total = computed(() => props.points.reduce((n, p) => n + p.count, 0))
 
 const empty = computed(() => props.points.length === 0 || total.value === 0)
 
@@ -34,9 +34,9 @@ const def = computed(() =>
 <template>
   <figure class="completed-chart">
     <figcaption class="cc-head">
-      <span>{{ total }} completed sessions <span class="cc-total">(cumulative)</span></span>
+      <span>{{ total }} completed <span class="cc-total">in window</span></span>
     </figcaption>
-    <Chart v-if="!empty" :definition="def" aria-label="completed sessions per day (cumulative)" :aspect-ratio="3.4" />
+    <Chart v-if="!empty" :definition="def" aria-label="completed sessions per interval" :aspect-ratio="3.4" />
     <div v-else class="chart-empty">no completed sessions yet</div>
   </figure>
 </template>

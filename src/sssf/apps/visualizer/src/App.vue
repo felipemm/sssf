@@ -60,10 +60,16 @@ function tabHref(tab: string): string {
   return tabProject.value ? hrefFor({ project: tabProject.value, tab }) : '#/'
 }
 
-// A project switch drills into that project's status page.
+// A project switch stays on the SAME page: the current tab re-fetches for the
+// new project. A trace is per-adw_id — it cannot follow, so it lands on status.
 function onProjectSelect(name: string) {
   setProject(name)
-  navigate({ project: name, tab: 'status' })
+  const current = view.value
+  const tab =
+    current === 'list' ? 'sessions'
+    : current === 'status' || current === 'board' || current === 'archived' ? current
+    : 'status'
+  navigate({ project: name, tab })
 }
 
 // Manual archival sweep across every registered project — the `sssf sweep` CLI

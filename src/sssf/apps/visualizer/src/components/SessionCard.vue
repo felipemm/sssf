@@ -1,17 +1,26 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, shallowRef, watch } from 'vue'
-import { Archive, ArchiveRestore, RotateCw, Square } from 'lucide-vue-next'
+import { Archive, ArchiveRestore, RotateCw, Square, User } from 'lucide-vue-next'
 import type { EventRow, SessionSummary } from '../lib/types'
 import { archiveSession, fetchEvents, restartRun, stopRun } from '../lib/api'
-import { axisTicks, fmtDate, fmtOffset, ts } from '../lib/format'
+import { axisTicks, fmtOffset, ts } from '../lib/format'
+import { adwIconFor } from '../lib/adwIcons'
 import { agentColor, dotColor, eventLabel } from '../lib/events'
 import { hrefFor } from '../lib/router'
-import StatusChip from './StatusChip.vue'
 import StatChip from './StatChip.vue'
-import PhaseDots from './PhaseDots.vue'
 
 const props = defineProps<{ session: SessionSummary; nowMs: number; archived?: boolean }>()
 const emit = defineEmits<{ archived: [adwId: string] }>()
+
+const durationMs = computed(() => {
+  const s = props.session
+  const start = ts(s.started_at)
+  if (!Number.isFinite(start)) return NaN
+  const end = running.value ? props.nowMs : ts(s.ended_at)
+  return (Number.isFinite(end) ? end : props.nowMs) - start
+})
+
+const adwIcon = computed(() => adwIconFor(props.session.adw_name))
 
 // The card is an <a>; the button lives inside it, so the click must not
 // navigate. Told the parent optimistically — the poll would take up to half a
@@ -179,73 +188,60 @@ const rows = computed<TimelineRow[]>(() => {
   })
 })
 
-const durationMs = computed(() => {
-  const s = props.session
-  const start = ts(s.started_at)
-  if (!Number.isFinite(start)) return NaN
-  const end = running.value ? props.nowMs : ts(s.ended_at)
-  return (Number.isFinite(end) ? end : props.nowMs) - start
-})
 
-// Cards are a fixed size, so the timeline region fits exactly MAX_VISIBLE_ROWS
-// row slots. A roster that overflows spends one slot on the "+N more" line and
-// shows MIN_VISIBLE_ROWS agents in the rest — never fewer than three, so a
-// five-agent chain still reads as a chain rather than as a pair and a count.
-const MAX_VISIBLE_ROWS = 4
-const MIN_VISIBLE_ROWS = 3
-
-const overflowing = computed(() => rows.value.length > MAX_VISIBLE_ROWS)
-
-const visibleRows = computed(() =>
-  overflowing.value ? rows.value.slice(0, MIN_VISIBLE_ROWS) : rows.value,
-)
-
-const hiddenRowCount = computed(() =>
-  overflowing.value ? rows.value.length - MIN_VISIBLE_ROWS : 0,
-)
+// The timeline shows the ENTIRE agent roster — no truncation. Its height is
+// fixed per card: the axis (28px + 6px margin) plus a compact 26px per agent
+// row, so nothing clips.
+const TL_AXIS_H = 34
+const TL_ROW_H = 26
+const visibleRows = computed(() => rows.value)
+const tlHeight = computed(() => TL_AXIS_H + Math.max(1, rows.value.length) * TL_ROW_H)
 </script>
 
 <template>
   <a class="card" :class="session.status" :href="hrefFor({ adwId: session.adw_id })">
-    <button
-      class="card-archive"
-      type="button"
-      :disabled="!archived && session.status !== 'success' && session.status !== 'fail'"
-      :title="archived ? 'Restore — bring this run back to review' : (session.status === 'running' ? 'Running — archive available once done or failed' : 'Archive — remove this run from review')"
-      :aria-label="archived ? 'Restore run' : 'Archive run'"
-      @click="archive"
-    >
-      <Archive v-if="!archived" :size="15" :stroke-width="2" />
-      <ArchiveRestore v-else :size="15" :stroke-width="2" />
-    </button>
-    <button
-      v-if="!archived && session.status === 'running'"
-      class="card-archive card-second"
-      type="button"
-      title="Stop — cancel this run (marked failed, sandbox torn down)"
-      aria-label="Stop run"
-      @click="stop"
-    >
-      <Square :size="15" :stroke-width="2" />
-    </button>
-    <button
-      v-if="session.status === 'success' || session.status === 'fail'"
-      class="card-archive card-second"
-      type="button"
-      title="Restart — re-run this session in a fresh sandbox"
-      aria-label="Restart run"
-      @click="restart"
-    >
-      <RotateCw :size="15" :stroke-width="2" />
-    </button>
-    <span class="card-head">
+    <div class="card-head">
+      <span class="adw-icon" :title="session.adw_name ?? ''">
+        <component :is="adwIcon" :size="15" :stroke-width="2" />
+      </span>
       <span class="card-id">{{ session.adw_id }}</span>
       <span v-if="session.ticket_id" class="card-ticket" :title="session.ticket_id">{{ session.ticket_id }}</span>
-    </span>
-    <span class="card-adw" :title="session.adw_name ?? ''">{{ session.adw_name ?? '—' }}</span>
-    <span class="card-req" :title="session.request ?? ''">{{ session.request }}</span>
+      <span class="head-actions">
+        <button
+          class="card-archive"
+          type="button"
+          :disabled="!archived && session.status !== 'success' && session.status !== 'fail'"
+          :title="archived ? 'Restore — bring this run back to review' : (session.status === 'running' ? 'Running — archive available once done or failed' : 'Archive — remove this run from review')"
+          :aria-label="archived ? 'Restore run' : 'Archive run'"
+          @click="archive"
+        >
+          <Archive v-if="!archived" :size="14" :stroke-width="2" />
+          <ArchiveRestore v-else :size="14" :stroke-width="2" />
+        </button>
+        <button
+          v-if="!archived && session.status === 'running'"
+          class="card-archive"
+          type="button"
+          title="Stop — cancel this run (marked failed, sandbox torn down)"
+          aria-label="Stop run"
+          @click="stop"
+        >
+          <Square :size="14" :stroke-width="2" />
+        </button>
+        <button
+          v-if="session.status === 'success' || session.status === 'fail'"
+          class="card-archive"
+          type="button"
+          title="Restart — re-run this session in a fresh sandbox"
+          aria-label="Restart run"
+          @click="restart"
+        >
+          <RotateCw :size="14" :stroke-width="2" />
+        </button>
+      </span>
+    </div>
 
-    <div v-if="rows.length" class="tl">
+    <div v-if="rows.length" class="tl" :style="{ height: `${tlHeight}px` }">
       <div class="tl-axis">
         <span class="tl-gutter" />
         <span class="tl-scale">
@@ -274,30 +270,26 @@ const hiddenRowCount = computed(() =>
           />
         </span>
       </div>
-      <div v-if="hiddenRowCount" class="tl-more dim">+{{ hiddenRowCount }} more agents</div>
     </div>
     <div v-else class="tl tl-empty faint">no agent activity yet</div>
 
-    <div class="card-foot">
-      <span class="foot-status">
-        <StatusChip :status="session.status ?? 'fail'" />
-        <PhaseDots :phases="session.phases ?? []" />
-      </span>
-      <span class="dim">{{ fmtDate(session.started_at) }}</span>
-    </div>
+    <span class="card-req" :title="session.request ?? ''">{{ session.request }}</span>
+    <span class="card-user"><User :size="11" :stroke-width="2" />{{ session.engineer ?? '—' }}</span>
     <div class="card-stats">
+      <span class="stats-left">
+        <StatChip kind="runtime" :value="durationMs" />
+        <StatChip kind="tokens" :value="session.total_tokens" />
+      </span>
       <StatChip kind="cost" :value="session.total_cost" />
-      <StatChip kind="runtime" :value="durationMs" />
-      <StatChip kind="tokens" :value="session.total_tokens" />
     </div>
   </a>
 </template>
 
 <style scoped>
 .card {
-  /* Uniform size: the grid fixes the width, this fixes the height — content
-     clamps and truncates rather than resizing the card. */
-  height: 296px;
+  /* The grid fixes the width; the height grows to fit the full timeline
+     (min-height keeps short sessions uniform). */
+  min-height: 296px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -316,50 +308,37 @@ const hiddenRowCount = computed(() =>
 }
 
 .card-archive {
-  /* Top-right of the card, out of the text flow so nothing reflows around it. */
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  width: 26px;
-  height: 26px;
+  /* Inline in the header row (right-aligned) — always visible. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
   padding: 0;
-  border: 0;
-  border-radius: 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
   background: transparent;
-  color: var(--dim);
+  color: var(--faint);
   font-family: inherit;
-  font-size: 20px;
-  line-height: 1;
   cursor: pointer;
-  opacity: 0;
   transition:
-    opacity 0.15s ease,
     background 0.15s ease,
-    color 0.15s ease;
+    color 0.15s ease,
+    border-color 0.15s ease;
 }
-
-/* Hidden until the card is hovered — 50 cards should read as runs, not as a
-   wall of close buttons. Focus reveals it too, so keyboards are not excluded. */
-.card:hover .card-archive,
-.card-archive:focus-visible {
-  opacity: 1;
-}
-
 .card-archive:hover {
   background: rgba(255, 111, 103, 0.16);
   color: #ff6f67;
+  border-color: rgba(255, 111, 103, 0.35);
 }
 .card-archive:disabled {
-  opacity: 0.35;
+  opacity: 0.3;
   cursor: not-allowed;
-}
-/* A second action beside the archive button (stop/restart). */
-.card-second {
-  right: 46px;
 }
 .card-archive:disabled:hover {
   background: none;
   color: var(--faint);
+  border-color: transparent;
 }
 
 .card:hover {
@@ -382,16 +361,37 @@ const hiddenRowCount = computed(() =>
 .card-head {
   flex: none;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   min-width: 0;
+}
+.adw-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: rgba(200, 155, 255, 0.12);
+  border: 1px solid rgba(200, 155, 255, 0.3);
+  color: var(--purple);
+}
+.head-actions {
+  flex: none;
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
 }
 .card-id {
   flex: none;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--purple);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .card-ticket {
   flex: none;
@@ -408,41 +408,37 @@ const hiddenRowCount = computed(() =>
   max-width: 160px;
 }
 
-.card-adw {
+.card-req {
   flex: none;
-  font-family: var(--mono);
   font-size: 12px;
-  color: var(--cyan);
+  line-height: 1.35;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;            /* the request may fill up to two lines */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.card-user {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--faint);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.card-req {
+.card-user svg {
   flex: none;
-  font-size: 12px;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .tl {
   display: flex;
   flex-direction: column;
-  margin-top: 2px;
-  /* Compact fixed region: axis + four tight row slots. */
-  height: 118px;
+  margin-top: 8px;    /* directly under the header row */
   flex: none;
-  overflow: hidden;
-}
-
-.tl-more {
-  display: flex;
-  align-items: center;
-  height: 40px;
-  padding-left: 96px;
-  font-size: 16px;
+  /* height is bound per card: axis + one 40px slot per agent row */
 }
 
 .tl-axis {
@@ -487,7 +483,7 @@ const hiddenRowCount = computed(() =>
 .tl-row {
   display: flex;
   align-items: center;
-  height: 40px;
+  height: 26px;   /* compact row — the dots still read clearly */
 }
 
 .tl-agent {
@@ -524,24 +520,17 @@ const hiddenRowCount = computed(() =>
   font-size: 16px;
 }
 
-.card-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: auto;
-  font-size: 16px;
-}
-
-.foot-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-}
 
 .card-stats {
   display: flex;
   align-items: center;
+  justify-content: space-between;   /* duration + tokens left · total cost right */
+  margin-top: auto;
+}
+.stats-left {
+  display: inline-flex;
+  align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 </style>

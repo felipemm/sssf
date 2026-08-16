@@ -37,7 +37,7 @@ let noteTimer: ReturnType<typeof setTimeout> | undefined
 
 const pending = ref<Set<string>>(new Set()) // in-flight control keys ("stop:run1", …)
 
-const POLL_MS = 8000
+const POLL_MS = 5000
 
 function flashNote(msg: string) {
   note.value = msg
@@ -47,25 +47,26 @@ function flashNote(msg: string) {
 
 const CONTRIB_POLL_MS = 5 * 60 * 1000
 
-// Completed-sessions chart: the aggregate carries 14 days of per-hour counts;
-// the selected sliding window slices + cumulates client-side (instant toggle).
+// Completed-sessions chart: the aggregate carries 14 days of per-hour counts
+// plus 120 minutes of per-minute counts; the selected sliding window slices
+// the right series (instant toggle). The line shows the PER-INSTANT completed
+// count in each bucket, not a cumulative running total.
 const CHART_WINDOWS = [
-  { key: '24h', hours: 24, label: 'last 24h' },
-  { key: '72h', hours: 72, label: 'last 72h' },
-  { key: '7d', hours: 168, label: 'last 7d' },
-  { key: '14d', hours: 336, label: 'last 14d' },
+  { key: '1h', source: 'minute', count: 60, label: 'last 1h' },
+  { key: '24h', source: 'hourly', count: 24, label: 'last 24h' },
+  { key: '72h', source: 'hourly', count: 72, label: 'last 72h' },
+  { key: '7d', source: 'hourly', count: 168, label: 'last 7d' },
+  { key: '14d', source: 'hourly', count: 336, label: 'last 14d' },
 ] as const
 type ChartWindow = (typeof CHART_WINDOWS)[number]['key']
-const chartWindow = ref<ChartWindow>('24h')
+const chartWindow = ref<ChartWindow>('1h')
 
 const chartPoints = computed(() => {
-  const hourly = data.value?.completedHourly ?? []
-  const baseline = data.value?.completedBaseline ?? 0
-  const hours = CHART_WINDOWS.find((w) => w.key === chartWindow.value)?.hours ?? 24
-  const slice = hourly.slice(-hours)
-  let cum = baseline // absolute cumulative — the line carries the true running total
-  return slice.map((p) => ({ date: p.date, count: (cum += p.count) }))
+  const w = CHART_WINDOWS.find((x) => x.key === chartWindow.value) ?? CHART_WINDOWS[0]!
+  const raw = w.source === 'minute' ? data.value?.completedMinute ?? [] : data.value?.completedHourly ?? []
+  return raw.slice(-w.count).map((p) => ({ date: p.date, count: p.count }))
 })
+const chartWindowTotal = computed(() => chartPoints.value.reduce((n, p) => n + p.count, 0))
 const chartWindowLabel = computed(
   () => CHART_WINDOWS.find((w) => w.key === chartWindow.value)?.label ?? 'last 24h',
 )
@@ -283,7 +284,7 @@ function fmtRel(iso: string | null): string {
             <th class="hint" data-hint="Project name in the registry. Click to drill down to its status page (#/p/&lt;name&gt;).">project</th>
             <th class="hint" data-hint="Sessions currently in 'running' status right now.">running</th>
             <th class="hint" data-hint="Sessions started today (UTC). The red N✗ is the count failed today — stopped runs count too, since stop finalizes as 'fail'.">today</th>
-            <th class="hint" data-hint="Tickets in-flight / backlog. In-flight = spawned or with a live session; backlog = waiting to be run. Only populated when ticketing is enabled.">tickets</th>
+            <th class="hint" data-hint="Tickets in-flight / backlog / completed. In-flight = spawned or with a live session; backlog = waiting to be run; completed = done + failed (stage derived from the session). Only populated when ticketing is enabled.">tickets</th>
             <th class="hint" data-hint="sssf-* Docker containers owned by this project (matched by the session's adw_id or a sandbox worktree dir).">ctrs</th>
             <th class="hint" data-hint="Per-run git worktree dirs under ~/.sssf/sandboxes/&lt;project&gt;/ — one per run, cleaned by auto-teardown.">wt</th>
             <th class="hint" data-hint="Sum of sessions.total_cost for sessions started today (UTC).">cost today</th>
@@ -305,7 +306,7 @@ function fmtRel(iso: string | null): string {
                 data-hint="Started today (UTC); red ✗ = failed today (stopped runs count as failed).">
               {{ p.sessionsToday }}<template v-if="p.sessionsFailedToday"> · {{ p.sessionsFailedToday }}✗</template>
             </td>
-            <td class="hint hint-line" data-hint="In-flight / backlog tickets (stage derived from the session).">{{ p.ticketsInFlight }} / {{ p.ticketsBacklog }}</td>
+            <td class="hint hint-line" data-hint="In-flight / backlog / completed tickets (stage derived from the session).">{{ p.ticketsInFlight }} / {{ p.ticketsBacklog }} / {{ p.ticketsDone }}</td>
             <td class="hint hint-line" data-hint="sssf-* Docker containers owned by this project.">{{ p.containers }}</td>
             <td class="hint hint-line" data-hint="Sandbox git worktree dirs for this project.">{{ p.worktrees }}</td>
             <td class="hint hint-line" data-hint="Sessions started today (UTC) — real provider billing.">{{ fmtUsd(p.costTodayUsd) }}</td>
@@ -324,7 +325,9 @@ function fmtRel(iso: string | null): string {
       </table>
     </section>
 
-    <!-- Running-now strip -->
+    <!-- Running-now + Containers: side by side, both height-capped so many
+         parallel runs never grow the page unboundedly -->
+    <div class="now-row">
     <section v-if="data" class="panel">
       <h3>Running now <span class="count">{{ data.running.length }}</span></h3>
       <div v-if="!data.running.length" class="empty">nothing running across projects</div>
@@ -346,9 +349,8 @@ function fmtRel(iso: string | null): string {
       </div>
     </section>
 
-    <!-- Live cumulative completed-sessions chart (updates with the 8s poll) -->
     <section v-if="data" class="panel">
-      <h3>Completed sessions <span class="count hint" data-hint="Absolute cumulative count of finished sessions (success + fail, by ended_at, UTC) across all projects — the line carries the true running total and keeps growing. Updates live with the cockpit poll.">{{ chartWindowLabel }} · live</span></h3>
+      <h3>Completed sessions <span class="count hint" data-hint="Per-instant count of finished sessions (success + fail, by ended_at, UTC) across all projects — each bucket shows the sessions that completed in that interval, not a cumulative total. Updates live with the cockpit poll.">{{ chartWindowTotal }} · {{ chartWindowLabel }} · live</span></h3>
       <div class="window-switch" role="tablist" aria-label="chart window">
         <button
           v-for="w in CHART_WINDOWS"
@@ -363,6 +365,8 @@ function fmtRel(iso: string | null): string {
       <CompletedChart :points="chartPoints" />
     </section>
 
+    </div>
+
     <!-- Containers (docker ps filtered to sssf) — always visible, even when empty -->
     <section v-if="data" class="panel">
       <h3>Containers <span class="count">{{ data.containers.length }}</span></h3>
@@ -371,7 +375,8 @@ function fmtRel(iso: string | null): string {
         <code>{{ data.kpis.dockerError }}</code>
       </div>
       <div v-else-if="!data.containers.length" class="empty">no sssf containers running</div>
-      <table v-else class="ctable">
+      <div v-else class="ctable-wrap">
+      <table class="ctable">
         <thead>
           <tr>
             <th class="hint" data-hint="sssf-&lt;adwId&gt; — the Docker container running the sandboxed ADW.">container</th>
@@ -415,12 +420,7 @@ function fmtRel(iso: string | null): string {
           </tr>
         </tbody>
       </table>
-    </section>
-
-    <!-- Cross-project contributions heatmap (git commits over the last year) -->
-    <section v-if="contribDays.length" class="panel">
-      <h3>Contributions</h3>
-      <ContributionsHeatmap :days="contribDays" />
+      </div>
     </section>
 
     <div v-if="data" class="lower">
@@ -451,6 +451,12 @@ function fmtRel(iso: string | null): string {
         </ul>
       </section>
     </div>
+
+    <!-- Cross-project contributions heatmap (git commits over the last year) -->
+    <section v-if="contribDays.length" class="panel">
+      <h3>Contributions</h3>
+      <ContributionsHeatmap :days="contribDays" />
+    </section>
 
     <!-- Add project -->
     <section class="panel add">
@@ -537,8 +543,77 @@ function fmtRel(iso: string | null): string {
 .empty { color: var(--faint); font-size: 14px; padding: 8px 0; }
 .empty.small { font-size: 12px; }
 
-.lower { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.now-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1100px) { .now-row { grid-template-columns: 1fr; } }
+
+/* equal-height pair: Running now + Completed sessions share one row height;
+   content fills the panel (chart) or scrolls inside it (run list) */
+.now-row .panel {
+  height: 380px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.now-row .runs {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;   /* rows truncate, never scroll sideways */
+}
+.now-row :deep(.completed-chart) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.now-row :deep(.completed-chart svg) {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: auto;
+}
+.now-row :deep(.chart-empty) {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ctable-wrap {
+  max-height: 340px;
+  overflow-y: auto;
+}
+.ctable-wrap thead th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+
+.lower {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
 @media (max-width: 900px) { .lower { grid-template-columns: 1fr; } }
+/* healer + activity share the same fixed height; content scrolls inside */
+.lower .panel {
+  height: 320px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.lower .panel .log,
+.lower .panel .feed {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
 
 /* projects table */
 .ptable { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -562,9 +637,16 @@ function fmtRel(iso: string | null): string {
   padding: 8px 12px; border-radius: 9px;
   background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-soft);
   font-size: 13px;
+  min-width: 0;         /* flex children may shrink below their content */
 }
-.run code { color: var(--text); font-family: var(--mono); }
+.run > * { min-width: 0; }
+.run code {
+  color: var(--text); font-family: var(--mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .run .phase { color: var(--dim); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run .chip { overflow: hidden; text-overflow: ellipsis; }
+.run .age { flex: none; }
 .run .age { color: var(--faint); font-variant-numeric: tabular-nums; }
 .run-actions { display: flex; gap: 6px; }
 

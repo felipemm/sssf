@@ -85,6 +85,7 @@ interface ProjectRow extends CockpitProject {
   _activity: ActivityItem[];
   _owned: Set<string>;
   _completed: Map<string, number>;  // UTC hour (YYYY-MM-DDTHH) → completed sessions
+  _completedMin: Map<string, number>; // UTC minute (…THH:MM) → completed sessions
   _completedBaseline: number;       // completed before the 14-day window
 }
 
@@ -198,11 +199,12 @@ function projectRow(
   const empty: ProjectRow = {
     name, root,
     sessionsRunning: 0, sessionsToday: 0, sessionsFailedToday: 0,
-    ticketsBacklog: 0, ticketsInFlight: 0,
+    ticketsBacklog: 0, ticketsInFlight: 0, ticketsDone: 0,
     containers: 0, worktrees: 0, costTodayUsd: 0, costTotalUsd: 0,
     lastActivity: deps.registry.list().find((p) => p.name === name)?.lastRun ?? null,
     stale: false, _running: [], _activity: [], _owned: new Set<string>(),
-    _completed: new Map<string, number>(), _completedBaseline: 0,
+    _completed: new Map<string, number>(), _completedMin: new Map<string, number>(),
+    _completedBaseline: 0,
   };
   if (!existsSync(dbPath)) {
     return { ...empty, stale: true };
@@ -270,6 +272,7 @@ function projectRow(
         "SELECT status, adw_id FROM tickets").all();
       let backlog = 0;
       let inflight = 0;
+      let done = 0;
       for (const r of rows) {
         let status = r.status;
         if (r.adw_id) {
@@ -282,16 +285,20 @@ function projectRow(
         if (status === "starting") status = "running"; // spawned, run warming up
         if (status === "backlog") backlog++;
         else if (status === "running") inflight++;
+        else done++;   // done + failed = completed
       }
       empty.ticketsBacklog = backlog;
       empty.ticketsInFlight = inflight;
+      empty.ticketsDone = done;
     }
     if (hasTable(db, "sessions")) {
       const ended = db.query<{ ended_at: string | null }, []>(
         "SELECT ended_at FROM sessions WHERE status IN ('success','fail') AND ended_at IS NOT NULL").all();
       for (const e of ended) {
         const h = e.ended_at!.slice(0, 13); // UTC ISO hour
+        const m = e.ended_at!.slice(0, 16); // UTC ISO minute
         empty._completed.set(h, (empty._completed.get(h) ?? 0) + 1);
+        empty._completedMin.set(m, (empty._completedMin.get(m) ?? 0) + 1);
       }
       // absolute cumulative baseline: everything completed before the window
       const cut = new Date(Date.now() - 14 * DAY_MS).toISOString().slice(0, 13);
@@ -345,7 +352,7 @@ export async function computeCockpit(deps: CockpitDeps): Promise<CockpitData> {
       dockerOk, dockerError,
     },
     projects: [], running: [], containers: [], heal, activity: [],
-    completedHourly: [], completedBaseline: 0,
+    completedHourly: [], completedMinute: [], completedBaseline: 0,
   };
   const rows: ProjectRow[] = [];
   for (const p of projects) {
@@ -392,6 +399,18 @@ export async function computeCockpit(deps: CockpitDeps): Promise<CockpitData> {
     completed.push({ date: hour, count: completedByHour.get(hour) ?? 0 });
   }
   out.completedHourly = completed;
+  // per-minute series for the 1h window (120 minutes, oldest first)
+  const completedByMinute = new Map<string, number>();
+  for (const row of rows) {
+    for (const [m, n] of row._completedMin) completedByMinute.set(m, (completedByMinute.get(m) ?? 0) + n);
+  }
+  const MINUTE_MS = 60_000;
+  const minutes: CockpitCompletedPoint[] = [];
+  for (let i = 119; i >= 0; i--) {
+    const minute = new Date(Date.now() - i * MINUTE_MS).toISOString().slice(0, 16);
+    minutes.push({ date: minute, count: completedByMinute.get(minute) ?? 0 });
+  }
+  out.completedMinute = minutes;
   out.completedBaseline = completedBaseline;
   return out;
 }

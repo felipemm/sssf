@@ -1,21 +1,17 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
-import { Archive, ChevronDown, ChevronRight, Maximize2, Minimize2, RefreshCw, RotateCw, Square } from 'lucide-vue-next'
+import { ChevronDown, ChevronRight, Maximize2, Minimize2, RefreshCw } from 'lucide-vue-next'
 import type { SessionSummary } from '../lib/types'
 import {
-  archiveSession,
   fetchSessions,
   fetchTickets,
   syncTickets,
   useProjects,
   type Ticket,
   type TicketsResponse,
-  restartRun,
-  stopRun,
 } from '../lib/api'
-import { fmtCost, fmtDate, fmtTokens, ts } from '../lib/format'
-import { hrefFor } from '../lib/router'
-import PhaseDots from './PhaseDots.vue'
+import { ts } from '../lib/format'
+import KanbanSessionCard from './KanbanSessionCard.vue'
 import TicketCard from './TicketCard.vue'
 import TicketModal from './TicketModal.vue'
 
@@ -31,6 +27,7 @@ let timer: ReturnType<typeof setInterval> | undefined
 let inflight = false
 
 async function tick() {
+  nowMs.value = Date.now()
   if (inflight) return
   if (!projectsLoaded.value) return   // wait for the project situation before fetching
   inflight = true
@@ -128,6 +125,8 @@ function toggleShrinkFit() {
   try { localStorage.setItem('sssf:board-shrink-to-fit', shrinkFit.value ? '1' : '0') } catch { /* private mode */ }
   requestAnimationFrame(() => computeZoom())
 }
+
+const nowMs = ref(Date.now())   // KanbanSessionCard's duration chip ticks with the poll
 
 onMounted(() => {
   void tick()
@@ -243,36 +242,6 @@ function toggleCollapsed(key: string) {
   }
 }
 
-// Archive from the board: the card is an <a>, so the click must not navigate.
-// The board polls every 500 ms — a failed write just re-syncs on the next tick.
-async function restart(s: SessionSummary, event: MouseEvent) {
-  event.preventDefault()
-  event.stopPropagation()
-  try {
-    await restartRun(s.adw_id)
-  } catch { /* the next poll reconciles */ }
-  void tick()
-}
-
-async function stop(s: SessionSummary, event: MouseEvent) {
-  event.preventDefault()
-  event.stopPropagation()
-  try {
-    await stopRun(s.adw_id)
-  } catch { /* the next poll reconciles */ }
-  void tick()
-}
-
-async function archive(s: SessionSummary, event: MouseEvent) {
-  event.preventDefault()
-  event.stopPropagation()
-  try {
-    await archiveSession(s.adw_id)
-    void tick()
-  } catch {
-    /* the next poll reconciles */
-  }
-}
 </script>
 
 <template>
@@ -335,58 +304,13 @@ async function archive(s: SessionSummary, event: MouseEvent) {
             />
           </template>
           <template v-else>
-            <a
+            <KanbanSessionCard
               v-for="s in byColumn[col.key]"
               :key="s.adw_id"
-              class="card"
-              :href="hrefFor({ adwId: s.adw_id })"
-            >
-              <div class="card-top">
-                <span class="adw" :title="s.adw_id">{{ s.adw_name || s.adw_id }}</span>
-                <span class="card-actions">
-                  <PhaseDots :phases="s.phases" />
-                  <button
-                    class="card-archive"
-                    type="button"
-                    :disabled="s.status !== 'success' && s.status !== 'fail'"
-                    :title="s.status === 'running' ? 'Running — archive available once done or failed' : 'Archive — remove this run from review'"
-                    aria-label="Archive run"
-                    @click="archive(s, $event)"
-                  >
-                    <Archive :size="15" :stroke-width="2" />
-                  </button>
-                  <button
-                    v-if="s.status === 'running'"
-                    class="card-archive card-second"
-                    type="button"
-                    title="Stop — cancel this run (marked failed, sandbox torn down)"
-                    aria-label="Stop run"
-                    @click="stop(s, $event)"
-                  >
-                    <Square :size="15" :stroke-width="2" />
-                  </button>
-                  <button
-                    v-if="s.status === 'success' || s.status === 'fail'"
-                    class="card-archive card-second"
-                    type="button"
-                    title="Restart — re-run this session in a fresh sandbox"
-                    aria-label="Restart run"
-                    @click="restart(s, $event)"
-                  >
-                    <RotateCw :size="15" :stroke-width="2" />
-                  </button>
-                </span>
-              </div>
-              <p class="req" :title="s.request ?? ''">{{ s.request || '—' }}</p>
-              <div class="meta">
-                <span class="engineer">{{ s.engineer }}</span>
-                <span class="time">{{ fmtDate(s.started_at) }}</span>
-              </div>
-              <div class="stats">
-                <span>{{ fmtTokens(s.total_tokens) }} tok</span>
-                <span>{{ fmtCost(s.total_cost) }}</span>
-              </div>
-            </a>
+              :session="s"
+              :now-ms="nowMs"
+              @changed="void tick()"
+            />
           </template>
 
           <div v-if="loaded && (col.key === 'backlog' ? backlogTickets.length === 0 : byColumn[col.key].length === 0)" class="empty">
