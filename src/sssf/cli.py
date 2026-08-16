@@ -5,7 +5,7 @@ from pathlib import Path
 
 from sssf import __version__
 from sssf import registry
-from sssf.commands import init, misc, obs_cmds, run, sweep, ticket, viz
+from sssf.commands import init, misc, obs_cmds, run, sandbox_cmd, sweep, ticket, viz
 from sssf.project import find_project, data_dir
 
 
@@ -18,7 +18,7 @@ def _dispatch_ticket(a) -> int:
     if action == "list":
         return ticket.list_tickets(a.project)
     if action == "run":
-        return ticket.run(a.ticket_id, a.project)
+        return ticket.run(a.ticket_id, a.project, a.no_sandbox)
     return 1
 
 
@@ -49,6 +49,17 @@ def _register_obs(sub: argparse._SubParsersAction) -> None:
         p.set_defaults(func=scoped_cmd(fn))
 
 
+def _dispatch_sandbox(a) -> int:
+    action = a.sandbox_action
+    if action == "build":
+        return sandbox_cmd.build(a.project)
+    if action == "list":
+        return sandbox_cmd.list_(a.project)
+    if action == "prune":
+        return sandbox_cmd.prune(a.project, a.adw_id, a.all)
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="sssf", description="Super Simple Software Factory CLI")
     parser.add_argument("--version", action="store_true", help="print version and exit")
@@ -65,7 +76,9 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("adw", help="chain name; the adw_ prefix is optional")
     p_run.add_argument("args", nargs=argparse.REMAINDER, help="passed through to the ADW")
     p_run.add_argument("--project", default=None)
-    p_run.set_defaults(func=lambda a: run.run(Path.cwd(), a.adw, a.args, a.project))
+    p_run.add_argument("--no-sandbox", action="store_true",
+                       help="run in the current dir instead of a sandbox container")
+    p_run.set_defaults(func=lambda a: run.run(Path.cwd(), a.adw, a.args, a.project, a.no_sandbox))
 
     _register_obs(sub)
 
@@ -104,7 +117,21 @@ def main(argv: list[str] | None = None) -> int:
     p_run = tsub.add_parser("run", help="spawn simple_sdlc for a ticket")
     p_run.add_argument("ticket_id")
     p_run.add_argument("--project", default=None)
+    p_run.add_argument("--no-sandbox", action="store_true",
+                       help="run in the current dir instead of a sandbox container")
     p_ticket.set_defaults(func=lambda a: _dispatch_ticket(a))
+
+    p_sb = sub.add_parser("sandbox", help="sandbox lifecycle (build / list / prune)")
+    sbsub = p_sb.add_subparsers(dest="sandbox_action", required=True)
+    p_build = sbsub.add_parser("build", help="build/refresh the sssf-runner image")
+    p_build.add_argument("--project", default=None)
+    p_list = sbsub.add_parser("list", help="show sandboxes (adw_id · status · branch · container)")
+    p_list.add_argument("--project", default=None)
+    p_prune = sbsub.add_parser("prune", help="delete a run's branch + leftovers once resolved")
+    p_prune.add_argument("adw_id", nargs="?", help="specific run; omit with --all")
+    p_prune.add_argument("--all", action="store_true")
+    p_prune.add_argument("--project", default=None)
+    p_sb.set_defaults(func=lambda a: _dispatch_sandbox(a))
 
     args = parser.parse_args(argv)
     if args.version:

@@ -156,3 +156,69 @@ def review_db_path(data_dir: Path) -> Path:
     """The shared db lives in the project's data dir (bind-mounted into the
     container at /work/adws/adw_data)."""
     return data_dir / "sssf.db"
+
+
+def container_name(adw_id: str) -> str:
+    return f"sssf-{adw_id}"
+
+
+def spawn_sandbox(project_root: Path, adw_id: str, *, cmd: list[str],
+                  port: int, image: str, data_dir: Path, pi_home: Path,
+                  container_port: int = 3000, env: dict[str, str] | None = None,
+                  uid: int | None = None, gid: int | None = None) -> dict:
+    """Create the worktree + start the container. Deterministic; returns the
+    sandbox record (worktree, name, host_port)."""
+    wt = create_worktree(project_root, adw_id)
+    uid = uid if uid is not None else os.getuid()
+    gid = gid if gid is not None else os.getgid()
+    run_sandbox(
+        image, container_name(adw_id),
+        worktree=wt, data_dir=data_dir, pi_home=pi_home,
+        host_port=port, container_port=container_port,
+        uid=uid, gid=gid, env=env or {}, cmd=cmd,
+    )
+    return {"worktree": str(wt), "name": container_name(adw_id), "host_port": port}
+
+
+def decide_and_teardown(project_root: Path, adw_id: str, status: str,
+                        data_dir: Path) -> int:
+    """Mark the decision, wait for the ADW to notice and exit, then tear the
+    container + worktree down. The branch sssf/<adw_id> survives (prune
+    deletes it once the engineer resolved the run)."""
+    from sssf.adw_modules.tracer import Tracer
+    db_path = review_db_path(data_dir)
+    tracer = Tracer(str(db_path), str(data_dir / "sessions" / adw_id / "events.jsonl"))
+    tracer.review_decide(adw_id, status)
+    wait_exit(container_name(adw_id), timeout_s=30)
+    stop_remove(container_name(adw_id))
+    remove_worktree(sandbox_dir(project_root, adw_id))
+    return 0
+
+
+def prune_sandbox(project_root: Path, adw_id: str) -> int:
+    """Remove a run's leftovers AND its branch — the engineer runs this once
+    the PR is merged (or to discard a failed run). Idempotent."""
+    stop_remove(container_name(adw_id))
+    remove_worktree(sandbox_dir(project_root, adw_id))
+    delete_branch(project_root, adw_id)
+    return 0
+
+
+def sandbox_env(project_root: Path) -> tuple[Path, Path, dict[str, str]]:
+    """The per-run data dir (shared, bind-mounted rw), the pi home (read-only
+    mount), and the env passed to the container: credentials + git identity
+    only — never project files."""
+    data_dir = project_root / "adws" / "adw_data"
+    pi_home = Path(os.environ.get("PI_HOME", Path.home() / ".pi" / "agent"))
+    env: dict[str, str] = {}
+    if os.environ.get("GENPLAT_TOKEN"):
+        env["GENPLAT_TOKEN"] = os.environ["GENPLAT_TOKEN"]
+    # git identity for the container's commits (read the host's git config).
+    for var, key in (("GIT_AUTHOR_NAME", "user.name"),
+                     ("GIT_AUTHOR_EMAIL", "user.email")):
+        if not os.environ.get(var):
+            r = subprocess.run(["git", "config", "--global", key],
+                               capture_output=True, text=True, check=False)
+            if r.returncode == 0 and r.stdout.strip():
+                env[var] = r.stdout.strip()
+    return data_dir, pi_home, env

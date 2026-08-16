@@ -22,12 +22,12 @@ def _setup_project(tmp_path, monkeypatch):
 
 def test_run_with_prefix(tmp_path, monkeypatch):
     root = _setup_project(tmp_path, monkeypatch)
-    assert run.run(root, "stub_check", [], None) == 0
+    assert run.run(root, "stub_check", [], None, no_sandbox=True) == 0
 
 
 def test_run_without_prefix(tmp_path, monkeypatch):
     root = _setup_project(tmp_path, monkeypatch)
-    assert run.run(root, "stub_check", [], None) == 0
+    assert run.run(root, "stub_check", [], None, no_sandbox=True) == 0
 
 
 def test_run_missing_adw_fails(tmp_path, monkeypatch):

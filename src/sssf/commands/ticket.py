@@ -89,7 +89,7 @@ def list_tickets(project: str | None = None) -> int:
     return 0
 
 
-def run(ticket_id: str, project: str | None = None) -> int:
+def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) -> int:
     root = _root(project)
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
@@ -113,24 +113,74 @@ def run(ticket_id: str, project: str | None = None) -> int:
         print(f"sssf ticket: {ticket_id} is already running", file=sys.stderr)
         return 1
     slug = "".join(c if c.isalnum() else "-" for c in title.lower()).strip("-")[:40] or "ticket"
-    prompt_path = ticketing.next_prompt_name(root, slug)
-    prompt_path.write_text(
-        f"# {title}\n\n{description}\n\n---\n"
-        f"Generated from {provider} ticket {external_id or ''} ({source_url})\n")
     adw_id = uuid.uuid4().hex[:8]
     adw_file = root / "adws" / "adw_simple_sdlc.py"
     if not adw_file.exists():
         conn.close()
         print(f"sssf ticket: no adws/adw_simple_sdlc.py in {root}", file=sys.stderr)
         return 1
-    rel_prompt = prompt_path.relative_to(root)
-    subprocess.Popen(
-        [sys.executable, str(adw_file), f"run prompt {rel_prompt}", "--adw-id", adw_id],
-        cwd=root, start_new_session=True,
-        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    sandboxed = not no_sandbox and _sandbox_enabled(root)
+    if sandboxed:
+        # The prompt lives in the WORKTREE (per-run dir → no NN race) and is
+        # committed with the run; the container runs from the worktree.
+        from sssf.sandbox import (SandboxError, allocate_port, docker_available,
+                                  sandbox_env, spawn_sandbox)
+        if not docker_available():
+            conn.close()
+            print("sssf ticket: docker is not available — run `sssf sandbox build`? "
+                  "or --no-sandbox", file=sys.stderr)
+            return 1
+        from sssf.sandbox import create_worktree
+        wt = create_worktree(root, adw_id)
+        prompt_path = ticketing.next_prompt_name(wt, slug)
+        prompt_path.write_text(
+            f"# {title}\n\n{description}\n\n---\n"
+            f"Generated from {provider} ticket {external_id or ''} ({source_url})\n")
+        cfg = _config_for_sandbox(root)
+        port = allocate_port(cfg.sandbox.port_base)
+        data_dir, pi_home, env = sandbox_env(root)
+        env["REVIEW_HOST_PORT"] = str(port)
+        try:
+            spawn_sandbox(
+                root, adw_id,
+                cmd=["python", "adws/adw_simple_sdlc.py",
+                     f"run prompt adws/prompts/{prompt_path.name}", "--adw-id", adw_id],
+                port=port, image=cfg.sandbox.image,
+                data_dir=data_dir, pi_home=pi_home,
+                container_port=cfg.review.port, env=env,
+            )
+        except SandboxError as e:
+            conn.close()
+            print(f"sssf ticket: sandbox spawn failed: {e}", file=sys.stderr)
+            return 1
+        rel_prompt = Path("adws") / "prompts" / prompt_path.name
+    else:
+        prompt_path = ticketing.next_prompt_name(root, slug)
+        prompt_path.write_text(
+            f"# {title}\n\n{description}\n\n---\n"
+            f"Generated from {provider} ticket {external_id or ''} ({source_url})\n")
+        rel_prompt = prompt_path.relative_to(root)
+        subprocess.Popen(
+            [sys.executable, str(adw_file), f"run prompt {rel_prompt}", "--adw-id", adw_id],
+            cwd=root, start_new_session=True,
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     conn.execute("UPDATE tickets SET status='running', adw_id=?, prompt_file=? WHERE id=?",
                  (adw_id, str(rel_prompt), tid))
     conn.commit()
     conn.close()
-    print(f"sssf ticket: run spawned for {ticket_id} — adw_id {adw_id}, prompt {rel_prompt}")
+    print(f"sssf ticket: run spawned for {ticket_id} — adw_id {adw_id}, prompt {rel_prompt}"
+          + (" (sandboxed)" if sandboxed else ""))
     return 0
+
+
+def _sandbox_enabled(root: Path) -> bool:
+    try:
+        return _config_for_sandbox(root).sandbox.enabled
+    except Exception:
+        return False
+
+
+def _config_for_sandbox(root: Path):
+    from sssf.adw_modules.agents import load_config
+    return load_config(str(root / "adws" / "adw_sssf_config" / "sssf.config.yaml"))
