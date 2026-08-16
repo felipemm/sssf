@@ -360,6 +360,7 @@ export interface CockpitData {
   kpis: CockpitKpis
   projects: CockpitProject[]
   running: RunningSession[]
+  containers: CockpitContainer[]
   heal: HealSummary
   activity: ActivityItem[]
 }
@@ -367,5 +368,21 @@ export interface CockpitData {
 export interface ControlResult {
   ok: boolean
   output?: string
+  error?: string
+}
+
+export interface CockpitContainer {
+  name: string
+  adwId: string
+  image: string
+  status: string
+  created: string
+  running: boolean
+  project: string  // '' when the container maps to no registered project
+}
+
+export interface ContainerLogsResponse {
+  ok: boolean
+  lines: string[]
   error?: string
 }

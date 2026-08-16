@@ -24,7 +24,7 @@ import { ProjectRegistry } from "./registry.ts";
 import { sweepAll } from "./sweep.ts";
 import { isEnabled, readTickets } from "./tickets.ts";
 import { computeStatus } from "./status.ts";
-import { computeCockpit, defaultSpawnCli, handleControl } from "./cockpit.ts";
+import { computeCockpit, containerLogs, defaultSpawnCli, handleControl } from "./cockpit.ts";
 import type { AgentPrompts, ApiError, ControlResult, HealthResponse } from "../shared/types.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
@@ -347,6 +347,11 @@ const server = Bun.serve({
           { registry: projects, spawnCli: defaultSpawnCli }));
       }),
     },
+    "/api/cockpit/containers/:name/logs": safely((req) => {
+      const name = param(req, "name");
+      const tail = Number(intQuery(req, "tail", 100));
+      return json(containerLogs(name, tail));
+    }),
     "/api/cockpit/heal/:action": {
       POST: safely(async (req) => {
         const action = param(req, "action");

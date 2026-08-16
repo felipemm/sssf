@@ -13,6 +13,7 @@ import {
 import {
   addProject,
   fetchCockpit,
+  fetchContainerLogs,
   healControl,
   refreshProject,
   removeProject,
@@ -58,6 +59,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   clearInterval(timer)
+  clearInterval(logTimer)
   clearTimeout(noteTimer)
 })
 
@@ -94,6 +96,52 @@ function onRemove(project: string) {
 }
 function onHeal(action: 'start' | 'stop') {
   return control(`heal:${action}`, () => healControl(action), `healer ${action === 'start' ? 'started' : 'stopped'}`)
+}
+
+// ── container log tailing ──────────────────────────────────────────────────
+
+const logName = ref<string | null>(null)
+const logLines = ref<string[]>([])
+const logError = ref('')
+const logTail = ref(100)
+const logLoading = ref(false)
+let logTimer: ReturnType<typeof setInterval> | undefined
+
+async function fetchLogs() {
+  if (!logName.value || logLoading.value) return
+  logLoading.value = true
+  logError.value = ''
+  try {
+    const res = await fetchContainerLogs(logName.value, logTail.value)
+    if (res.ok) {
+      logLines.value = res.lines
+    } else {
+      logError.value = res.error ?? 'docker logs failed'
+      logLines.value = []
+    }
+  } catch {
+    logError.value = 'log fetch failed'
+  } finally {
+    logLoading.value = false
+  }
+}
+
+async function toggleLogs(name: string) {
+  if (logName.value === name) {
+    logName.value = null
+    logLines.value = []
+    clearInterval(logTimer)
+    return
+  }
+  logName.value = name
+  logLines.value = []
+  await fetchLogs()
+  clearInterval(logTimer)
+  logTimer = setInterval(() => void fetchLogs(), 5000) // tail: refresh while open
+}
+
+function onLogTailChange() {
+  void fetchLogs()
 }
 
 // ── add project ────────────────────────────────────────────────────────────
@@ -228,6 +276,49 @@ function fmtRel(iso: string | null): string {
           </span>
         </div>
       </div>
+    </section>
+
+    <!-- Containers (docker ps filtered to sssf) -->
+    <section v-if="data && data.containers.length" class="panel">
+      <h3>Containers <span class="count">{{ data.containers.length }}</span></h3>
+      <table class="ctable">
+        <thead>
+          <tr>
+            <th>container</th><th>project</th><th>image</th><th>status</th><th>created</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="c in data.containers" :key="c.name">
+            <td><code>{{ c.name }}</code></td>
+            <td><span class="chip">{{ c.project || 'orphan' }}</span></td>
+            <td class="dim">{{ c.image }}</td>
+            <td :class="c.running ? 'up' : 'down'">{{ c.status }}</td>
+            <td class="dim">{{ c.created }}</td>
+            <td>
+              <button class="icon" :title="logName === c.name ? 'close logs' : 'tail logs'"
+                      @click="toggleLogs(c.name)">
+                <Terminal :size="14" />
+              </button>
+            </td>
+          </tr>
+          <tr v-if="logName">
+            <td colspan="6" class="log-cell">
+              <div class="logbar">
+                <span class="log-title">docker logs --tail {{ logTail }} <code>{{ logName }}</code></span>
+                <select v-model.number="logTail" class="tail-select" @change="onLogTailChange">
+                  <option :value="50">50</option><option :value="100">100</option><option :value="250">250</option>
+                </select>
+                <button class="mini" :disabled="logLoading" @click="fetchLogs">
+                  <RefreshCw :size="12" :class="{ spin: logLoading }" style="vertical-align: -1px; margin-right: 4px" />refresh
+                </button>
+                <span class="log-hint">auto-tails every 5s</span>
+              </div>
+              <pre v-if="logError" class="log error-log">{{ logError }}</pre>
+              <pre v-else class="log">{{ logLines.join('\n') || '(no log lines — container may have just started)' }}</pre>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </section>
 
     <div v-if="data" class="lower">
@@ -420,6 +511,32 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
 .feed code { font-family: var(--mono); color: var(--dim); }
 .feed-ts { color: var(--faint); font-variant-numeric: tabular-nums; }
 .feed-ev { color: var(--dim); }
+
+/* containers table */
+.ctable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ctable th {
+  text-align: left; color: var(--faint); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.ctable td { padding: 7px 10px; color: var(--text); border-bottom: 1px solid var(--border-soft); }
+.ctable code { font-family: var(--mono); font-size: 12px; }
+.ctable .up { color: var(--green); }
+.ctable .down { color: var(--faint); }
+.ctable .dim { color: var(--dim); }
+.log-cell { background: rgba(6, 8, 15, 0.55); }
+.logbar {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+  font-size: 12px; color: var(--dim);
+}
+.log-title { flex: 1; font-family: var(--mono); }
+.log-title code { color: var(--cyan); }
+.tail-select {
+  background: rgba(6, 8, 15, 0.9); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 2px 6px; font-size: 12px;
+}
+.log-hint { color: var(--faint); font-size: 11px; white-space: nowrap; }
+.error-log { color: var(--red); }
 
 /* add project */
 .add-form { display: flex; gap: 10px; }

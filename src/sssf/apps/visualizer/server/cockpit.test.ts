@@ -58,11 +58,17 @@ describe("computeCockpit", () => {
     const data = await computeCockpit({
       registry: env.registry,
       sssfHome: env.home,
-      dockerPs: async () => "sssf-run1 Up 2 minutes\nsssf-orphanx Up 1 hour",
+      dockerPs: async () => "sssf-run1\tsssf-runner:latest\tUp 2 minutes\t2026-08-16 15:00:00 +0000 UTC\nsssf-orphanx\tsssf-runner:latest\tUp 1 hour\t2026-08-16 14:00:00 +0000 UTC",
     });
     expect(data.kpis.runningSessions).toBe(1);
     expect(data.kpis.liveContainers).toBe(2);
     expect(data.kpis.orphanContainers).toBe(1);
+    expect(data.containers.length).toBe(2);
+    expect(data.containers[0]!.name).toBe("sssf-run1");
+    expect(data.containers[0]!.project).toBe("proj-a");
+    expect(data.containers[0]!.image).toBe("sssf-runner:latest");
+    expect(data.containers[0]!.running).toBe(true);
+    expect(data.containers.find((c) => c.adwId === "orphanx")!.project).toBe("");
     expect(data.kpis.sandboxWorktrees).toBe(1);
     expect(data.kpis.ticketsInFlight).toBe(0);
     expect(data.kpis.costTodayUsd).toBeGreaterThan(0);
@@ -180,5 +186,36 @@ describe("handleControl", () => {
     expect(res.ok).toBe(false);
     expect(res.error).toBe("boom");
     rmSync(env.root, { recursive: true, force: true });
+  });
+});
+
+import { containerLogs } from "./cockpit.ts";
+
+describe("containerLogs", () => {
+  test("rejects non-sssf names before spawning", async () => {
+    const calls: string[][] = [];
+    const res = await containerLogs("../../../etc/passwd", 100, async (a) => { calls.push(a); return ""; });
+    expect(res.ok).toBe(false);
+    expect(calls.length).toBe(0);
+  });
+
+  test("tails with clamped count + timestamps", async () => {
+    const calls: string[][] = [];
+    const res = await containerLogs("sssf-abc123", 9999, async (a) => { calls.push(a); return "l1\nl2\n"; });
+    expect(res.ok).toBe(true);
+    expect(res.lines).toEqual(["l1", "l2"]);
+    expect(calls[0]).toEqual(["logs", "--tail", "500", "--timestamps", "sssf-abc123"]);
+  });
+
+  test("clamps below the floor", async () => {
+    const calls: string[][] = [];
+    await containerLogs("sssf-abc123", 2, async (a) => { calls.push(a); return ""; });
+    expect(calls[0]).toEqual(["logs", "--tail", "10", "--timestamps", "sssf-abc123"]);
+  });
+
+  test("docker failure surfaces the error", async () => {
+    const res = await containerLogs("sssf-abc123", 100, async () => { throw new Error("boom"); });
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("boom");
   });
 });

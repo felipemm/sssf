@@ -145,7 +145,7 @@ async function onSweep() {
         </template>
       </nav>
       <div class="topbar-right">
-        <ProjectPicker @select="onProjectSelect" />
+        <ProjectPicker v-if="view !== 'cockpit'" @select="onProjectSelect" />
         <button
           class="sweep-btn"
           type="button"
