@@ -347,10 +347,10 @@ const server = Bun.serve({
           { registry: projects, spawnCli: defaultSpawnCli }));
       }),
     },
-    "/api/cockpit/containers/:name/logs": safely((req) => {
+    "/api/cockpit/containers/:name/logs": safely(async (req) => {
       const name = param(req, "name");
       const tail = Number(intQuery(req, "tail", 100));
-      return json(containerLogs(name, tail));
+      return json(await containerLogs(name, tail));
     }),
     "/api/cockpit/heal/:action": {
       POST: safely(async (req) => {
