@@ -46,6 +46,14 @@ const ADW_ICONS: Record<string, Component> = {
   adw_prompt: MessageSquareText,
   adw_scout: Radar,
 }
+const durationMs = computed(() => {
+  const s = props.session
+  const start = ts(s.started_at)
+  if (!Number.isFinite(start)) return NaN
+  const end = running.value ? props.nowMs : ts(s.ended_at)
+  return (Number.isFinite(end) ? end : props.nowMs) - start
+})
+
 const adwIcon = computed(() => {
   const first = props.session.adw_name?.split(' + ')[0]?.trim()
   return (first && ADW_ICONS[first]) || Bot
@@ -315,7 +323,10 @@ const hiddenRowCount = computed(() =>
     <span class="card-req" :title="session.request ?? ''">{{ session.request }}</span>
     <span class="card-user"><User :size="11" :stroke-width="2" />{{ session.engineer ?? '—' }}</span>
     <div class="card-stats">
-      <StatChip kind="tokens" :value="session.total_tokens" />
+      <span class="stats-left">
+        <StatChip kind="runtime" :value="durationMs" />
+        <StatChip kind="tokens" :value="session.total_tokens" />
+      </span>
       <StatChip kind="cost" :value="session.total_cost" />
     </div>
   </a>
@@ -568,7 +579,13 @@ const hiddenRowCount = computed(() =>
 .card-stats {
   display: flex;
   align-items: center;
-  justify-content: space-between;   /* tokens left · total cost right */
+  justify-content: space-between;   /* duration + tokens left · total cost right */
   margin-top: auto;
+}
+.stats-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 </style>
