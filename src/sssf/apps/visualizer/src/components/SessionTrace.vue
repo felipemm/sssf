@@ -14,7 +14,7 @@ import type {
 import { Archive, ArchiveRestore, Bot, RotateCw, Square, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
 import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, restartRun, stopRun, useProjects, type Ticket as TicketInfo } from '../lib/api'
 import { axisTicks, fmtCost, fmtDate, payloadOk, ts } from '../lib/format'
-import { modelIcon, modelName } from '../lib/models'
+import { modelIcon } from '../lib/models'
 import { agentColor, hexAlpha, parseAgentStart } from '../lib/events'
 import { navigate, phaseCrumb } from '../lib/router'
 import StatusChip from './StatusChip.vue'
@@ -590,7 +590,7 @@ function selectPhase(p: Phase) {
           </span>
           <span v-if="lane.model" class="lane-meta lane-model" :title="lane.model">
             <img v-if="modelIcon(lane.model)" class="model-icon" :src="modelIcon(lane.model)!" alt="" />
-            {{ modelName(lane.model) }}
+            {{ lane.model }}
           </span>
           <span
             v-if="lane.context"
@@ -823,14 +823,16 @@ function selectPhase(p: Phase) {
   font-family: var(--mono);
   font-size: 16px;
   color: var(--dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* the full model id must stay visible — wrap instead of ellipsizing */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .lane-model {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  font-size: 12px;   /* the full model id stays visible without dominating the lane */
 }
 
 .model-icon {
