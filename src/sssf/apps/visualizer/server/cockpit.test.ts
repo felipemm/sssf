@@ -123,6 +123,11 @@ describe("computeCockpit", () => {
     expect(data.completedBaseline).toBe(1); // old1 predates the window
     const last24 = hourly.slice(-24);
     expect(last24.reduce((n, p) => n + p.count, 0)).toBe(1);
+    // the per-minute series feeds the 1h window
+    const minutes = data.completedMinute;
+    expect(minutes.length).toBe(120);
+    expect(minutes.reduce((n, p) => n + p.count, 0)).toBe(1); // done1's minute bucket
+    expect(minutes[minutes.length - 1]!.count).toBeGreaterThanOrEqual(0);
     // the chart's final cumulative point = baseline + in-window completions
     const finalCount = data.completedBaseline + hourly.reduce((n, p) => n + p.count, 0);
     expect(finalCount).toBe(2);

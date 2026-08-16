@@ -47,25 +47,26 @@ function flashNote(msg: string) {
 
 const CONTRIB_POLL_MS = 5 * 60 * 1000
 
-// Completed-sessions chart: the aggregate carries 14 days of per-hour counts;
-// the selected sliding window slices + cumulates client-side (instant toggle).
+// Completed-sessions chart: the aggregate carries 14 days of per-hour counts
+// plus 120 minutes of per-minute counts; the selected sliding window slices
+// the right series (instant toggle). The line shows the PER-INSTANT completed
+// count in each bucket, not a cumulative running total.
 const CHART_WINDOWS = [
-  { key: '24h', hours: 24, label: 'last 24h' },
-  { key: '72h', hours: 72, label: 'last 72h' },
-  { key: '7d', hours: 168, label: 'last 7d' },
-  { key: '14d', hours: 336, label: 'last 14d' },
+  { key: '1h', source: 'minute', count: 60, label: 'last 1h' },
+  { key: '24h', source: 'hourly', count: 24, label: 'last 24h' },
+  { key: '72h', source: 'hourly', count: 72, label: 'last 72h' },
+  { key: '7d', source: 'hourly', count: 168, label: 'last 7d' },
+  { key: '14d', source: 'hourly', count: 336, label: 'last 14d' },
 ] as const
 type ChartWindow = (typeof CHART_WINDOWS)[number]['key']
-const chartWindow = ref<ChartWindow>('24h')
+const chartWindow = ref<ChartWindow>('1h')
 
 const chartPoints = computed(() => {
-  const hourly = data.value?.completedHourly ?? []
-  const baseline = data.value?.completedBaseline ?? 0
-  const hours = CHART_WINDOWS.find((w) => w.key === chartWindow.value)?.hours ?? 24
-  const slice = hourly.slice(-hours)
-  let cum = baseline // absolute cumulative — the line carries the true running total
-  return slice.map((p) => ({ date: p.date, count: (cum += p.count) }))
+  const w = CHART_WINDOWS.find((x) => x.key === chartWindow.value) ?? CHART_WINDOWS[0]!
+  const raw = w.source === 'minute' ? data.value?.completedMinute ?? [] : data.value?.completedHourly ?? []
+  return raw.slice(-w.count).map((p) => ({ date: p.date, count: p.count }))
 })
+const chartWindowTotal = computed(() => chartPoints.value.reduce((n, p) => n + p.count, 0))
 const chartWindowLabel = computed(
   () => CHART_WINDOWS.find((w) => w.key === chartWindow.value)?.label ?? 'last 24h',
 )
@@ -348,6 +349,29 @@ function fmtRel(iso: string | null): string {
       </div>
     </section>
 
+    <section v-if="data" class="panel">
+      <h3>Completed sessions <span class="count hint" data-hint="Per-instant count of finished sessions (success + fail, by ended_at, UTC) across all projects — each bucket shows the sessions that completed in that interval, not a cumulative total. Updates live with the cockpit poll.">{{ chartWindowTotal }} · {{ chartWindowLabel }} · live</span></h3>
+      <div class="window-switch" role="tablist" aria-label="chart window">
+        <button
+          v-for="w in CHART_WINDOWS"
+          :key="w.key"
+          class="window-btn"
+          :class="{ active: chartWindow === w.key }"
+          role="tab"
+          :aria-selected="chartWindow === w.key"
+          @click="chartWindow = w.key"
+        >{{ w.key }}</button>
+      </div>
+      <CompletedChart :points="chartPoints" />
+    </section>
+
+    <!-- Cross-project contributions heatmap (git commits over the last year) -->
+    <section v-if="contribDays.length" class="panel">
+      <h3>Contributions</h3>
+      <ContributionsHeatmap :days="contribDays" />
+    </section>
+    </div>
+
     <!-- Containers (docker ps filtered to sssf) — always visible, even when empty -->
     <section v-if="data" class="panel">
       <h3>Containers <span class="count">{{ data.containers.length }}</span></h3>
@@ -402,29 +426,6 @@ function fmtRel(iso: string | null): string {
         </tbody>
       </table>
       </div>
-    </section>
-    </div>
-
-    <section v-if="data" class="panel">
-      <h3>Completed sessions <span class="count hint" data-hint="Absolute cumulative count of finished sessions (success + fail, by ended_at, UTC) across all projects — the line carries the true running total and keeps growing. Updates live with the cockpit poll.">{{ chartWindowLabel }} · live</span></h3>
-      <div class="window-switch" role="tablist" aria-label="chart window">
-        <button
-          v-for="w in CHART_WINDOWS"
-          :key="w.key"
-          class="window-btn"
-          :class="{ active: chartWindow === w.key }"
-          role="tab"
-          :aria-selected="chartWindow === w.key"
-          @click="chartWindow = w.key"
-        >{{ w.key }}</button>
-      </div>
-      <CompletedChart :points="chartPoints" />
-    </section>
-
-    <!-- Cross-project contributions heatmap (git commits over the last year) -->
-    <section v-if="contribDays.length" class="panel">
-      <h3>Contributions</h3>
-      <ContributionsHeatmap :days="contribDays" />
     </section>
 
     <div v-if="data" class="lower">
