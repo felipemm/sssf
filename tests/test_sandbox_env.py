@@ -1,0 +1,64 @@
+"""Sandbox identity: the container inherits the operator's git identity so
+`git commit` and the engineer label work inside the sandbox."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from sssf.sandbox import sandbox_env
+
+
+def test_sandbox_env_carries_full_git_identity(tmp_path, monkeypatch):
+    """Author AND committer env vars + ENGINEER_NAME flow from the operator's
+    git config into the container env. Without the committer pair, `git
+    commit` fails with 'Committer identity unknown'; without ENGINEER_NAME the
+    engineer label degrades."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".gitconfig").write_text(
+        "[user]\n"
+        "\tname = Ada Lovelace\n"
+        "\temail = ada@example.com\n"
+    )
+    _, _, env = sandbox_env(tmp_path)
+    assert env["GIT_AUTHOR_NAME"] == "Ada Lovelace"
+    assert env["GIT_AUTHOR_EMAIL"] == "ada@example.com"
+    assert env["GIT_COMMITTER_NAME"] == "Ada Lovelace"
+    assert env["GIT_COMMITTER_EMAIL"] == "ada@example.com"
+    assert env["ENGINEER_NAME"] == "Ada Lovelace"
+
+
+def test_sandbox_env_reads_repo_local_identity(tmp_path, monkeypatch):
+    """Identity may live in the project's local git config, not ~/.gitconfig —
+    resolve from the project root so both work."""
+    monkeypatch.setenv("HOME", str(tmp_path / "nohome"))
+    (tmp_path / "nohome").mkdir()
+    sub = subprocess_quiet(["git", "init", "-q", str(tmp_path / "proj")])
+    assert sub == 0
+    set_ok = subprocess_quiet(
+        ["git", "-C", str(tmp_path / "proj"), "config", "user.name", "Repo Local"])
+    assert set_ok == 0
+    set_ok = subprocess_quiet(
+        ["git", "-C", str(tmp_path / "proj"), "config", "user.email", "local@example.com"])
+    assert set_ok == 0
+    _, _, env = sandbox_env(tmp_path / "proj")
+    assert env["GIT_COMMITTER_NAME"] == "Repo Local"
+    assert env["GIT_COMMITTER_EMAIL"] == "local@example.com"
+    assert env["ENGINEER_NAME"] == "Repo Local"
+
+
+def test_sandbox_env_without_identity_sets_nothing(tmp_path, monkeypatch):
+    """No git identity anywhere → no identity env vars (git's auto-detect then
+    fails loudly rather than silently attributing the commit)."""
+    monkeypatch.setenv("HOME", str(tmp_path / "nohome"))
+    (tmp_path / "nohome").mkdir()
+    _, _, env = sandbox_env(tmp_path)
+    assert "GIT_AUTHOR_NAME" not in env
+    assert "GIT_COMMITTER_NAME" not in env
+    assert "ENGINEER_NAME" not in env
+
+
+def subprocess_quiet(argv: list[str]) -> int:
+    import subprocess
+    return subprocess.run(argv, capture_output=True, text=True,
+                          check=False).returncode
