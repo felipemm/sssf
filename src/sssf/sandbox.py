@@ -5,7 +5,10 @@ and teardown are idempotent so a crash mid-teardown leaves re-runnable
 cleanup.
 """
 import itertools
+import os
 import socket
+import subprocess
+from pathlib import Path
 
 
 class SandboxError(RuntimeError):
@@ -28,3 +31,53 @@ def allocate_port(base: int, used: set[int] | None = None) -> int:
                 return port
             except OSError:
                 continue
+
+
+def _run_git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(root), *args],
+        capture_output=True, text=True, check=False,
+    )
+
+
+def sandbox_dir(project_root: Path, adw_id: str) -> Path:
+    """~/.sssf/sandboxes/<project-basename>/<adw_id> — the repo tree stays clean."""
+    home = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf"))
+    return home / "sandboxes" / project_root.name / adw_id
+
+
+def create_worktree(project_root: Path, adw_id: str) -> Path:
+    """git worktree add -q <dir> -b sssf/<adw_id>. The branch is unique per
+    adw_id; worktrees are structurally isolated (a branch lives in one)."""
+    branch = f"sssf/{adw_id}"
+    wt = sandbox_dir(project_root, adw_id)
+    wt.parent.mkdir(parents=True, exist_ok=True)
+    r = _run_git(project_root, "worktree", "add", "-q", str(wt), "-b", branch)
+    if r.returncode != 0:
+        raise SandboxError(f"worktree add failed: {r.stderr.strip()}")
+    return wt
+
+
+def remove_worktree(wt_dir: Path) -> None:
+    """Idempotent: remove the worktree (force — the run's work is committed on
+    its branch, and teardown must never block on stray files), then prune."""
+    if not wt_dir.exists():
+        return
+    # The worktree is registered in the repo that owns it — resolve the repo
+    # from the worktree's own gitdir metadata via `git -C <wt> rev-parse`.
+    r = subprocess.run(
+        ["git", "-C", str(wt_dir), "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True, check=False,
+    )
+    if r.returncode == 0:
+        root = Path(r.stdout.strip())
+        subprocess.run(["git", "-C", str(root), "worktree", "remove", "--force", str(wt_dir)],
+                       capture_output=True, text=True, check=False)
+        subprocess.run(["git", "-C", str(root), "worktree", "prune"],
+                       capture_output=True, text=True, check=False)
+
+
+def delete_branch(project_root: Path, adw_id: str) -> None:
+    """Idempotent: delete the run's branch ref (call after the engineer
+    merged/PR'd, or to discard a failed run)."""
+    _run_git(project_root, "branch", "-D", f"sssf/{adw_id}")
