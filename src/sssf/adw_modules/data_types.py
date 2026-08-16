@@ -348,36 +348,13 @@ class SandboxConfig(BaseModel):
     ADW only runs phases; the CLI owns everything around the container."""
     enabled: bool = True
     image: str = "sssf-runner"       # tag auto-appended: sssf-runner:<sssf-version>
-    port_base: int = 3000            # host ports allocated from here upward
 
-    @field_validator("port_base")
-    @classmethod
-    def _port_base_positive(cls, v: int) -> int:
-        if v < 1 or v > 65535:
-            raise ValueError("port_base must be 1..65535")
-        return v
-
-
-class ReviewConfig(BaseModel):
-    """The human review gate. command runs inside the container with the
-    worktree as cwd; the app listens on `port` (container port)."""
-    command: str | None = None        # auto-detect fallback when unset
-    port: int = 3000
-    poll_seconds: int = 1   # how often the ADW re-checks the decision — keeps approve/reject snappy
-
-    @field_validator("port")
-    @classmethod
-    def _port_positive(cls, v: int) -> int:
-        if v < 1 or v > 65535:
-            raise ValueError("port must be 1..65535")
-        return v
 
 
 class SSSFConfig(BaseModel):
     defaults: ConfigDefaults = Field(default_factory=ConfigDefaults)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
-    review: ReviewConfig = Field(default_factory=ReviewConfig)
     agents: list[AgentConfig] = Field(default_factory=list)
 
 

@@ -139,8 +139,7 @@ const byColumn = computed(() => {
     }
     seen.add(s.adw_id)
     const status = s.status ?? 'fail'
-    // Paused = the human review gate is waiting — the run still sits in its stage.
-    if (status === 'running' || status === 'paused') groups[stageOf(s)].push(s)
+    if (status === 'running') groups[stageOf(s)].push(s)
     else (groups[status] ?? groups.fail).push(s)
   }
   for (const list of Object.values(groups)) {

@@ -9,11 +9,10 @@ import type {
   Phase,
   PhaseKind,
   Session,
-  SessionReview,
   SessionUsage,
 } from '../lib/types'
 import { Archive, ArchiveRestore, Bot, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
-import { archiveSession, decideReview, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, stopRun, type Ticket as TicketInfo } from '../lib/api'
+import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, stopRun, type Ticket as TicketInfo } from '../lib/api'
 import { axisTicks, fmtCost, fmtDate, payloadOk, ts } from '../lib/format'
 import { modelIcon, modelName } from '../lib/models'
 import { agentColor, hexAlpha, parseAgentStart } from '../lib/events'
@@ -39,7 +38,6 @@ async function toggleArchive() {
 const session = ref<Session | null>(null)
 const ticket = ref<TicketInfo | null>(null)
 const ticketChecked = ref(false)
-const review = ref<SessionReview | null>(null)
 const activeTicket = ref<TicketInfo | null>(null)
 const phases = ref<Phase[]>([])
 const agents = ref<AgentSession[]>([])
@@ -66,7 +64,6 @@ async function tick() {
     phases.value = detail.phases.toSorted((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
     agents.value = detail.agents
     usage.value = detail.usage
-    review.value = detail.review ?? null
 
     const fresh: EventRow[] = []
     let page
@@ -475,19 +472,10 @@ const agentCosts = computed(() => {
     .sort((a, b) => b.cost - a.cost)
 })
 
-// The human review gate: approve/reject from the trace. The server shells
-// `sssf run approve|reject`; on success the run's review record flips and the
-// next poll clears the buttons.
-async function decide(decision: 'approve' | 'reject') {
-  const res = await decideReview(props.adwId, decision)
-  if (res.ok) review.value = null
-}
-
 // Stop a live run (any phase in progress): the server shells `sssf run stop`,
 // which kills the container — the ADW's kill-failsafe marks the run failed.
 async function stop() {
-  const res = await stopRun(props.adwId)
-  if (res.ok) review.value = null
+  await stopRun(props.adwId)
 }
 
 const sessionDurationMs = computed(() => {
@@ -533,23 +521,12 @@ function selectPhase(p: Phase) {
         <Ticket :size="16" :stroke-width="2" />
       </button>
       <button
-        v-if="session.status === 'running' || session.status === 'paused'"
+        v-if="session.status === 'running'"
         class="review-btn stop"
         type="button"
         title="Stop the run — kills the sandbox and marks it failed"
         @click="stop"
       >stop</button>
-      <span v-if="review?.status === 'pending'" class="review-actions">
-        <a
-          v-if="review.host_port"
-          :href="`http://localhost:${review.host_port}`"
-          target="_blank"
-          rel="noreferrer"
-          class="review-link"
-        >open app ↗</a>
-        <button class="review-btn approve" type="button" @click="decide('approve')">approve</button>
-        <button class="review-btn reject" type="button" @click="decide('reject')">reject</button>
-      </span>
       <span class="dim">started {{ fmtDate(session.started_at) }}</span>
       <span class="run-stats">
         <StatChip kind="cost" :value="session.total_cost" />
@@ -636,14 +613,6 @@ function selectPhase(p: Phase) {
                 />
               </span>
               <span class="b-desc">{{ p.description }}</span>
-              <a
-                v-if="p.name === 'review' && review?.host_port"
-                class="review-open"
-                :href="`http://localhost:${review.host_port}`"
-                target="_blank"
-                rel="noreferrer"
-                @click.stop
-              >open app ↗</a>
               <span
                 v-for="(tick, i) in ticksFor(p)"
                 :key="i"
@@ -723,41 +692,6 @@ function selectPhase(p: Phase) {
 .strip-archive:disabled:hover {
   color: var(--faint);
   border-color: var(--border);
-}
-.review-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.review-link {
-  font-size: 13px;
-  color: var(--cyan);
-  text-decoration: none;
-}
-.review-link:hover {
-  text-decoration: underline;
-}
-.review-btn {
-  padding: 4px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: none;
-  font-size: 13px;
-  cursor: pointer;
-}
-.review-btn.approve {
-  color: #4ade80;
-  border-color: rgba(74, 222, 128, 0.4);
-}
-.review-btn.approve:hover {
-  background: rgba(74, 222, 128, 0.12);
-}
-.review-btn.reject {
-  color: #ff6f67;
-  border-color: rgba(255, 111, 103, 0.4);
-}
-.review-btn.reject:hover {
-  background: rgba(255, 111, 103, 0.12);
 }
 .review-btn.stop {
   color: #ffb454;
@@ -1037,17 +971,6 @@ function selectPhase(p: Phase) {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
-}
-.block .review-open {
-  display: inline-block;
-  margin-top: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--cyan);
-  text-decoration: none;
-}
-.block .review-open:hover {
-  text-decoration: underline;
 }
 
 .block.running {

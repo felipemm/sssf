@@ -21,9 +21,9 @@ def run(cwd: Path, adw: str, args: list[str], explicit_project: str | None = Non
             explicit_project = args[i + 1]
             args = args[:i] + args[i + 2:]
 
-    # `sssf run approve|reject|stop <adw_id>` — the review decision / stop.
-    if adw in ("approve", "reject", "stop"):
-        return _decide(cwd, adw, args, explicit_project)
+    # `sssf run stop <adw_id>` — terminate a running sandbox.
+    if adw == "stop":
+        return _stop(cwd, args, explicit_project)
 
     root = find_project(cwd, explicit_project)
     if root is None:
@@ -51,10 +51,12 @@ def _sandbox_enabled(root: Path) -> bool:
 
 
 def _run_sandboxed(root: Path, adw_file: Path, args: list[str]) -> int:
-    """Create the per-run sandbox (worktree + container) and run the ADW inside.
-    Deterministic Python; the cwd is never touched."""
-    from sssf.sandbox import (SandboxError, allocate_port, docker_available,
-                              sandbox_env, spawn_sandbox)
+    """Create the per-run sandbox (worktree + container), run the ADW inside,
+    and detach a teardown monitor (the sandbox tears itself down when the ADW
+    exits — success or fail). The cwd is never touched; the run's branch
+    sssf/<adw_id> survives as the deliverable. Deterministic Python."""
+    from sssf.sandbox import (SandboxError, docker_available, sandbox_env,
+                              spawn_monitor, spawn_sandbox)
 
     if not docker_available():
         print("sssf: docker is not available — run `sssf sandbox build`? "
@@ -64,35 +66,31 @@ def _run_sandboxed(root: Path, adw_file: Path, args: list[str]) -> int:
     cfg = load_config(str(root / "adws" / "adw_sssf_config" / "sssf.config.yaml"))
 
     adw_id = uuid.uuid4().hex[:8]
-    port = allocate_port(cfg.sandbox.port_base)
     data_dir, pi_home, env = sandbox_env(root)
-    env["REVIEW_HOST_PORT"] = str(port)
     try:
         spawn_sandbox(
             root, adw_id,
             cmd=["python", "adws/adw_simple_sdlc.py", *args, "--adw-id", adw_id],
-            port=port, image=cfg.sandbox.image,
-            data_dir=data_dir, pi_home=pi_home,
-            container_port=cfg.review.port, env=env,
+            image=cfg.sandbox.image,
+            data_dir=data_dir, pi_home=pi_home, env=env,
         )
     except SandboxError as e:
         print(f"sssf: sandbox spawn failed: {e}", file=sys.stderr)
         return 1
-    print(f"sssf: sandboxed run spawned — adw_id {adw_id}, port {port}")
+    spawn_monitor(root, adw_id)
+    print(f"sssf: sandboxed run spawned — adw_id {adw_id} (auto-teardown on exit)")
     return 0
 
 
-def _decide(cwd: Path, decision: str, args: list[str], explicit_project: str | None) -> int:
+def _stop(cwd: Path, args: list[str], explicit_project: str | None) -> int:
     if not args:
-        print(f"sssf: usage: sssf run {decision} <adw_id>", file=sys.stderr)
+        print("sssf: usage: sssf run stop <adw_id>", file=sys.stderr)
         return 1
-    from sssf.sandbox import decide_and_teardown, sandbox_env, stop_run
+    from sssf.sandbox import sandbox_env, stop_run
     root = find_project(cwd, explicit_project)
     if root is None:
         print("sssf: no project here.", file=sys.stderr)
         return 1
     adw_id = args[0]
     data_dir, _pi, _env = sandbox_env(root)
-    if decision == "stop":
-        return stop_run(root, adw_id, data_dir)
-    return decide_and_teardown(root, adw_id, decision, data_dir)
+    return stop_run(root, adw_id, data_dir)

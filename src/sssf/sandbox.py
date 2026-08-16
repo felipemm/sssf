@@ -1,38 +1,18 @@
-"""Deterministic sandbox lifecycle: ports, worktrees, docker, review records.
+"""Deterministic sandbox lifecycle: worktrees, docker, auto-teardown.
 
 Every function here is plain Python — no agents, no ad-hoc steps. Creation
 and teardown are idempotent so a crash mid-teardown leaves re-runnable
 cleanup.
 """
-import itertools
 import os
 import shutil
-import socket
 import subprocess
-import time
+import sys
 from pathlib import Path
 
 
 class SandboxError(RuntimeError):
-    """Raised when the sandbox cannot fulfil a request (no free port, etc.)."""
-
-
-def allocate_port(base: int, used: set[int] | None = None) -> int:
-    """First free host port >= base. Bind-tests 127.0.0.1 so parallel runs of
-    the same project don't collide; `used` skips ports already handed out
-    this session. Raises SandboxError once the scan passes 65535."""
-    used = used or set()
-    for port in itertools.count(base):
-        if port > 65535:
-            raise SandboxError(f"no free host port from {base}")
-        if port in used:
-            continue
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            try:
-                s.bind(("127.0.0.1", port))
-                return port
-            except OSError:
-                continue
+    """Raised when a sandbox lifecycle step fails deterministically."""
 
 
 def _run_git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -65,8 +45,6 @@ def remove_worktree(wt_dir: Path) -> None:
     its branch, and teardown must never block on stray files), then prune."""
     if not wt_dir.exists():
         return
-    # The worktree is registered in the repo that owns it — resolve the repo
-    # from the worktree's own gitdir metadata via `git -C <wt> rev-parse`.
     r = subprocess.run(
         ["git", "-C", str(wt_dir), "rev-parse", "--show-toplevel"],
         capture_output=True, text=True, check=False,
@@ -112,8 +90,6 @@ def run_sandbox(
     pi_home: Path,
     git_dir: Path | None = None,
     config_dir: Path | None = None,
-    host_port: int = 0,
-    container_port: int = 3000,
     uid: int = 1000,
     gid: int = 1000,
     env: dict[str, str] | None = None,
@@ -139,10 +115,7 @@ def run_sandbox(
         # The provider apiKey shell commands resolve ${HOME}/.config/... — with
         # HOME=/tmp in the image, mount the host config read-only at /tmp/.config.
         args += ["-v", f"{config_dir}:/tmp/.config:ro"]
-    args += [
-        "-p", f"{host_port}:{container_port}",
-        "--user", f"{uid}:{gid}",
-    ]
+    args += ["--user", f"{uid}:{gid}"]
     for k, v in env.items():
         args += ["-e", f"{k}={v}"]
     args += [image, *cmd]
@@ -151,27 +124,9 @@ def run_sandbox(
         raise SandboxError(f"docker run failed: {r.stderr.strip()[:500]}")
 
 
-def wait_exit(name: str, timeout_s: int) -> int:
-    """docker wait, but bound: the ADW decides within poll_seconds of the
-    review row changing; anything past the bound is treated as 0 (the row
-    already records the decision)."""
-    try:
-        r = _docker("wait", name, timeout_s=timeout_s)
-        if r.returncode == 0 and r.stdout.strip().isdigit():
-            return int(r.stdout.strip())
-    except subprocess.TimeoutExpired:
-        pass
-    return 0
-
-
 def stop_remove(name: str) -> None:
     """Idempotent: remove the container whether running or stopped."""
     _docker("rm", "-f", name)
-
-def review_db_path(data_dir: Path) -> Path:
-    """The shared db lives in the project's data dir (bind-mounted into the
-    container at /work/adws/adw_data)."""
-    return data_dir / "sssf.db"
 
 
 def container_name(adw_id: str) -> str:
@@ -179,11 +134,11 @@ def container_name(adw_id: str) -> str:
 
 
 def spawn_sandbox(project_root: Path, adw_id: str, *, cmd: list[str],
-                  port: int, image: str, data_dir: Path, pi_home: Path,
-                  container_port: int = 3000, env: dict[str, str] | None = None,
+                  image: str, data_dir: Path, pi_home: Path,
+                  env: dict[str, str] | None = None,
                   uid: int | None = None, gid: int | None = None) -> dict:
     """Create the worktree + start the container. Deterministic; returns the
-    sandbox record (worktree, name, host_port)."""
+    sandbox record (worktree, name)."""
     wt = create_worktree(project_root, adw_id)
     stamp_adw_template(wt)   # deterministic: the installed template, not a stale init stamp
     uid = uid if uid is not None else os.getuid()
@@ -193,31 +148,44 @@ def spawn_sandbox(project_root: Path, adw_id: str, *, cmd: list[str],
         worktree=wt, data_dir=data_dir, pi_home=pi_home,
         git_dir=project_root / ".git",
         config_dir=Path.home() / ".config",
-        host_port=port, container_port=container_port,
         uid=uid, gid=gid, env=env or {}, cmd=cmd,
     )
-    return {"worktree": str(wt), "name": container_name(adw_id), "host_port": port}
+    return {"worktree": str(wt), "name": container_name(adw_id)}
 
 
-def decide_and_teardown(project_root: Path, adw_id: str, status: str,
-                        data_dir: Path) -> int:
-    """Mark the decision, wake the ADW (SIGUSR1 approve / SIGUSR2 reject — the
-    phase ends immediately), wait for it to exit, then tear the container +
-    worktree down. The branch sssf/<adw_id> survives (prune deletes it once the
-    engineer resolved the run)."""
-    # The CLI spells it "approve"/"reject"; the db record + signals use the
-    # past participle. Normalize so approve never falls into the reject branch.
-    status = {"approve": "approved", "reject": "rejected"}.get(status, status)
-    from sssf.adw_modules.tracer import Tracer
-    db_path = review_db_path(data_dir)
-    tracer = Tracer(str(db_path), str(data_dir / "sessions" / adw_id / "events.jsonl"))
-    tracer.review_decide(adw_id, status)
-    signal_name = "USR1" if status == "approved" else "USR2"
-    _docker("kill", "-s", signal_name, container_name(adw_id))
-    wait_exit(container_name(adw_id), timeout_s=30)
+def teardown_sandbox(project_root: Path, adw_id: str) -> int:
+    """Remove the container + worktree once the run is done (success or fail).
+    The branch sssf/<adw_id> survives as the deliverable — the engineer merges
+    or PRs it; prune deletes it afterwards. Idempotent."""
     stop_remove(container_name(adw_id))
     remove_worktree(sandbox_dir(project_root, adw_id))
     return 0
+
+
+def monitor_run(project_root: Path, adw_id: str) -> int:
+    """The detached teardown monitor: wait for the run's container to exit
+    (the ADW finished — success or fail), then tear the sandbox down. Spawned
+    by `sssf run`/`ticket run` right after the container starts."""
+    try:
+        _docker("wait", container_name(adw_id), timeout_s=86_400)   # blocks until exit (24h cap)
+    except Exception:
+        pass   # container already gone / wait failed — teardown handles it
+    return teardown_sandbox(project_root, adw_id)
+
+
+def spawn_monitor(project_root: Path, adw_id: str) -> None:
+    """Launch monitor_run detached (docker wait blocks for minutes)."""
+    code = (
+        "import sys\n"
+        "from pathlib import Path\n"
+        "from sssf.sandbox import monitor_run\n"
+        "sys.exit(monitor_run(Path(sys.argv[1]), sys.argv[2]))\n"
+    )
+    subprocess.Popen(
+        [sys.executable, "-c", code, str(project_root), adw_id],
+        start_new_session=True,
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
 
 
 def prune_sandbox(project_root: Path, adw_id: str) -> int:
@@ -238,7 +206,6 @@ def sandbox_env(project_root: Path) -> tuple[Path, Path, dict[str, str]]:
     env: dict[str, str] = {}
     if os.environ.get("GENPLAT_TOKEN"):
         env["GENPLAT_TOKEN"] = os.environ["GENPLAT_TOKEN"]
-    # git identity for the container's commits (read the host's git config).
     for var, key in (("GIT_AUTHOR_NAME", "user.name"),
                      ("GIT_AUTHOR_EMAIL", "user.email")):
         if not os.environ.get(var):
@@ -251,13 +218,8 @@ def sandbox_env(project_root: Path) -> tuple[Path, Path, dict[str, str]]:
 
 def stop_run(project_root: Path, adw_id: str, data_dir: Path) -> int:
     """Terminate a run: kill the container (the ADW's kill-failsafe marks the
-    session failed), clear a pending review, remove the worktree. The branch
-    stays for inspection (prune deletes it once resolved)."""
-    from sssf.adw_modules.tracer import Tracer
-    db_path = review_db_path(data_dir)
-    tracer = Tracer(str(db_path), str(data_dir / "sessions" / adw_id / "events.jsonl"))
-    if tracer.review_status(adw_id) == "pending":
-        tracer.review_decide(adw_id, "rejected")   # a stopped run is not approved
+    session failed) and remove the worktree. The branch stays for inspection
+    (prune deletes it once resolved)."""
     stop_remove(container_name(adw_id))
     remove_worktree(sandbox_dir(project_root, adw_id))
     return 0
@@ -267,7 +229,7 @@ def stamp_adw_template(wt: Path) -> None:
     """Stamp the CURRENT adw_simple_sdlc.py into the worktree. The worktree's
     copy is the project's committed template (stamped at init, possibly stale
     after an sssf upgrade) — sandboxed runs must use the installed template so
-    the review stage matches the installed sssf exactly."""
+    the run matches the installed sssf exactly."""
     import shutil
     import sssf
     template = Path(sssf.__file__).parent / "templates" / "adws" / "adw_simple_sdlc.py"

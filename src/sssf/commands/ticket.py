@@ -124,8 +124,8 @@ def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) ->
     if sandboxed:
         # The prompt lives in the WORKTREE (per-run dir → no NN race) and is
         # committed with the run; the container runs from the worktree.
-        from sssf.sandbox import (SandboxError, allocate_port, docker_available,
-                                  sandbox_env, spawn_sandbox)
+        from sssf.sandbox import (SandboxError, docker_available, sandbox_env,
+                                  spawn_monitor, spawn_sandbox)
         if not docker_available():
             conn.close()
             print("sssf ticket: docker is not available — run `sssf sandbox build`? "
@@ -138,22 +138,20 @@ def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) ->
             f"# {title}\n\n{description}\n\n---\n"
             f"Generated from {provider} ticket {external_id or ''} ({source_url})\n")
         cfg = _config_for_sandbox(root)
-        port = allocate_port(cfg.sandbox.port_base)
         data_dir, pi_home, env = sandbox_env(root)
-        env["REVIEW_HOST_PORT"] = str(port)
         try:
             spawn_sandbox(
                 root, adw_id,
                 cmd=["python", "adws/adw_simple_sdlc.py",
                      f"run prompt adws/prompts/{prompt_path.name}", "--adw-id", adw_id],
-                port=port, image=cfg.sandbox.image,
-                data_dir=data_dir, pi_home=pi_home,
-                container_port=cfg.review.port, env=env,
+                image=cfg.sandbox.image,
+                data_dir=data_dir, pi_home=pi_home, env=env,
             )
         except SandboxError as e:
             conn.close()
             print(f"sssf ticket: sandbox spawn failed: {e}", file=sys.stderr)
             return 1
+        spawn_monitor(root, adw_id)
         rel_prompt = Path("adws") / "prompts" / prompt_path.name
     else:
         prompt_path = ticketing.next_prompt_name(root, slug)

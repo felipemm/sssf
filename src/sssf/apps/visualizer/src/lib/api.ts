@@ -85,7 +85,6 @@ export async function fetchSession(adwId: string): Promise<SessionDetail> {
     usage: detail.usage ?? { read: 0, written: 0 },
     phases: detail.phases ?? [],
     agents: detail.agents ?? [],
-    review: detail.review ?? null,
   }
 }
 
@@ -111,16 +110,6 @@ export async function archiveSession(adwId: string, archived = true): Promise<vo
   if (!res.ok) throw new Error(`POST ${url} → ${res.status}`)
 }
 
-export async function decideReview(adwId: string, decision: 'approve' | 'reject'): Promise<{ ok: boolean; output?: string }> {
-  const url = `${base()}/sessions/${encodeURIComponent(adwId)}/review`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ decision }),
-  })
-  const data = (await res.json().catch(() => null)) as { ok?: boolean; output?: string } | null
-  return { ok: data?.ok ?? res.ok, output: data?.output }
-}
 
 export async function stopRun(adwId: string): Promise<{ ok: boolean; output?: string }> {
   const url = `${base()}/sessions/${encodeURIComponent(adwId)}/stop`

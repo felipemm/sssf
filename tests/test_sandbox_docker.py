@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from sssf.sandbox import SandboxError, build_image, docker_available, run_sandbox, stop_remove, wait_exit
+from sssf.sandbox import SandboxError, build_image, docker_available, run_sandbox, stop_remove
 
 
 @pytest.fixture
@@ -60,8 +60,7 @@ def test_run_sandbox_flags(fake_docker, tmp_path):
         worktree=tmp_path / "wt", data_dir=tmp_path / "data",
         pi_home=tmp_path / "pi", git_dir=tmp_path / "proj" / ".git",
         config_dir=tmp_path / ".config",
-        host_port=3456, container_port=3000,
-        uid=501, gid=20, env={"REVIEW_HOST_PORT": "3456"}, cmd=["python", "adws/adw_simple_sdlc.py"],
+        uid=501, gid=20, env={"GENPLAT_TOKEN": "x"}, cmd=["python", "adws/adw_simple_sdlc.py"],
     )
     calls = fake_docker.read_text().splitlines()
     run = next(c for c in calls if c.startswith("run"))
@@ -71,12 +70,10 @@ def test_run_sandbox_flags(fake_docker, tmp_path):
     assert f"{tmp_path}/pi:/opt/pi-agent-host:ro" in run
     assert f"{tmp_path}/proj/.git:{tmp_path}/proj/.git:rw" in run
     assert f"{tmp_path}/.config:/tmp/.config:ro" in run
-    assert "-p 3456:3000" in run
     assert "--user 501:20" in run
-    assert "-e REVIEW_HOST_PORT=3456" in run
+    assert "-e GENPLAT_TOKEN=x" in run
+    assert "-p" not in run
 
 
-def test_wait_exit_and_stop_remove_idempotent(fake_docker):
-    assert wait_exit("sssf-abc", timeout_s=5) == 0
     stop_remove("sssf-abc")
     stop_remove("sssf-abc")

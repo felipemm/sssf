@@ -7,7 +7,7 @@
  */
 
 /** sessions.status — a run is running until it earns success. */
-export type SessionStatus = "running" | "paused" | "success" | "fail";
+export type SessionStatus = "running" | "success" | "fail";
 
 /** phases.status — queued only for manifest-declared phases not yet entered. */
 export type PhaseStatus = "queued" | "running" | "success" | "fail";
@@ -255,13 +255,6 @@ export interface SessionDetail {
    * its agent_start event (coding_agent is null until it finishes).
    */
   agents: AgentSession[];
-  /** The human-review gate record, or null before the run reaches that stage. */
-  review: SessionReview | null;
-}
-
-export interface SessionReview {
-  status: string;          // pending | approved | rejected
-  host_port: number | null;
 }
 
 /**

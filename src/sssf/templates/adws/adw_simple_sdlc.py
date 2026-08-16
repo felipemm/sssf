@@ -45,7 +45,6 @@ from sssf.adw_modules import agents, changes, gates, git_helper, quality, sessio
 from sssf.adw_modules.data_types import (AgentCall, BuildOutput, ChangeCapture,
                                     DocumentOutput, PhaseParams, PlanOutput,
                                     ReviewOutput)
-from sssf.adw_modules.review import human_review
 
 REQUIRED_AGENTS = ["planner", "builder", "reviewer", "documenter"]
 MAX_FIX_LOOPS = 3
@@ -206,18 +205,7 @@ def main(prompt: str, config: str = "adws/adw_sssf_config/sssf.config.yaml", adw
                                        description="Ship the write-up in its own commit, beside the code it describes")) as ph:
                 commit(ph, document)
 
-    # The human review gate is the LAST phase: the factory is done, the app
-    # runs in the sandbox, and approval/rejection exits the ADW promptly so the
-    # host teardown never races a still-running pipeline. The human decision is
-    # the final authority: approved -> accepted, rejected -> failed, skipped
-    # (no gate) -> the run's own verdict (tests + AI review) stands.
-    with run.phase(PhaseParams(name="review", kind="engineer", owner=run.engineer,
-                               description="Engineer tests the running app, then approves or rejects")) as ph:
-        human = human_review(run, cfg, ph, prompt)
-        if human is False:
-            raise RuntimeError("engineer rejected the run")
-
-    return run.finish(accepted=verified if human is None else human,
+    return run.finish(accepted=verified,
                       reason="the suite or the review never came back clean")
 
 
