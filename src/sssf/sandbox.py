@@ -6,6 +6,7 @@ cleanup.
 """
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
@@ -175,46 +176,63 @@ def teardown_sandbox(project_root: Path, adw_id: str) -> int:
     return 0
 
 
-def sync_run_db(project_db: Path, per_run_db: Path, adw_id: str) -> None:
-    """Merge a run's per-run db (written by the ADW inside the container, in
-    the worktree) into the project db. The HOST owns the project db — the
-    container never writes it, so no cross-mount WAL issues. DELETE the run's
-    previous rows then INSERT the current ones, per table, so repeated syncs
-    never duplicate."""
-    import sqlite3
+def sync_run_db(conn: sqlite3.Connection, per_run_db: Path, adw_id: str) -> None:
+    """Merge a run's per-run db (written by the ADW inside the container) into
+    the project db via the given connection. The per-run db is COPIED first —
+    a plain file read never takes sqlite locks on the live db, so the ADW's
+    own writes are never disturbed (a concurrent sqlite reader through the
+    bind mount caused 'disk I/O error' in the ADW). A torn copy (mid-commit)
+    is skipped; the next sync catches up. DELETE the run's previous rows then
+    INSERT the current ones, per table, so repeated syncs never duplicate."""
+    import shutil
     if not per_run_db.exists():
         return
-    from sssf.adw_modules.tracer import Tracer
-    tracer = Tracer(str(project_db), str(project_db.parent / "sessions" / adw_id / "events.jsonl"))
-    conn = tracer.conn
-    src = sqlite3.connect(str(per_run_db), isolation_level=None)
+    tmp = per_run_db.with_suffix(".sync-copy.db")
     try:
-        for table in ("sessions", "phases", "events", "envelopes",
-                      "gate_results", "processes", "agent_sessions", "tickets"):
-            try:
-                cols = [r[1] for r in src.execute(f"PRAGMA table_info({table})")]
-                if not cols or "adw_id" not in cols:
-                    continue
-                conn.execute(f"DELETE FROM {table} WHERE adw_id=?", (adw_id,))
-                rows = src.execute(f"SELECT * FROM {table} WHERE adw_id=?", (adw_id,)).fetchall()
-                if rows:
-                    q = ",".join("?" * len(cols))
-                    conn.executemany(
-                        f"INSERT INTO {table} ({','.join(cols)}) VALUES ({q})", rows)
-            except sqlite3.Error:
-                continue   # a table missing in one of the dbs — skip
+        shutil.copy2(per_run_db, tmp)
+    except OSError:
+        return
+    try:
+        src = sqlite3.connect(str(tmp), isolation_level=None)
+        try:
+            for table in ("sessions", "phases", "events", "envelopes",
+                          "gate_results", "processes", "agent_sessions", "tickets"):
+                try:
+                    cols = [r[1] for r in src.execute(f"PRAGMA table_info({table})")]
+                    if not cols or "adw_id" not in cols:
+                        continue
+                    conn.execute(f"DELETE FROM {table} WHERE adw_id=?", (adw_id,))
+                    rows = src.execute(f"SELECT * FROM {table} WHERE adw_id=?", (adw_id,)).fetchall()
+                    if rows:
+                        q = ",".join("?" * len(cols))
+                        conn.executemany(
+                            f"INSERT INTO {table} ({','.join(cols)}) VALUES ({q})", rows)
+                except sqlite3.Error:
+                    continue   # a table missing in one of the dbs — skip
+        finally:
+            src.close()
+    except sqlite3.Error:
+        pass   # torn copy — the next sync catches up
     finally:
-        src.close()
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def monitor_run(project_root: Path, adw_id: str) -> int:
     """The detached monitor: while the run's container is alive, merge the
     per-run db into the project db (live-ish visibility, ~3s), then a final
-    sync and teardown once the ADW exits (success or fail). Spawned by
+    sync and teardown once the ADW exits (success or fail). One project
+    connection is reused (the host owns the project db — WAL, host filesystem —
+    so concurrent monitors serialize through busy_timeout). Spawned by
     `sssf run`/`ticket run` right after the container starts."""
+    import sqlite3
+    from sssf.adw_modules.tracer import Tracer
     data_dir, _pi, _env = sandbox_env(project_root)
     project_db = project_db_path(data_dir)
     per_run_db = sandbox_dir(project_root, adw_id) / "adws" / "adw_data" / "sssf.db"
+    tracer = Tracer(str(project_db), str(project_db.parent / "sessions" / adw_id / "events.jsonl"))
     try:
         while True:
             try:
@@ -224,16 +242,16 @@ def monitor_run(project_root: Path, adw_id: str) -> int:
                     break   # container gone — the run is done
             except Exception:
                 break
-            sync_run_db(project_db, per_run_db, adw_id)
+            sync_run_db(tracer.conn, per_run_db, adw_id)
             time.sleep(3)
     finally:
-        sync_run_db(project_db, per_run_db, adw_id)   # final merge
+        sync_run_db(tracer.conn, per_run_db, adw_id)   # final merge
         teardown_sandbox(project_root, adw_id)
     return 0
 
 
 def spawn_monitor(project_root: Path, adw_id: str) -> None:
-    """Launch monitor_run detached (docker wait blocks for minutes)."""
+    """Launch monitor_run detached (it blocks for the run's whole lifetime)."""
     code = (
         "import sys\n"
         "from pathlib import Path\n"
