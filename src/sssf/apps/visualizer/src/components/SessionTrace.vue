@@ -13,7 +13,7 @@ import type {
 } from '../lib/types'
 import { Archive, ArchiveRestore, Bot, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
 import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, type Ticket as TicketInfo } from '../lib/api'
-import { axisTicks, fmtCost, fmtDate, fmtTokens, payloadOk, ts } from '../lib/format'
+import { axisTicks, fmtCost, fmtDate, payloadOk, ts } from '../lib/format'
 import { modelIcon, modelName } from '../lib/models'
 import { agentColor, hexAlpha, parseAgentStart } from '../lib/events'
 import { navigate, phaseCrumb } from '../lib/router'
@@ -524,19 +524,6 @@ function selectPhase(p: Phase) {
       </span>
     </div>
 
-    <div v-if="agentCosts.length" class="agent-costs">
-      <span class="ac-label dim">agent cost</span>
-      <span
-        v-for="a in agentCosts"
-        :key="a.agent"
-        class="ac-chip"
-        :title="`${a.agent}: ${fmtTokens(a.tokens)} tokens`"
-      >
-        <span class="ac-name">{{ a.agent }}</span>
-        <span class="ac-cost">{{ fmtCost(a.cost) }}</span>
-      </span>
-    </div>
-
     <div v-if="phases.length" class="waterfall">
       <div class="row axis-row">
         <div class="label" />
@@ -708,35 +695,6 @@ function selectPhase(p: Phase) {
   border-color: var(--border);
 }
 
-.agent-costs {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 10px 28px 0;
-}
-.ac-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.ac-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 3px 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: 999px;
-  background: var(--surface);
-  font-size: 12px;
-}
-.ac-name {
-  color: var(--faint);
-}
-.ac-cost {
-  font-weight: 600;
-  color: var(--cyan);
-}
 .run-strip {
   display: flex;
   align-items: center;
