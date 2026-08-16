@@ -265,7 +265,7 @@ async function archive(s: SessionSummary, event: MouseEvent) {
               v-for="s in byColumn[col.key]"
               :key="s.adw_id"
               class="card"
-              :href="hrefFor(s.adw_id)"
+              :href="hrefFor({ adwId: s.adw_id })"
             >
               <div class="card-top">
                 <span class="adw" :title="s.adw_id">{{ s.adw_name || s.adw_id }}</span>

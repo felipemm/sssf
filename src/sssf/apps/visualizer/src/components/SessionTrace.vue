@@ -29,7 +29,7 @@ const props = defineProps<{ adwId: string; phaseId: string | null }>()
 async function toggleArchive() {
   try {
     await archiveSession(props.adwId, !session.value?.archived)
-    navigate()
+    navigate({})
   } catch {
     /* stay on the page; the next poll reconciles */
   }
@@ -505,7 +505,7 @@ const sessionDurationMs = computed(() => {
 })
 
 function selectPhase(p: Phase) {
-  navigate(props.adwId, p.phase_id === props.phaseId ? null : p.phase_id)
+  navigate({ adwId: props.adwId, phaseId: p.phase_id === props.phaseId ? null : p.phase_id })
 }
 </script>
 
@@ -679,7 +679,7 @@ function selectPhase(p: Phase) {
       :events="events"
       :envelopes="envelopes"
       :gates="gates"
-      @close="navigate(props.adwId)"
+      @close="navigate({ adwId: props.adwId })"
     />
 
     <TicketModal

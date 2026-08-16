@@ -206,7 +206,7 @@ const hiddenRowCount = computed(() =>
 </script>
 
 <template>
-  <a class="card" :class="session.status" :href="hrefFor(session.adw_id)">
+  <a class="card" :class="session.status" :href="hrefFor({ adwId: session.adw_id })">
     <button
       class="card-archive"
       type="button"

@@ -29,4 +29,6 @@ jobs:
       - name: Install dependencies
         run: bun install
       - name: Run tests
-        run: bun test
+        # 5000ms default is tight for a cold runner (status.test.ts flaked at
+        # 5044ms once) — the tests themselves take tens of ms.
+        run: bun test --timeout 15000
