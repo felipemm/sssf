@@ -81,15 +81,15 @@ def _reap_stale_run(tracer: Tracer, adw_id: str) -> None:
     stale = tracer.conn.execute(
         "SELECT pid, kind, command FROM processes WHERE adw_id=? AND ended_at IS NULL",
         (adw_id,)).fetchall()
-    if not stale:
-        return
-    # Terminate agents first: pi subprocesses are not children of the ADW, so
-    # killing the ADW alone would orphan them.
     for pid, _kind, command in stale:
         _terminate(pid, command)
-    time.sleep(0.5)   # grace for the SIGTERM handler to close its own trace
-    for pid, _kind, command in stale:
-        _terminate(pid, command, force=True)
+    if stale:
+        time.sleep(0.5)   # grace for the SIGTERM handler to close its own trace
+        for pid, _kind, command in stale:
+            _terminate(pid, command, force=True)
+    # Mark the prior attempt's open phases + session failed REGARDLESS of
+    # stale processes — a previous attempt may have died without recording one
+    # (e.g. SIGKILL), leaving phases stuck 'running'.
     tracer.conn.execute(
         "UPDATE phases SET status='fail', error=?, ended_at=? "
         "WHERE adw_id=? AND status IN ('running','queued')",
