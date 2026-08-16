@@ -66,8 +66,11 @@ host repo (base branch)                       per-run sandbox
 
 ### The runner image (`docker/sssf-runner.Dockerfile` in the sssf repo)
 
-- Base `python:3.11-slim` + apt `git`, `nodejs`/`npm` (pi runs on Node), `bun`
-  (inkwell's app runtime — `bun run dev` runs inside the container).
+- Base `python:3.11-slim` + apt `git`, `nodejs`/`npm` (pi runs on Node), plus
+  **`bun`** and **`uv`** — the runner image carries the common app runtimes
+  (inkwell → `bun run dev`; FastAPI/fastmcp → `uv run …`; NextJS/TS →
+  `npm run dev`). Project-specific dependencies install inside the sandbox
+  during the pipeline's build/test phases, before the review stage runs.
 - `sssf`: `COPY .` + `pip install .` (tracks the current sssf source; tag
   `sssf-runner:<sssf-version>`).
 - `pi`: `npm install -g --ignore-scripts @earendil-works/pi-coding-agent`.
@@ -106,7 +109,27 @@ host repo (base branch)                       per-run sandbox
    `sssf sandbox prune <adw_id>` (optional cleanup helper)
 ```
 
+### The review stage (generic — any project type)
+
+- `review.command` is an **arbitrary command string** declared per project in
+  `sssf.config.yaml`, executed inside the container with the worktree as cwd
+  (inkwell: `bun run dev` · FastAPI: `uv run fastapi dev app/main.py` ·
+  NextJS: `npm run dev` · …). Deps are already installed by the pipeline's
+  build/test phases.
+- **Auto-detect fallback** when `review.command` is unset: `package.json` with
+  a `dev` script → `bun run dev` when `bun.lock` exists, else `npm run dev`;
+  Python-only projects get no safe default → the review stage is skipped
+  gracefully (run completes without the human gate) with a config hint.
+- **Generic readiness wait**: after spawning the command, the ADW polls the
+  container port until a TCP connect succeeds (works for any framework), then
+  logs the URL `http://localhost:<host_port>`.
+- Port mapping: container port `review.port` (what the app listens on),
+  host port allocated per run (see Port allocation).
+
 ### Review signal (shared db)
+
+The ADW (in the container) and the CLI/viz (on the host) communicate through
+one shared record in the bind-mounted db:
 
 New small table (tracer-owned, `CREATE TABLE IF NOT EXISTS`):
 
