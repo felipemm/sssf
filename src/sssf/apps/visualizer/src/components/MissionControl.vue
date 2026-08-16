@@ -365,11 +365,6 @@ function fmtRel(iso: string | null): string {
       <CompletedChart :points="chartPoints" />
     </section>
 
-    <!-- Cross-project contributions heatmap (git commits over the last year) -->
-    <section v-if="contribDays.length" class="panel">
-      <h3>Contributions</h3>
-      <ContributionsHeatmap :days="contribDays" />
-    </section>
     </div>
 
     <!-- Containers (docker ps filtered to sssf) — always visible, even when empty -->
@@ -456,6 +451,12 @@ function fmtRel(iso: string | null): string {
         </ul>
       </section>
     </div>
+
+    <!-- Cross-project contributions heatmap (git commits over the last year) -->
+    <section v-if="contribDays.length" class="panel">
+      <h3>Contributions</h3>
+      <ContributionsHeatmap :days="contribDays" />
+    </section>
 
     <!-- Add project -->
     <section class="panel add">
@@ -550,11 +551,37 @@ function fmtRel(iso: string | null): string {
 }
 @media (max-width: 1100px) { .now-row { grid-template-columns: 1fr; } }
 
-/* height-capped so many parallel runs/containers never grow the page */
+/* equal-height pair: Running now + Completed sessions share one row height;
+   content fills the panel (chart) or scrolls inside it (run list) */
+.now-row .panel {
+  height: 380px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 .now-row .runs {
-  max-height: 340px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;   /* rows truncate, never scroll sideways */
+}
+.now-row :deep(.completed-chart) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.now-row :deep(.completed-chart svg) {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: auto;
+}
+.now-row :deep(.chart-empty) {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .ctable-wrap {
   max-height: 340px;
