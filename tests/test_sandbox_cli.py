@@ -39,3 +39,48 @@ def test_teardown_keeps_branch(tmp_path):
     assert "sssf/abc123" in branches
 
 
+
+
+def test_stop_run_finalizes_stale_session(tmp_path, monkeypatch, fake_docker):
+    """A stale run (no container/worktree, session stuck running) becomes
+    failed on stop — so it is archivable."""
+    import sqlite3
+    from sssf.sandbox import project_db_path, stop_run
+    root = _make_repo(tmp_path)
+    data = root / "adws" / "adw_data"
+    data.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(project_db_path(data)))
+    conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
+    conn.execute("INSERT INTO sessions VALUES ('stale1', 'running', NULL)")
+    conn.commit()
+    conn.close()
+    assert stop_run(root, "stale1", data) == 0
+    conn = sqlite3.connect(str(project_db_path(data)))
+    status = conn.execute("SELECT status FROM sessions WHERE adw_id='stale1'").fetchone()[0]
+    conn.close()
+    assert status == "fail"
+
+
+def test_stop_run_marks_inflight_phases(tmp_path, monkeypatch, fake_docker):
+    """Stop marks the running/queued phases failed, not just the session."""
+    import sqlite3
+    from sssf.sandbox import project_db_path, stop_run
+    root = _make_repo(tmp_path)
+    data = root / "adws" / "adw_data"
+    data.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(project_db_path(data)))
+    conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
+    conn.execute("CREATE TABLE phases (phase_id TEXT PRIMARY KEY, adw_id TEXT, status TEXT, error TEXT, ended_at TEXT)")
+    conn.execute("INSERT INTO sessions VALUES ('stop1', 'running', NULL)")
+    conn.execute("INSERT INTO phases VALUES ('p1', 'stop1', 'success', NULL, NULL)")
+    conn.execute("INSERT INTO phases VALUES ('p2', 'stop1', 'running', NULL, NULL)")
+    conn.execute("INSERT INTO phases VALUES ('p3', 'stop1', 'queued', NULL, NULL)")
+    conn.commit()
+    conn.close()
+    stop_run(root, "stop1", data)
+    conn = sqlite3.connect(str(project_db_path(data)))
+    rows = conn.execute("SELECT phase_id, status FROM phases WHERE adw_id='stop1'").fetchall()
+    sess = conn.execute("SELECT status FROM sessions WHERE adw_id='stop1'").fetchone()[0]
+    conn.close()
+    assert dict(rows) == {"p1": "success", "p2": "fail", "p3": "fail"}
+    assert sess == "fail"

@@ -28,13 +28,17 @@ def sandbox_dir(project_root: Path, adw_id: str) -> Path:
     return home / "sandboxes" / project_root.name / adw_id
 
 
-def create_worktree(project_root: Path, adw_id: str) -> Path:
+def create_worktree(project_root: Path, adw_id: str, attach: bool = False) -> Path:
     """git worktree add -q <dir> -b sssf/<adw_id>. The branch is unique per
-    adw_id; worktrees are structurally isolated (a branch lives in one)."""
+    adw_id; worktrees are structurally isolated (a branch lives in one).
+
+    attach=True attaches to the EXISTING sssf/<adw_id> branch (a restart reuses
+    the previous run's branch — the ADW joins and reaps the old state)."""
     branch = f"sssf/{adw_id}"
     wt = sandbox_dir(project_root, adw_id)
     wt.parent.mkdir(parents=True, exist_ok=True)
-    r = _run_git(project_root, "worktree", "add", "-q", str(wt), "-b", branch)
+    args = ["worktree", "add", "-q", str(wt)] + (["-b", branch] if not attach else [branch])
+    r = _run_git(project_root, *args)
     if r.returncode != 0:
         raise SandboxError(f"worktree add failed: {r.stderr.strip()}")
     return wt
@@ -133,13 +137,21 @@ def container_name(adw_id: str) -> str:
     return f"sssf-{adw_id}"
 
 
+def project_db_path(data_dir: Path) -> Path:
+    """The shared project db (bind-mounted into the container at
+    /work/adws/adw_data/sssf.db)."""
+    return data_dir / "sssf.db"
+
+
 def spawn_sandbox(project_root: Path, adw_id: str, *, cmd: list[str],
                   image: str, data_dir: Path, pi_home: Path,
                   env: dict[str, str] | None = None,
-                  uid: int | None = None, gid: int | None = None) -> dict:
+                  uid: int | None = None, gid: int | None = None,
+                  attach: bool = False) -> dict:
     """Create the worktree + start the container. Deterministic; returns the
-    sandbox record (worktree, name)."""
-    wt = create_worktree(project_root, adw_id)
+    sandbox record (worktree, name). attach=True reuses the run's existing
+    branch (a restart)."""
+    wt = create_worktree(project_root, adw_id, attach=attach)
     stamp_adw_template(wt)   # deterministic: the installed template, not a stale init stamp
     uid = uid if uid is not None else os.getuid()
     gid = gid if gid is not None else os.getgid()
@@ -216,12 +228,41 @@ def sandbox_env(project_root: Path) -> tuple[Path, Path, dict[str, str]]:
     return data_dir, pi_home, env
 
 
+def _session_status(data_dir: Path, adw_id: str) -> str | None:
+    import sqlite3
+    db_path = project_db_path(data_dir)
+    if not db_path.exists():
+        return None
+    try:
+        conn = sqlite3.connect(str(db_path), isolation_level=None)
+        row = conn.execute("SELECT status FROM sessions WHERE adw_id=?", (adw_id,)).fetchone()
+        conn.close()
+        return row[0] if row else None
+    except sqlite3.Error:
+        return None
+
+
 def stop_run(project_root: Path, adw_id: str, data_dir: Path) -> int:
-    """Terminate a run: kill the container (the ADW's kill-failsafe marks the
-    session failed) and remove the worktree. The branch stays for inspection
-    (prune deletes it once resolved)."""
+    """Terminate a run: kill the container and remove the worktree. If the
+    session is still marked running afterwards (a stale run whose ADW died
+    without its failsafe — e.g. SIGKILL teardown), finalize it as failed so it
+    becomes archivable, and mark every in-flight/queued PHASE failed — the
+    trace must show the run stopped cleanly, never a phase stuck 'running'.
+    The branch stays for inspection (prune deletes it once resolved)."""
     stop_remove(container_name(adw_id))
     remove_worktree(sandbox_dir(project_root, adw_id))
+    status = _session_status(data_dir, adw_id)
+    if status is not None and status not in ("success", "fail"):
+        import datetime
+        from sssf.adw_modules.tracer import Tracer
+        tracer = Tracer(str(project_db_path(data_dir)),
+                        str(data_dir / "sessions" / adw_id / "events.jsonl"))
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        tracer.conn.execute(
+            "UPDATE phases SET status='fail', error=?, ended_at=? "
+            "WHERE adw_id=? AND status IN ('running','queued')",
+            ("stopped by the engineer", now, adw_id))
+        tracer.session_finish(adw_id, ok=False)   # a cancelled run is failed
     return 0
 
 

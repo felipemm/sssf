@@ -363,6 +363,17 @@ const server = Bun.serve({
     }),
     "/api/projects/:project/sessions": scoped(sessionsHandler),
     "/api/projects/:project/sessions/:adw_id": scoped(sessionDetailHandler),
+    "/api/projects/:project/sessions/:adw_id/restart": scoped(async (req) => {
+      const name = param(req, "project");
+      const root = projectRoot(name);
+      const adwId = param(req, "adw_id");
+      if (!root) return notFound(`no project ${name}`);
+      const proc = Bun.spawn(["sssf", "run", "restart", adwId, "--project", root],
+        { stdout: "pipe", stderr: "pipe" });
+      const output = await new Response(proc.stdout).text();
+      await proc.exited;
+      return json({ ok: proc.exitCode === 0, output });
+    }),
     "/api/projects/:project/sessions/:adw_id/stop": scoped(async (req) => {
       const name = param(req, "project");
       const root = projectRoot(name);

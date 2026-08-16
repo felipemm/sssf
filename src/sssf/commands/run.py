@@ -21,9 +21,11 @@ def run(cwd: Path, adw: str, args: list[str], explicit_project: str | None = Non
             explicit_project = args[i + 1]
             args = args[:i] + args[i + 2:]
 
-    # `sssf run stop <adw_id>` — terminate a running sandbox.
+    # `sssf run stop <adw_id>` / `sssf run restart <adw_id>` — run control.
     if adw == "stop":
         return _stop(cwd, args, explicit_project)
+    if adw == "restart":
+        return _restart(cwd, args, explicit_project)
 
     root = find_project(cwd, explicit_project)
     if root is None:
@@ -50,7 +52,8 @@ def _sandbox_enabled(root: Path) -> bool:
         return False
 
 
-def _run_sandboxed(root: Path, adw_file: Path, args: list[str]) -> int:
+def _run_sandboxed(root: Path, adw_file: Path, args: list[str], adw_id: str | None = None,
+                    attach: bool = False) -> int:
     """Create the per-run sandbox (worktree + container), run the ADW inside,
     and detach a teardown monitor (the sandbox tears itself down when the ADW
     exits — success or fail). The cwd is never touched; the run's branch
@@ -65,14 +68,14 @@ def _run_sandboxed(root: Path, adw_file: Path, args: list[str]) -> int:
     from sssf.adw_modules.agents import load_config
     cfg = load_config(str(root / "adws" / "adw_sssf_config" / "sssf.config.yaml"))
 
-    adw_id = uuid.uuid4().hex[:8]
+    adw_id = adw_id or uuid.uuid4().hex[:8]
     data_dir, pi_home, env = sandbox_env(root)
     try:
         spawn_sandbox(
             root, adw_id,
             cmd=["python", "adws/adw_simple_sdlc.py", *args, "--adw-id", adw_id],
             image=cfg.sandbox.image,
-            data_dir=data_dir, pi_home=pi_home, env=env,
+            data_dir=data_dir, pi_home=pi_home, env=env, attach=attach,
         )
     except SandboxError as e:
         print(f"sssf: sandbox spawn failed: {e}", file=sys.stderr)
@@ -80,6 +83,35 @@ def _run_sandboxed(root: Path, adw_file: Path, args: list[str]) -> int:
     spawn_monitor(root, adw_id)
     print(f"sssf: sandboxed run spawned — adw_id {adw_id} (auto-teardown on exit)")
     return 0
+
+
+def _restart(cwd: Path, args: list[str], explicit_project: str | None) -> int:
+    """Re-run a session: reuse its adw_id (the ADW joins and reaps the old
+    state) with the original request as the prompt. The sandbox attaches to the
+    existing sssf/<adw_id> branch."""
+    if not args:
+        print("sssf: usage: sssf run restart <adw_id>", file=sys.stderr)
+        return 1
+    import sqlite3
+    from sssf.sandbox import project_db_path, sandbox_env, _session_status
+    root = find_project(cwd, explicit_project)
+    if root is None:
+        print("sssf: no project here.", file=sys.stderr)
+        return 1
+    adw_id = args[0]
+    data_dir, _pi, _env = sandbox_env(root)
+    if _session_status(data_dir, adw_id) is None:
+        print(f"sssf: no session {adw_id}", file=sys.stderr)
+        return 1
+    db_path = project_db_path(data_dir)
+    conn = sqlite3.connect(str(db_path), isolation_level=None)
+    row = conn.execute("SELECT request FROM sessions WHERE adw_id=?", (adw_id,)).fetchone()
+    conn.close()
+    if not row or not row[0]:
+        print(f"sssf: session {adw_id} has no request to re-run", file=sys.stderr)
+        return 1
+    adw_file = root / "adws" / "adw_simple_sdlc.py"
+    return _run_sandboxed(root, adw_file, [row[0]], adw_id=adw_id, attach=True)
 
 
 def _stop(cwd: Path, args: list[str], explicit_project: str | None) -> int:

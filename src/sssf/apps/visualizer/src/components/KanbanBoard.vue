@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
-import { Archive, ChevronDown, ChevronRight, RefreshCw } from 'lucide-vue-next'
+import { Archive, ChevronDown, ChevronRight, RefreshCw, RotateCw, Square } from 'lucide-vue-next'
 import type { SessionSummary } from '../lib/types'
 import {
   archiveSession,
@@ -10,6 +10,8 @@ import {
   useProjects,
   type Ticket,
   type TicketsResponse,
+  restartRun,
+  stopRun,
 } from '../lib/api'
 import { fmtCost, fmtDate, fmtTokens, ts } from '../lib/format'
 import { hrefFor } from '../lib/router'
@@ -174,6 +176,24 @@ function toggleCollapsed(key: string) {
 
 // Archive from the board: the card is an <a>, so the click must not navigate.
 // The board polls every 500 ms — a failed write just re-syncs on the next tick.
+async function restart(s: SessionSummary, event: MouseEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+  try {
+    await restartRun(s.adw_id)
+  } catch { /* the next poll reconciles */ }
+  void tick()
+}
+
+async function stop(s: SessionSummary, event: MouseEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+  try {
+    await stopRun(s.adw_id)
+  } catch { /* the next poll reconciles */ }
+  void tick()
+}
+
 async function archive(s: SessionSummary, event: MouseEvent) {
   event.preventDefault()
   event.stopPropagation()
@@ -251,6 +271,26 @@ async function archive(s: SessionSummary, event: MouseEvent) {
                     @click="archive(s, $event)"
                   >
                     <Archive :size="15" :stroke-width="2" />
+                  </button>
+                  <button
+                    v-if="s.status === 'running'"
+                    class="card-archive card-stop"
+                    type="button"
+                    title="Stop — cancel this run (marked failed, sandbox torn down)"
+                    aria-label="Stop run"
+                    @click="stop(s, $event)"
+                  >
+                    <Square :size="15" :stroke-width="2" />
+                  </button>
+                  <button
+                    v-if="s.status === 'success' || s.status === 'fail'"
+                    class="card-archive card-restart"
+                    type="button"
+                    title="Restart — re-run this session in a fresh sandbox"
+                    aria-label="Restart run"
+                    @click="restart(s, $event)"
+                  >
+                    <RotateCw :size="15" :stroke-width="2" />
                   </button>
                 </span>
               </div>
@@ -433,6 +473,20 @@ async function archive(s: SessionSummary, event: MouseEvent) {
 .card-archive:disabled:hover {
   color: var(--faint);
   background: none;
+}
+.card-stop {
+  color: var(--faint);
+}
+.card-stop:hover {
+  color: #ffb454;
+  background: rgba(255, 180, 84, 0.12);
+}
+.card-restart {
+  color: var(--faint);
+}
+.card-restart:hover {
+  color: var(--blue);
+  background: rgba(108, 182, 255, 0.12);
 }
 
 .card:hover {

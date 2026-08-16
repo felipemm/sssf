@@ -118,6 +118,13 @@ export async function stopRun(adwId: string): Promise<{ ok: boolean; output?: st
   return { ok: data?.ok ?? res.ok, output: data?.output }
 }
 
+export async function restartRun(adwId: string): Promise<{ ok: boolean; output?: string }> {
+  const url = `${base()}/sessions/${encodeURIComponent(adwId)}/restart`
+  const res = await fetch(url, { method: 'POST' })
+  const data = (await res.json().catch(() => null)) as { ok?: boolean; output?: string } | null
+  return { ok: data?.ok ?? res.ok, output: data?.output }
+}
+
 export interface SweepResult {
   project: string
   db: string

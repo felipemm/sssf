@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, shallowRef, watch } from 'vue'
-import { Archive, ArchiveRestore } from 'lucide-vue-next'
+import { Archive, ArchiveRestore, RotateCw, Square } from 'lucide-vue-next'
 import type { EventRow, SessionSummary } from '../lib/types'
-import { archiveSession, fetchEvents } from '../lib/api'
+import { archiveSession, fetchEvents, restartRun, stopRun } from '../lib/api'
 import { axisTicks, fmtDate, fmtOffset, ts } from '../lib/format'
 import { agentColor, dotColor, eventLabel } from '../lib/events'
 import { hrefFor } from '../lib/router'
@@ -16,6 +16,24 @@ const emit = defineEmits<{ archived: [adwId: string] }>()
 // The card is an <a>; the button lives inside it, so the click must not
 // navigate. Told the parent optimistically — the poll would take up to half a
 // second to drop the card, and a triage click should feel instant.
+async function restart(event: MouseEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+  try {
+    await restartRun(props.session.adw_id)
+  } catch { /* the next poll reconciles */ }
+  emit('archived', props.session.adw_id)   // signals the parent to re-sync
+}
+
+async function stop(event: MouseEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+  try {
+    await stopRun(props.session.adw_id)
+  } catch { /* the next poll reconciles */ }
+  emit('archived', props.session.adw_id)   // signals the parent to re-sync
+}
+
 async function archive(event: MouseEvent) {
   event.preventDefault()
   event.stopPropagation()
@@ -200,6 +218,26 @@ const hiddenRowCount = computed(() =>
       <Archive v-if="!archived" :size="15" :stroke-width="2" />
       <ArchiveRestore v-else :size="15" :stroke-width="2" />
     </button>
+    <button
+      v-if="!archived && session.status === 'running'"
+      class="card-archive card-stop"
+      type="button"
+      title="Stop — cancel this run (marked failed, sandbox torn down)"
+      aria-label="Stop run"
+      @click="stop"
+    >
+      <Square :size="15" :stroke-width="2" />
+    </button>
+    <button
+      v-if="session.status === 'success' || session.status === 'fail'"
+      class="card-archive card-restart"
+      type="button"
+      title="Restart — re-run this session in a fresh sandbox"
+      aria-label="Restart run"
+      @click="restart"
+    >
+      <RotateCw :size="15" :stroke-width="2" />
+    </button>
     <span class="card-id">{{ session.adw_id }}</span>
     <span class="card-adw" :title="session.adw_name ?? ''">{{ session.adw_name ?? '—' }}</span>
     <span class="card-req" :title="session.request ?? ''">{{ session.request }}</span>
@@ -316,6 +354,22 @@ const hiddenRowCount = computed(() =>
 .card-archive:disabled:hover {
   background: none;
   color: var(--faint);
+}
+.card-stop {
+  right: 46px;
+  color: var(--faint);
+}
+.card-stop:hover {
+  color: #ffb454;
+  background: rgba(255, 180, 84, 0.12);
+}
+.card-restart {
+  right: 46px;
+  color: var(--faint);
+}
+.card-restart:hover {
+  color: var(--blue);
+  background: rgba(108, 182, 255, 0.12);
 }
 
 .card:hover {

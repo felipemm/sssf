@@ -12,7 +12,7 @@ import type {
   SessionUsage,
 } from '../lib/types'
 import { Archive, ArchiveRestore, Bot, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
-import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, stopRun, type Ticket as TicketInfo } from '../lib/api'
+import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, restartRun, stopRun, type Ticket as TicketInfo } from '../lib/api'
 import { axisTicks, fmtCost, fmtDate, payloadOk, ts } from '../lib/format'
 import { modelIcon, modelName } from '../lib/models'
 import { agentColor, hexAlpha, parseAgentStart } from '../lib/events'
@@ -476,6 +476,15 @@ const agentCosts = computed(() => {
 // which kills the container — the ADW's kill-failsafe marks the run failed.
 async function stop() {
   await stopRun(props.adwId)
+  void tick()   // reflect the failed status immediately
+}
+
+async function restart() {
+  const res = await restartRun(props.adwId)
+  if (res.ok) {
+    session.value = null   // force a reload; the run restarts in the sandbox
+    void tick()
+  }
 }
 
 const sessionDurationMs = computed(() => {
@@ -527,6 +536,13 @@ function selectPhase(p: Phase) {
         title="Stop the run — kills the sandbox and marks it failed"
         @click="stop"
       >stop</button>
+      <button
+        v-if="session.status === 'success' || session.status === 'fail'"
+        class="review-btn restart"
+        type="button"
+        title="Restart — re-run this session in a fresh sandbox"
+        @click="restart"
+      >restart</button>
       <span class="dim">started {{ fmtDate(session.started_at) }}</span>
       <span class="run-stats">
         <StatChip kind="cost" :value="session.total_cost" />
@@ -699,6 +715,13 @@ function selectPhase(p: Phase) {
 }
 .review-btn.stop:hover {
   background: rgba(255, 180, 84, 0.12);
+}
+.review-btn.restart {
+  color: var(--blue);
+  border-color: rgba(108, 182, 255, 0.4);
+}
+.review-btn.restart:hover {
+  background: rgba(108, 182, 255, 0.12);
 }
 
 .run-strip {
