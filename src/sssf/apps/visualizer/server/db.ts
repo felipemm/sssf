@@ -339,7 +339,20 @@ export class SssfDb {
       usage: this.usage(adwId),
       phases: this.phases(adwId),
       agents: this.agentSessions(adwId),
+      review: this.reviewFor(adwId),
     };
+  }
+
+  /** The run's human-review record, or null when it hasn't reached that stage. */
+  reviewFor(adwId: string): { status: string; host_port: number | null } | null {
+    try {
+      const row = this.db.query<{ status: string; host_port: number | null }, [string]>(
+        "SELECT status, host_port FROM run_reviews WHERE adw_id = ?",
+      ).get(adwId);
+      return row ? { status: row.status, host_port: row.host_port ?? null } : null;
+    } catch {
+      return null;   // table may not exist yet (never reached the review stage)
+    }
   }
 
   /**

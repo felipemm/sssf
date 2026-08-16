@@ -255,6 +255,13 @@ export interface SessionDetail {
    * its agent_start event (coding_agent is null until it finishes).
    */
   agents: AgentSession[];
+  /** The human-review gate record, or null before the run reaches that stage. */
+  review: SessionReview | null;
+}
+
+export interface SessionReview {
+  status: string;          // pending | approved | rejected
+  host_port: number | null;
 }
 
 /**

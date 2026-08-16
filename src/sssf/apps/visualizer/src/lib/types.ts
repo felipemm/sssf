@@ -12,6 +12,7 @@ export type {
   GateResult,
   GateCheck,
   AgentSession,
+  SessionReview,
   AgentStartPayload,
   AgentEndPayload,
   UsageBreakdown,

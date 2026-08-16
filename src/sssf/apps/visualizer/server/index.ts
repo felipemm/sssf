@@ -363,6 +363,28 @@ const server = Bun.serve({
     }),
     "/api/projects/:project/sessions": scoped(sessionsHandler),
     "/api/projects/:project/sessions/:adw_id": scoped(sessionDetailHandler),
+    "/api/projects/:project/sessions/:adw_id/review": scoped(async (req) => {
+      const name = param(req, "project");
+      const root = projectRoot(name);
+      const adwId = param(req, "adw_id");
+      if (!root) return notFound(`no project ${name}`);
+      const db = dbForProject(name);
+      if (!db) return notFound("no trace db for project");
+      const review = db.reviewFor(adwId);
+      if (!review || review.status !== "pending") {
+        return json({ error: `no pending review for ${adwId}` }, 409);
+      }
+      const body = await req.json().catch(() => null) as { decision?: string } | null;
+      const decision = body?.decision;
+      if (decision !== "approve" && decision !== "reject") {
+        return json({ error: "decision must be approve|reject" }, 400);
+      }
+      const proc = Bun.spawn(["sssf", "run", decision, adwId, "--project", root],
+        { stdout: "pipe", stderr: "pipe" });
+      const output = await new Response(proc.stdout).text();
+      await proc.exited;
+      return json({ ok: proc.exitCode === 0, output });
+    }),
     "/api/projects/:project/sessions/:adw_id/archive": {
       POST: scoped(archiveHandler),
     },
