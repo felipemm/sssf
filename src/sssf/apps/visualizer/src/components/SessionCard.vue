@@ -226,22 +226,13 @@ const rows = computed<TimelineRow[]>(() => {
 })
 
 
-// Cards are a fixed size, so the timeline region fits exactly MAX_VISIBLE_ROWS
-// row slots. A roster that overflows spends one slot on the "+N more" line and
-// shows MIN_VISIBLE_ROWS agents in the rest — never fewer than three, so a
-// five-agent chain still reads as a chain rather than as a pair and a count.
-const MAX_VISIBLE_ROWS = 4
-const MIN_VISIBLE_ROWS = 3
-
-const overflowing = computed(() => rows.value.length > MAX_VISIBLE_ROWS)
-
-const visibleRows = computed(() =>
-  overflowing.value ? rows.value.slice(0, MIN_VISIBLE_ROWS) : rows.value,
-)
-
-const hiddenRowCount = computed(() =>
-  overflowing.value ? rows.value.length - MIN_VISIBLE_ROWS : 0,
-)
+// The timeline shows the ENTIRE agent roster — no truncation. Its height is
+// fixed per card: the axis (28px + 6px margin) plus 40px per agent row, so
+// nothing clips.
+const TL_AXIS_H = 34
+const TL_ROW_H = 40
+const visibleRows = computed(() => rows.value)
+const tlHeight = computed(() => TL_AXIS_H + Math.max(1, rows.value.length) * TL_ROW_H)
 </script>
 
 <template>
@@ -287,7 +278,7 @@ const hiddenRowCount = computed(() =>
       </span>
     </div>
 
-    <div v-if="rows.length" class="tl">
+    <div v-if="rows.length" class="tl" :style="{ height: `${tlHeight}px` }">
       <div class="tl-axis">
         <span class="tl-gutter" />
         <span class="tl-scale">
@@ -316,7 +307,6 @@ const hiddenRowCount = computed(() =>
           />
         </span>
       </div>
-      <div v-if="hiddenRowCount" class="tl-more dim">+{{ hiddenRowCount }} more agents</div>
     </div>
     <div v-else class="tl tl-empty faint">no agent activity yet</div>
 
@@ -334,9 +324,9 @@ const hiddenRowCount = computed(() =>
 
 <style scoped>
 .card {
-  /* Uniform size: the grid fixes the width, this fixes the height — content
-     clamps and truncates rather than resizing the card. */
-  height: 296px;
+  /* The grid fixes the width; the height grows to fit the full timeline
+     (min-height keeps short sessions uniform). */
+  min-height: 296px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -482,18 +472,8 @@ const hiddenRowCount = computed(() =>
   display: flex;
   flex-direction: column;
   margin-top: 8px;    /* directly under the header row */
-  /* Compact fixed region: axis + four tight row slots. */
-  height: 104px;
   flex: none;
-  overflow: hidden;
-}
-
-.tl-more {
-  display: flex;
-  align-items: center;
-  height: 40px;
-  padding-left: 96px;
-  font-size: 16px;
+  /* height is bound per card: axis + one 40px slot per agent row */
 }
 
 .tl-axis {
