@@ -101,9 +101,6 @@ const shrinkFit = ref<boolean>(shrinkInitial)
 const zoom = ref(1)
 const xOffset = ref(0)   // centering offset when shrunk: half the leftover width
 const naturalH = ref(0)
-// per-column natural positions (offsetLeft/offsetTop within .columns), so each
-// .col can be transformed individually while preserving the grid layout
-const colPos = ref<Record<string, { x: number; y: number }>>({})
 const columnsEl = ref<HTMLElement | null>(null)
 const zoomWrapEl = ref<HTMLElement | null>(null)
 let resizeObs: ResizeObserver | undefined
@@ -118,30 +115,6 @@ function computeZoom() {
   zoom.value = shrinkFit.value && naturalW > 0 ? Math.min(1, avail / naturalW) : 1
   // equal margins on both sides: shift the scaled content by half the leftover
   xOffset.value = shrinkFit.value && naturalW > 0 ? Math.max(0, (avail - naturalW * zoom.value) / 2) : 0
-  if (shrinkFit.value) {
-    const pos: Record<string, { x: number; y: number }> = {}
-    Array.from(el.children).forEach((child, i) => {
-      const key = columns.value[i]?.key
-      if (key) {
-        const c = child as HTMLElement
-        pos[key] = { x: c.offsetLeft, y: c.offsetTop }
-      }
-    })
-    colPos.value = pos
-  }
-}
-
-/** Per-column shrink transform: translate(xOff − x(1−z), −y(1−z)) scale(z)
- * with origin left-top maps every point to z·pos + centering — the same
- * visual as scaling the whole grid, but applied to each .col individually. */
-function colTransform(col: { key: string }): Record<string, string> | undefined {
-  if (!shrinkFit.value) return undefined
-  const p = colPos.value[col.key] ?? { x: 0, y: 0 }
-  const k = 1 - zoom.value
-  return {
-    '--shrink-shift': `${(xOffset.value - p.x * k).toFixed(1)}px`,
-    '--shrink-shift-y': `${(-p.y * k).toFixed(1)}px`,
-  }
 }
 
 function toggleShrinkFit() {
@@ -307,8 +280,8 @@ async function archive(s: SessionSummary, event: MouseEvent) {
     </div>
 
     <div ref="zoomWrapEl" class="board-zoom" :class="{ fit: shrinkFit }" :style="shrinkFit ? { height: `${Math.round(naturalH * zoom)}px` } : undefined">
-    <div ref="columnsEl" class="columns" :class="{ fit: shrinkFit }" :style="shrinkFit ? { '--shrink-zoom': String(zoom) } : undefined">
-      <section v-for="col in columns" :key="col.key" class="col" :style="colTransform(col)">
+    <div ref="columnsEl" class="columns" :class="{ fit: shrinkFit }" :style="shrinkFit ? { transform: `translateX(${xOffset}px) scale(${zoom})`, transformOrigin: 'top left' } : undefined">
+      <section v-for="col in columns" :key="col.key" class="col">
         <div class="col-head">
           <button
             type="button"
@@ -465,16 +438,6 @@ async function archive(s: SessionSummary, event: MouseEvent) {
    though the zoomed content fits the wrapper. */
 .columns.fit {
   overflow: visible;
-}
-/* Each column is transformed individually (never the container): origin at
-   the column's own left-top, shifts computed per column so the grid layout
-   is preserved exactly as scaling the whole grid would. */
-.columns {
-  position: relative;   /* columns' offsetParent — per-col positions are relative to it */
-}
-.columns.fit .col {
-  transform: translateX(var(--shrink-shift, 0px)) translateY(var(--shrink-shift-y, 0px)) scale(var(--shrink-zoom, 1));
-  transform-origin: left top;
 }
 
 .error-bar {
