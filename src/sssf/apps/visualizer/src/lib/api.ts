@@ -144,15 +144,21 @@ export async function archiveSession(adwId: string, archived = true): Promise<vo
 }
 
 
-export async function stopRun(adwId: string): Promise<{ ok: boolean; output?: string }> {
-  const url = `${base()}/sessions/${encodeURIComponent(adwId)}/stop`
+/** Stop a run. `project` scopes to that project (the cockpit runs-now strip
+ * controls sessions in ANY project); default = the selected project. */
+export async function stopRun(adwId: string, project?: string): Promise<{ ok: boolean; output?: string }> {
+  const url = project
+    ? `/api/projects/${encodeURIComponent(project)}/sessions/${encodeURIComponent(adwId)}/stop`
+    : `${base()}/sessions/${encodeURIComponent(adwId)}/stop`
   const res = await fetch(url, { method: 'POST' })
   const data = (await res.json().catch(() => null)) as { ok?: boolean; output?: string } | null
   return { ok: data?.ok ?? res.ok, output: data?.output }
 }
 
-export async function restartRun(adwId: string): Promise<{ ok: boolean; output?: string }> {
-  const url = `${base()}/sessions/${encodeURIComponent(adwId)}/restart`
+export async function restartRun(adwId: string, project?: string): Promise<{ ok: boolean; output?: string }> {
+  const url = project
+    ? `/api/projects/${encodeURIComponent(project)}/sessions/${encodeURIComponent(adwId)}/restart`
+    : `${base()}/sessions/${encodeURIComponent(adwId)}/restart`
   const res = await fetch(url, { method: 'POST' })
   const data = (await res.json().catch(() => null)) as { ok?: boolean; output?: string } | null
   return { ok: data?.ok ?? res.ok, output: data?.output }
