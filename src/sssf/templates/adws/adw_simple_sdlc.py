@@ -132,7 +132,7 @@ def main(prompt: str, config: str = "adws/adw_sssf_config/sssf.config.yaml", adw
                                       gates=[gates.diff_matches_claims]))
             revised = True
 
-    with run.phase(PhaseParams(name="review", kind="human", owner=run.engineer,
+    with run.phase(PhaseParams(name="review", kind="engineer", owner=run.engineer,
                                description="Engineer tests the running app, then approves or rejects")) as ph:
         approved = human_review(run, cfg, ph, prompt)
         if not approved:
