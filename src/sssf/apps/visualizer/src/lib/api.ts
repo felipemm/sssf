@@ -236,7 +236,7 @@ export interface StatusResponse {
 }
 
 export async function fetchStatus(windowDays = 30): Promise<StatusResponse> {
-  const res = await fetch(`/api/projects/${selectedProject.value}/status?window=${windowDays}`)
+  const res = await fetch(`${base()}/status?window=${windowDays}`)
   if (!res.ok) throw new Error(`status ${res.status}`)
   return (await res.json()) as StatusResponse
 }
