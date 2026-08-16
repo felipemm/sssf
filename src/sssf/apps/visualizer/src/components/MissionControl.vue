@@ -13,6 +13,7 @@ import {
 import {
   addProject,
   fetchCockpit,
+  fetchCockpitContributions,
   fetchContainerLogs,
   healControl,
   refreshProject,
@@ -22,8 +23,11 @@ import {
 } from '../lib/api'
 import { navigate } from '../lib/router'
 import type { CockpitData, ControlResult } from '../lib/types'
+import type { ContributionDay } from '../lib/api'
+import ContributionsHeatmap from './ContributionsHeatmap.vue'
 
 const data = ref<CockpitData | null>(null)
+const contribDays = ref<ContributionDay[]>([])
 const loading = ref(false)
 const error = ref('')
 const note = ref('') // transient control feedback, like the sweep toast
@@ -38,6 +42,16 @@ function flashNote(msg: string) {
   note.value = msg
   clearTimeout(noteTimer)
   noteTimer = setTimeout(() => (note.value = ''), 4000)
+}
+
+const CONTRIB_POLL_MS = 5 * 60 * 1000
+
+async function fetchContribs() {
+  try {
+    contribDays.value = await fetchCockpitContributions()
+  } catch {
+    /* heatmap is auxiliary — a failure never disturbs the cockpit */
+  }
 }
 
 async function refresh() {
@@ -55,11 +69,14 @@ async function refresh() {
 
 onMounted(() => {
   void refresh()
+  void fetchContribs()
   timer = setInterval(() => void refresh(), POLL_MS)
+  contribTimer = setInterval(() => void fetchContribs(), CONTRIB_POLL_MS)
 })
 onBeforeUnmount(() => {
   clearInterval(timer)
   clearInterval(logTimer)
+  clearInterval(contribTimer)
   clearTimeout(noteTimer)
 })
 
@@ -106,6 +123,7 @@ const logError = ref('')
 const logTail = ref(100)
 const logLoading = ref(false)
 let logTimer: ReturnType<typeof setInterval> | undefined
+let contribTimer: ReturnType<typeof setInterval> | undefined
 
 async function fetchLogs() {
   if (!logName.value || logLoading.value) return
@@ -327,6 +345,12 @@ function fmtRel(iso: string | null): string {
           </tr>
         </tbody>
       </table>
+    </section>
+
+    <!-- Cross-project contributions heatmap (git commits over the last year) -->
+    <section v-if="contribDays.length" class="panel">
+      <h3>Contributions</h3>
+      <ContributionsHeatmap :days="contribDays" />
     </section>
 
     <div v-if="data" class="lower">

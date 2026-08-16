@@ -222,7 +222,7 @@ describe("handleControl", () => {
   });
 });
 
-import { containerLogs } from "./cockpit.ts";
+import { computeCockpitContributions, containerLogs, _resetContribCache } from "./cockpit.ts";
 
 describe("containerLogs", () => {
   test("rejects non-sssf names before spawning", async () => {
@@ -250,5 +250,61 @@ describe("containerLogs", () => {
     const res = await containerLogs("sssf-abc123", 100, async () => { throw new Error("boom"); });
     expect(res.ok).toBe(false);
     expect(res.error).toBe("boom");
+  });
+});
+
+import { execFileSync } from "node:child_process";
+
+function git(dir: string, ...args: string[]) {
+  execFileSync("git", ["-C", dir, ...args], { stdio: "ignore" });
+}
+
+function makeGitRepo(root: string): void {
+  mkdirSync(root, { recursive: true });
+  git(root, "init", "-q", "-b", "main");
+  git(root, "config", "user.email", "t@t");
+  git(root, "config", "user.name", "T");
+  writeFileSync(join(root, "f.txt"), "x\n");
+  git(root, "add", "-A");
+  git(root, "commit", "-qm", "base");
+  writeFileSync(join(root, "f.txt"), "y\n");
+  git(root, "commit", "-qam", "second");
+}
+
+describe("computeCockpitContributions", () => {
+  test("merges commit days across registered projects (364-day window)", () => {
+    _resetContribCache();
+    const root = mkdtempSync(join(tmpdir(), "cockpit-contrib-"));
+    const home = join(root, ".sssf"); mkdirSync(home, { recursive: true });
+    const regPath = join(home, "projects.json");
+    const a = join(root, "proj-a"); makeGitRepo(a);
+    const b = join(root, "proj-b"); makeGitRepo(b); // both commit today
+    writeFileSync(regPath, JSON.stringify({ projects: [
+      { name: "proj-a", root: a, db: join(a, "adws", "adw_data", "sssf.db"), lastRun: null },
+      { name: "proj-b", root: b, db: join(b, "adws", "adw_data", "sssf.db"), lastRun: null },
+    ]}));
+    const days = computeCockpitContributions(new ProjectRegistry(regPath));
+    expect(days.length).toBe(364);
+    const today = days[days.length - 1]!;
+    expect(today.count).toBe(4); // 2 commits × 2 repos
+    expect(days.reduce((n, d) => n + d.count, 0)).toBe(4);
+    // cached: a second call does not re-walk (no way to observe directly, but
+    // the cache must not grow the counts)
+    const again = computeCockpitContributions(new ProjectRegistry(regPath));
+    expect(again).toEqual(days);
+    _resetContribCache();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("empty registry → all-zero window", () => {
+    _resetContribCache();
+    const root = mkdtempSync(join(tmpdir(), "cockpit-contrib-"));
+    const regPath = join(root, "projects.json");
+    writeFileSync(regPath, JSON.stringify({ projects: [] }));
+    const days = computeCockpitContributions(new ProjectRegistry(regPath));
+    expect(days.length).toBe(364);
+    expect(days.every((d) => d.count === 0)).toBe(true);
+    _resetContribCache();
+    rmSync(root, { recursive: true, force: true });
   });
 });

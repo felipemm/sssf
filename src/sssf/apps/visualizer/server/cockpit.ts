@@ -12,6 +12,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Database } from "bun:sqlite";
 import { openReadonly } from "./db.ts";
+import { contributions } from "./git.ts";
+import type { ContributionDay } from "./git.ts";
 import type { ProjectRegistry } from "./registry.ts";
 import type {
   ActivityItem,
@@ -22,6 +24,44 @@ import type {
   HealSummary,
   RunningSession,
 } from "../shared/types.ts";
+
+const CONTRIB_TTL_MS = 5 * 60 * 1000;   // git history is slow-moving — cache it
+const DAY_MS = 86400_000;
+
+let contribCache: { at: number; data: ContributionDay[] } | null = null;
+
+/** Tests only — drop the contributions cache between cases. */
+export function _resetContribCache(): void {
+  contribCache = null;
+}
+
+/**
+ * Cross-project contributions heatmap: sum each day's commits across every
+ * registered project, over the last 364 days (oldest first) — the same shape
+ * `contributions()` yields per project. Cached 5 minutes; git walks are
+ * `spawnSync` and would otherwise run on every poll.
+ */
+export function computeCockpitContributions(registry: ProjectRegistry): ContributionDay[] {
+  const now = Date.now();
+  if (contribCache && now - contribCache.at < CONTRIB_TTL_MS) return contribCache.data;
+  const byDate = new Map<string, number>();
+  for (const p of registry.list()) {
+    try {
+      for (const d of contributions(p.root)) {
+        byDate.set(d.date, (byDate.get(d.date) ?? 0) + d.count);
+      }
+    } catch {
+      /* unreadable repo — skip this project */
+    }
+  }
+  const days: ContributionDay[] = [];
+  for (let i = 363; i >= 0; i--) {
+    const date = new Date(now - i * DAY_MS).toISOString().slice(0, 10);
+    days.push({ date, count: byDate.get(date) ?? 0 });
+  }
+  contribCache = { at: now, data: days };
+  return days;
+}
 
 export interface CockpitDeps {
   registry: ProjectRegistry;
