@@ -89,3 +89,24 @@ def test_human_review_rejects(tmp_path):
         assert ok is False
     finally:
         os.environ.pop("REVIEW_HOST_PORT", None)
+
+
+def test_human_review_approves_via_signal(tmp_path):
+    """The CLI's wake-up signal (SIGUSR1) ends the phase immediately — no
+    reliance on cross-process sqlite visibility."""
+    import signal
+    run, tracer, db_path = _run(tmp_path)
+    port = _free_port()
+    cfg = SSSFConfig(review=ReviewConfig(command=f"python -m http.server {port}", port=port, poll_seconds=5))
+    ph = _Ph()
+    os.environ["REVIEW_HOST_PORT"] = str(port)
+    try:
+        def signal_approve():
+            time.sleep(1.5)
+            os.kill(os.getpid(), signal.SIGUSR1)
+        threading.Thread(target=signal_approve, daemon=True).start()
+        ok = human_review(run, cfg, ph, "review me")
+        assert ok is True
+        assert any("approved" in str(x) for x in ph.logged)
+    finally:
+        os.environ.pop("REVIEW_HOST_PORT", None)

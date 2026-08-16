@@ -13,7 +13,7 @@ import type {
   SessionUsage,
 } from '../lib/types'
 import { Archive, ArchiveRestore, Bot, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
-import { archiveSession, decideReview, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, type Ticket as TicketInfo } from '../lib/api'
+import { archiveSession, decideReview, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, stopRun, type Ticket as TicketInfo } from '../lib/api'
 import { axisTicks, fmtCost, fmtDate, payloadOk, ts } from '../lib/format'
 import { modelIcon, modelName } from '../lib/models'
 import { agentColor, hexAlpha, parseAgentStart } from '../lib/events'
@@ -483,6 +483,13 @@ async function decide(decision: 'approve' | 'reject') {
   if (res.ok) review.value = null
 }
 
+// Stop a live run (any phase in progress): the server shells `sssf run stop`,
+// which kills the container — the ADW's kill-failsafe marks the run failed.
+async function stop() {
+  const res = await stopRun(props.adwId)
+  if (res.ok) review.value = null
+}
+
 const sessionDurationMs = computed(() => {
   const s = session.value
   if (!s) return NaN
@@ -525,6 +532,13 @@ function selectPhase(p: Phase) {
       >
         <Ticket :size="16" :stroke-width="2" />
       </button>
+      <button
+        v-if="session.status === 'running' || session.status === 'paused'"
+        class="review-btn stop"
+        type="button"
+        title="Stop the run — kills the sandbox and marks it failed"
+        @click="stop"
+      >stop</button>
       <span v-if="review?.status === 'pending'" class="review-actions">
         <a
           v-if="review.host_port"
@@ -744,6 +758,13 @@ function selectPhase(p: Phase) {
 }
 .review-btn.reject:hover {
   background: rgba(255, 111, 103, 0.12);
+}
+.review-btn.stop {
+  color: #ffb454;
+  border-color: rgba(255, 180, 84, 0.4);
+}
+.review-btn.stop:hover {
+  background: rgba(255, 180, 84, 0.12);
 }
 
 .run-strip {

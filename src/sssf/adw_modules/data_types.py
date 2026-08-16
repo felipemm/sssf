@@ -363,7 +363,7 @@ class ReviewConfig(BaseModel):
     worktree as cwd; the app listens on `port` (container port)."""
     command: str | None = None        # auto-detect fallback when unset
     port: int = 3000
-    poll_seconds: int = 3
+    poll_seconds: int = 1   # how often the ADW re-checks the decision — keeps approve/reject snappy
 
     @field_validator("port")
     @classmethod

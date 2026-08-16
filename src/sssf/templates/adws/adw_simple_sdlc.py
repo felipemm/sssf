@@ -208,14 +208,16 @@ def main(prompt: str, config: str = "adws/adw_sssf_config/sssf.config.yaml", adw
 
     # The human review gate is the LAST phase: the factory is done, the app
     # runs in the sandbox, and approval/rejection exits the ADW promptly so the
-    # host teardown never races a still-running pipeline.
+    # host teardown never races a still-running pipeline. The human decision is
+    # the final authority: approved -> accepted, rejected -> failed, skipped
+    # (no gate) -> the run's own verdict (tests + AI review) stands.
     with run.phase(PhaseParams(name="review", kind="engineer", owner=run.engineer,
                                description="Engineer tests the running app, then approves or rejects")) as ph:
-        approved = human_review(run, cfg, ph, prompt)
-        if not approved:
+        human = human_review(run, cfg, ph, prompt)
+        if human is False:
             raise RuntimeError("engineer rejected the run")
 
-    return run.finish(accepted=verified,
+    return run.finish(accepted=verified if human is None else human,
                       reason="the suite or the review never came back clean")
 
 

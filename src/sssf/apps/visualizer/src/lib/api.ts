@@ -36,15 +36,26 @@ export function useProjects() {
   return { selectedProject, projects, projectsLoaded }
 }
 
+const PROJECT_KEY = 'sssf:selected-project'
+
 export function setProject(name: string | null): void {
   selectedProject.value = name
+  if (name) {
+    try { localStorage.setItem(PROJECT_KEY, name) } catch { /* private mode */ }
+  }
 }
 
 export async function fetchProjects(): Promise<ProjectInfo[]> {
   const list = (await getJson('/api/projects')) as ProjectInfo[]
   projects.value = list
   projectsLoaded.value = true
-  if (list.length > 0 && !selectedProject.value) {
+  const remembered = (() => {
+    try { return localStorage.getItem(PROJECT_KEY) } catch { return null }
+  })()
+  const match = list.find((p) => p.name === remembered) ?? list[0]
+  if (list.length > 0 && match && !selectedProject.value) {
+    selectedProject.value = match.name
+  } else if (list.length > 0 && !selectedProject.value) {
     selectedProject.value = list[0]!.name
   }
   return list
@@ -107,6 +118,13 @@ export async function decideReview(adwId: string, decision: 'approve' | 'reject'
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ decision }),
   })
+  const data = (await res.json().catch(() => null)) as { ok?: boolean; output?: string } | null
+  return { ok: data?.ok ?? res.ok, output: data?.output }
+}
+
+export async function stopRun(adwId: string): Promise<{ ok: boolean; output?: string }> {
+  const url = `${base()}/sessions/${encodeURIComponent(adwId)}/stop`
+  const res = await fetch(url, { method: 'POST' })
   const data = (await res.json().catch(() => null)) as { ok?: boolean; output?: string } | null
   return { ok: data?.ok ?? res.ok, output: data?.output }
 }

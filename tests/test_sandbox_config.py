@@ -11,7 +11,7 @@ def test_defaults():
     assert cfg.sandbox.port_base == 3000
     assert cfg.review.command is None
     assert cfg.review.port == 3000
-    assert cfg.review.poll_seconds == 3
+    assert cfg.review.poll_seconds == 1
 
 
 def test_parses_yaml_sections(tmp_path):

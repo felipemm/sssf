@@ -200,13 +200,16 @@ def spawn_sandbox(project_root: Path, adw_id: str, *, cmd: list[str],
 
 def decide_and_teardown(project_root: Path, adw_id: str, status: str,
                         data_dir: Path) -> int:
-    """Mark the decision, wait for the ADW to notice and exit, then tear the
-    container + worktree down. The branch sssf/<adw_id> survives (prune
-    deletes it once the engineer resolved the run)."""
+    """Mark the decision, wake the ADW (SIGUSR1 approve / SIGUSR2 reject — the
+    phase ends immediately), wait for it to exit, then tear the container +
+    worktree down. The branch sssf/<adw_id> survives (prune deletes it once the
+    engineer resolved the run)."""
     from sssf.adw_modules.tracer import Tracer
     db_path = review_db_path(data_dir)
     tracer = Tracer(str(db_path), str(data_dir / "sessions" / adw_id / "events.jsonl"))
     tracer.review_decide(adw_id, status)
+    signal_name = "USR1" if status == "approved" else "USR2"
+    _docker("kill", "-s", signal_name, container_name(adw_id))
     wait_exit(container_name(adw_id), timeout_s=30)
     stop_remove(container_name(adw_id))
     remove_worktree(sandbox_dir(project_root, adw_id))
@@ -240,3 +243,17 @@ def sandbox_env(project_root: Path) -> tuple[Path, Path, dict[str, str]]:
             if r.returncode == 0 and r.stdout.strip():
                 env[var] = r.stdout.strip()
     return data_dir, pi_home, env
+
+
+def stop_run(project_root: Path, adw_id: str, data_dir: Path) -> int:
+    """Terminate a run: kill the container (the ADW's kill-failsafe marks the
+    session failed), clear a pending review, remove the worktree. The branch
+    stays for inspection (prune deletes it once resolved)."""
+    from sssf.adw_modules.tracer import Tracer
+    db_path = review_db_path(data_dir)
+    tracer = Tracer(str(db_path), str(data_dir / "sessions" / adw_id / "events.jsonl"))
+    if tracer.review_status(adw_id) == "pending":
+        tracer.review_decide(adw_id, "rejected")   # a stopped run is not approved
+    stop_remove(container_name(adw_id))
+    remove_worktree(sandbox_dir(project_root, adw_id))
+    return 0

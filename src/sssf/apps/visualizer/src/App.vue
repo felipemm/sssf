@@ -25,12 +25,19 @@ const view = computed(() => {
 // narrow the ref, so hand it a computed string.
 const traceAdwId = computed(() => route.value.adwId ?? '')
 
-// A project switch changes the meaning of every hash route, so land on the
-// default view (the status dashboard at #/); the picker itself reloads the
-// project list on mount.
+// A project switch changes the meaning of every hash route. Stay on the same
+// page for the tab views (status/board/sessions/archived) — the contents just
+// re-fetch for the new project. A trace is per-adw_id, so it can't follow;
+// land on the default (status) instead.
 function onProjectSelect(name: string) {
   setProject(name)
-  navigate()
+  const viewHash: Record<string, string> = {
+    status: '',
+    board: 'board',
+    list: 'sessions',
+    archived: 'archived',
+  }
+  navigate(viewHash[view.value] ?? '')
 }
 
 // Manual archival sweep across every registered project — the `sssf sweep` CLI

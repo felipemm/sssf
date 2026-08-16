@@ -21,8 +21,8 @@ def run(cwd: Path, adw: str, args: list[str], explicit_project: str | None = Non
             explicit_project = args[i + 1]
             args = args[:i] + args[i + 2:]
 
-    # `sssf run approve|reject <adw_id>` — the review decision (sandboxed runs).
-    if adw in ("approve", "reject"):
+    # `sssf run approve|reject|stop <adw_id>` — the review decision / stop.
+    if adw in ("approve", "reject", "stop"):
         return _decide(cwd, adw, args, explicit_project)
 
     root = find_project(cwd, explicit_project)
@@ -86,11 +86,13 @@ def _decide(cwd: Path, decision: str, args: list[str], explicit_project: str | N
     if not args:
         print(f"sssf: usage: sssf run {decision} <adw_id>", file=sys.stderr)
         return 1
-    from sssf.sandbox import decide_and_teardown, sandbox_env
+    from sssf.sandbox import decide_and_teardown, sandbox_env, stop_run
     root = find_project(cwd, explicit_project)
     if root is None:
         print("sssf: no project here.", file=sys.stderr)
         return 1
     adw_id = args[0]
     data_dir, _pi, _env = sandbox_env(root)
+    if decision == "stop":
+        return stop_run(root, adw_id, data_dir)
     return decide_and_teardown(root, adw_id, decision, data_dir)
