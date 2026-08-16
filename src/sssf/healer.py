@@ -114,7 +114,8 @@ def diagnose(session_status: str | None, ticket_status: str | None,
 
 # ── restart budget ─────────────────────────────────────────────────────────
 
-def _state() -> dict:
+def state() -> dict:
+    """Parsed heal-state.json (restart budgets); {} on unreadable — read-only."""
     try:
         return json.loads((STATE_DIR / "heal-state.json").read_text())
     except (OSError, ValueError):
@@ -188,7 +189,7 @@ def recover(root: Path, adw_id: str, session_status: str | None,
 
 def heal_once(state: dict | None = None) -> list[str]:
     """Scan every registered project, recover what is stuck; return the actions."""
-    state = state if state is not None else _state()
+    state = state if state is not None else state()
     actions: list[str] = []
     for name, root in registry_projects():
         project_db = _project_db(root)
@@ -250,6 +251,22 @@ def _clean_orphans(root: Path) -> list[str]:
             teardown_sandbox(root, wt.name)
             cleaned.append(f"{wt.name}: orphaned sandbox removed")
     return cleaned
+
+
+def log_tail(n: int = 5) -> list[str]:
+    """Last n non-empty lines of the daemon log; [] when unreadable."""
+    try:
+        lines = [l for l in _log_file().read_text().splitlines() if l.strip()]
+        return lines[-n:]
+    except OSError:
+        return []
+
+
+def heal_summary() -> dict:
+    """Read-only snapshot for the cockpit: running state, log tail, restart budgets."""
+    pid = running_pid()
+    return {"running": pid is not None, "pid": pid,
+            "logTail": log_tail(), "restarts": state().get("restarts", {})}
 
 
 # ── daemon loop ────────────────────────────────────────────────────────────
