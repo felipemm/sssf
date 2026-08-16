@@ -21,3 +21,6 @@ adws/adw_data/
 # os / editor / logs
 .DS_Store
 *.log
+
+# git worktrees (isolated dev environments)
+.worktrees/
