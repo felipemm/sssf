@@ -259,8 +259,10 @@ async function archive(s: SessionSummary, event: MouseEvent) {
   <div class="board">
     <div v-if="apiError" class="error-bar">api unreachable — retrying {{ apiError }}</div>
 
-    <div v-if="loaded && total" class="board-head dim">
-      <span>{{ total }} runs · grouped by stage — click a card for its trace</span>
+    <div class="board-head dim">
+      <span v-if="loaded && total">{{ total }} runs · grouped by stage — click a card for its trace</span>
+      <span v-else-if="loaded">no sessions yet — run an ADW to see it here</span>
+      <span v-else>loading sessions…</span>
       <button
         class="fit-btn"
         type="button"
