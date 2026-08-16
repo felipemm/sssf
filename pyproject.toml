@@ -1,6 +1,6 @@
 [project]
 name = "sssf"
-version = "0.1.0"
+version = "1.0.0"
 description = "Super Simple Software Factory — repeatable agents-plus-code workflows as a global CLI"
 requires-python = ">=3.11"
 dependencies = ["pydantic>=2", "python-dotenv", "pyyaml", "rich"]
