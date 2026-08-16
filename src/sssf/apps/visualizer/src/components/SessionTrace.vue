@@ -622,6 +622,14 @@ function selectPhase(p: Phase) {
                 />
               </span>
               <span class="b-desc">{{ p.description }}</span>
+              <a
+                v-if="p.name === 'review' && review?.host_port"
+                class="review-open"
+                :href="`http://localhost:${review.host_port}`"
+                target="_blank"
+                rel="noreferrer"
+                @click.stop
+              >open app ↗</a>
               <span
                 v-for="(tick, i) in ticksFor(p)"
                 :key="i"
@@ -1008,6 +1016,17 @@ function selectPhase(p: Phase) {
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+}
+.block .review-open {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cyan);
+  text-decoration: none;
+}
+.block .review-open:hover {
+  text-decoration: underline;
 }
 
 .block.running {
