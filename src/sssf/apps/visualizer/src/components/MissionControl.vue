@@ -60,9 +60,10 @@ const chartWindow = ref<ChartWindow>('24h')
 
 const chartPoints = computed(() => {
   const hourly = data.value?.completedHourly ?? []
+  const baseline = data.value?.completedBaseline ?? 0
   const hours = CHART_WINDOWS.find((w) => w.key === chartWindow.value)?.hours ?? 24
   const slice = hourly.slice(-hours)
-  let cum = 0
+  let cum = baseline // absolute cumulative — the line carries the true running total
   return slice.map((p) => ({ date: p.date, count: (cum += p.count) }))
 })
 const chartWindowLabel = computed(
@@ -347,7 +348,7 @@ function fmtRel(iso: string | null): string {
 
     <!-- Live cumulative completed-sessions chart (updates with the 8s poll) -->
     <section v-if="data" class="panel">
-      <h3>Completed sessions <span class="count hint" data-hint="Cumulative count of finished sessions (success + fail, by ended_at, UTC) across all projects within the selected window. Updates live with the cockpit poll.">{{ chartWindowLabel }} · live</span></h3>
+      <h3>Completed sessions <span class="count hint" data-hint="Absolute cumulative count of finished sessions (success + fail, by ended_at, UTC) across all projects — the line carries the true running total and keeps growing. Updates live with the cockpit poll.">{{ chartWindowLabel }} · live</span></h3>
       <div class="window-switch" role="tablist" aria-label="chart window">
         <button
           v-for="w in CHART_WINDOWS"

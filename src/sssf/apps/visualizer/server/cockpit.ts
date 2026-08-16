@@ -85,6 +85,7 @@ interface ProjectRow extends CockpitProject {
   _activity: ActivityItem[];
   _owned: Set<string>;
   _completed: Map<string, number>;  // UTC hour (YYYY-MM-DDTHH) → completed sessions
+  _completedBaseline: number;       // completed before the 14-day window
 }
 
 const logTailLines = (path: string, n = 5): string[] => {
@@ -195,7 +196,7 @@ function projectRow(
     containers: 0, worktrees: 0, costTodayUsd: 0, costTotalUsd: 0,
     lastActivity: deps.registry.list().find((p) => p.name === name)?.lastRun ?? null,
     stale: false, _running: [], _activity: [], _owned: new Set<string>(),
-    _completed: new Map<string, number>(),
+    _completed: new Map<string, number>(), _completedBaseline: 0,
   };
   if (!existsSync(dbPath)) {
     return { ...empty, stale: true };
@@ -286,6 +287,12 @@ function projectRow(
         const h = e.ended_at!.slice(0, 13); // UTC ISO hour
         empty._completed.set(h, (empty._completed.get(h) ?? 0) + 1);
       }
+      // absolute cumulative baseline: everything completed before the window
+      const cut = new Date(Date.now() - 14 * DAY_MS).toISOString().slice(0, 13);
+      const b = db.query<{ n: number }, [string]>(
+        "SELECT COUNT(*) n FROM sessions WHERE status IN ('success','fail') AND ended_at IS NOT NULL AND ended_at < ?",
+      ).get(cut);
+      empty._completedBaseline = Number(b?.n ?? 0);
     }
     if (hasTable(db, "events")) {
       const evs = db.query<{ adw_id: string; started_at: string; type: string }, []>(
@@ -332,7 +339,7 @@ export async function computeCockpit(deps: CockpitDeps): Promise<CockpitData> {
       dockerOk, dockerError,
     },
     projects: [], running: [], containers: [], heal, activity: [],
-    completedHourly: [],
+    completedHourly: [], completedBaseline: 0,
   };
   const rows: ProjectRow[] = [];
   for (const p of projects) {
@@ -366,8 +373,10 @@ export async function computeCockpit(deps: CockpitDeps): Promise<CockpitData> {
   // selected sliding window (24h/72h/7d/14d) and cumulates — the window
   // toggle needs no refetch. Updates on every poll = live.
   const completedByHour = new Map<string, number>();
+  let completedBaseline = 0;
   for (const row of rows) {
     for (const [h, n] of row._completed) completedByHour.set(h, (completedByHour.get(h) ?? 0) + n);
+    completedBaseline += row._completedBaseline;
   }
   const HOUR_MS = 3600_000;
   const hours = 14 * 24;
@@ -377,6 +386,7 @@ export async function computeCockpit(deps: CockpitDeps): Promise<CockpitData> {
     completed.push({ date: hour, count: completedByHour.get(hour) ?? 0 });
   }
   out.completedHourly = completed;
+  out.completedBaseline = completedBaseline;
   return out;
 }
 

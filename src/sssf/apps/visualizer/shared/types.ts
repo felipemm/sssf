@@ -375,6 +375,8 @@ export interface CockpitData {
   activity: ActivityItem[]
   /** Per-hour completed-session counts, last 14 days (oldest first). */
   completedHourly: CockpitCompletedPoint[]
+  /** Completed sessions before the 14-day window — the chart's cumulative baseline. */
+  completedBaseline: number
 }
 
 export interface ControlResult {

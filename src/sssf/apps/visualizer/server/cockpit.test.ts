@@ -105,19 +105,25 @@ describe("computeCockpit", () => {
     rmSync(env.root, { recursive: true, force: true });
   });
 
-  test("completedHourly: 14-day hourly series feeds the windowed chart", async () => {
+  test("completedHourly: hourly series + absolute cumulative baseline", async () => {
     const env = makeEnv();
     const hour = new Date().toISOString().slice(0, 13); // current UTC hour
+    const old = new Date(Date.now() - 100 * 86400_000).toISOString().slice(0, 13); // 100 days ago
     const da = new Database(join(env.root, "proj-a", "adws", "adw_data", "sssf.db"));
     da.run(`UPDATE sessions SET ended_at=? WHERE adw_id='done1'`, [`${hour}:00:00`]);
+    // a session completed before the 14-day window → the cumulative baseline
+    da.run(`INSERT INTO sessions VALUES ('old1','success','2026-01-01T00:00:00',?,0.1,10,0)`, [`${old}:00:00`]);
     da.close();
     const data = await computeCockpit({ registry: env.registry, sssfHome: env.home, dockerPs: async () => "" });
     const hourly = data.completedHourly;
     expect(hourly.length).toBe(14 * 24); // 336 hours, oldest first
-    expect(hourly.reduce((n, p) => n + p.count, 0)).toBe(1); // done1 only — run1 still running
-    // the current hour's bucket holds the completion (within the last 24h slice)
+    expect(hourly.reduce((n, p) => n + p.count, 0)).toBe(1); // done1 only in-window
+    expect(data.completedBaseline).toBe(1); // old1 predates the window
     const last24 = hourly.slice(-24);
     expect(last24.reduce((n, p) => n + p.count, 0)).toBe(1);
+    // the chart's final cumulative point = baseline + in-window completions
+    const finalCount = data.completedBaseline + hourly.reduce((n, p) => n + p.count, 0);
+    expect(finalCount).toBe(2);
     rmSync(env.root, { recursive: true, force: true });
   });
 
