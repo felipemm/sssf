@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { Archive, ChevronDown, ChevronRight, RefreshCw, RotateCw, Square } from 'lucide-vue-next'
 import type { SessionSummary } from '../lib/types'
 import {
@@ -52,6 +52,13 @@ async function tick() {
 
 // ── ticketing backlog ───────────────────────────────────────────────────────
 const { selectedProject, projectsLoaded } = useProjects()
+// A project switch must not show the previous project's cards while the new
+// fetch is in flight (or if it fails) — clear first, then reload.
+watch(selectedProject, () => {
+  sessions.value = []
+  tickets.value = { enabled: false, tickets: [] }
+  void tick()
+})
 const tickets = ref<TicketsResponse>({ enabled: false, tickets: [] })
 const activeTicket = ref<Ticket | null>(null)
 const syncing = ref(false)
@@ -59,7 +66,9 @@ const syncing = ref(false)
 // The backlog column renders tickets, not sessions — its count and empty
 // state come from here, never from byColumn['backlog'] (which no session ever
 // lands in).
-const backlogTickets = computed(() => tickets.value.tickets.filter((x) => x.status === 'backlog'))
+// 'starting' tickets stay in the backlog with a spinner until the run's
+// session appears (the container warm-up) — only then does the card vanish.
+const backlogTickets = computed(() => tickets.value.tickets.filter((x) => x.status === 'backlog' || x.status === 'starting'))
 
 async function pullTickets() {
   if (!selectedProject.value) return      // adhoc mode has no project scope / backlog

@@ -148,11 +148,13 @@ def spawn_sandbox(project_root: Path, adw_id: str, *, cmd: list[str],
                   image: str, data_dir: Path, pi_home: Path,
                   env: dict[str, str] | None = None,
                   uid: int | None = None, gid: int | None = None,
-                  attach: bool = False) -> dict:
-    """Create the worktree + start the container. Deterministic; returns the
+                  attach: bool = False,
+                  worktree: Path | None = None) -> dict:
+    """Start the container in a (created) worktree. Deterministic; returns the
     sandbox record (worktree, name). attach=True reuses the run's existing
-    branch (a restart)."""
-    wt = create_worktree(project_root, adw_id, attach=attach)
+    branch (a restart). `worktree` supplies an ALREADY-created worktree (the
+    ticket path creates one first to write the prompt) — never create twice."""
+    wt = worktree or create_worktree(project_root, adw_id, attach=attach)
     stamp_adw_template(wt)   # deterministic: the installed template, not a stale init stamp
     uid = uid if uid is not None else os.getuid()
     gid = gid if gid is not None else os.getgid()

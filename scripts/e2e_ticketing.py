@@ -75,8 +75,16 @@ def main() -> int:
         p.wait(timeout=60)
 
     # ── wait for every ticket's session to reach a terminal state ──────────
+    # Fast completion: the runs are done the moment no container is left.
+    # The monitors' final syncs land within a short settle window; if a
+    # monitor died, fall back to syncing any leftover per-run dbs ourselves.
     db = PROJECT / "adws/adw_data/sssf.db"
-    deadline = time.time() + 25 * 60
+    import os
+    sbx_dir = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf")) / "sandboxes" / PROJECT.name
+    from sssf.sandbox import sync_run_db, project_db_path
+    deadline = time.time() + 15 * 60
+    settle_deadline = time.time() + 15
+    containers = float("inf")
     while time.time() < deadline:
         try:
             conn = sqlite3.connect(str(db), isolation_level=None, timeout=10)
@@ -86,10 +94,29 @@ def main() -> int:
             conn.close()
         except sqlite3.Error:
             linked = []
+        containers = len(sh("docker", "ps", "-a", "--filter", "name=sssf-",
+                            "--format", "{{.Names}}").stdout.strip().splitlines())
         terminal = [r for r in linked if r[1] in ("success", "fail")]
-        if len(terminal) == N:
+        if len(terminal) == N and containers == 0:
             break
-        time.sleep(10)
+        if containers == 0:
+            # all containers exited — wait for the monitors' final syncs to land
+            if time.time() >= settle_deadline:
+                # manual fallback: sync any leftover per-run dbs, then finish
+                if sbx_dir.exists():
+                    for wt in sbx_dir.iterdir():
+                        per_run = wt / "adws" / "adw_data" / "sssf.db"
+                        if per_run.exists():
+                            conn = sqlite3.connect(str(db), isolation_level=None, timeout=10)
+                            try:
+                                sync_run_db(conn, per_run, wt.name)
+                            except Exception:
+                                pass
+                            conn.close()
+                break
+        else:
+            settle_deadline = time.time() + 15   # a container is still running
+        time.sleep(3)
     elapsed = time.time() - t0
 
     # ── report ─────────────────────────────────────────────────────────────

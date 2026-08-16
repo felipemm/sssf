@@ -50,8 +50,15 @@ def main() -> int:
     dispatch_s = time.time() - t0
 
     # ── wait for all N to reach a terminal state ───────────────────────────
+    # Fast completion: the runs are done the moment no container is left; the
+    # monitors' final syncs land within a short settle window (fall back to
+    # syncing any leftover per-run dbs if a monitor died).
     db = PROJECT / "adws/adw_data/sssf.db"
-    deadline = time.time() + 20 * 60
+    import os
+    sbx_dir = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf")) / "sandboxes" / PROJECT.name
+    from sssf.sandbox import sync_run_db
+    deadline = time.time() + 15 * 60
+    settle_deadline = time.time() + 15
     while time.time() < deadline:
         try:
             conn = sqlite3.connect(str(db), isolation_level=None, timeout=10)
@@ -59,9 +66,26 @@ def main() -> int:
             conn.close()
         except sqlite3.Error:
             rows = []
-        if len(rows) >= N and not any(r[0] == "running" for r in rows):
+        containers = len(sh("docker", "ps", "-a", "--filter", "name=sssf-",
+                            "--format", "{{.Names}}").stdout.strip().splitlines())
+        terminal = len(rows) >= N and not any(r[0] == "running" for r in rows)
+        if terminal and containers == 0:
             break
-        time.sleep(5)
+        if containers == 0 and time.time() >= settle_deadline:
+            if sbx_dir.exists():
+                for wt in sbx_dir.iterdir():
+                    per_run = wt / "adws" / "adw_data" / "sssf.db"
+                    if per_run.exists():
+                        conn = sqlite3.connect(str(db), isolation_level=None, timeout=10)
+                        try:
+                            sync_run_db(conn, per_run, wt.name)
+                        except Exception:
+                            pass
+                        conn.close()
+            break
+        if containers > 0:
+            settle_deadline = time.time() + 15
+        time.sleep(3)
     elapsed = time.time() - t0
 
     # ── report ─────────────────────────────────────────────────────────────

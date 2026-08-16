@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import type { SessionSummary } from '../lib/types'
 import { fetchSessions } from '../lib/api'
 import { ts } from '../lib/format'
@@ -7,7 +7,11 @@ import SessionCard from './SessionCard.vue'
 import { useProjects } from '../lib/api'
 
 const props = defineProps<{ archived?: boolean }>()
-const { projectsLoaded } = useProjects()
+const { projectsLoaded, selectedProject } = useProjects()
+watch(selectedProject, () => {
+  sessions.value = []
+  void tick()
+})
 
 const sessions = shallowRef<SessionSummary[]>([])
 const apiError = ref<string | null>(null)

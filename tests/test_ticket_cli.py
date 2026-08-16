@@ -74,7 +74,7 @@ def test_run_creates_prompt_and_spawns(tmp_path, monkeypatch, capsys):
     conn = _db(root)
     row = conn.execute("SELECT status, adw_id, prompt_file FROM tickets WHERE id='internal:abc'").fetchone()
     conn.close()
-    assert row[0] == "running" and row[1] and row[2]
+    assert row[0] == "starting" and row[1] and row[2]   # spawned — warms up before the session appears
 
 
 def test_run_rejects_already_running(tmp_path, monkeypatch, capsys):

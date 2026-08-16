@@ -146,6 +146,7 @@ def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) ->
                      f"run prompt adws/prompts/{prompt_path.name}", "--adw-id", adw_id],
                 image=cfg.sandbox.image,
                 data_dir=data_dir, pi_home=pi_home, env=env,
+                worktree=wt,   # already created above — the prompt lives here
             )
         except SandboxError as e:
             conn.close()
@@ -163,7 +164,7 @@ def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) ->
             [sys.executable, str(adw_file), f"run prompt {rel_prompt}", "--adw-id", adw_id],
             cwd=root, start_new_session=True,
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    conn.execute("UPDATE tickets SET status='running', adw_id=?, prompt_file=? WHERE id=?",
+    conn.execute("UPDATE tickets SET status='starting', adw_id=?, prompt_file=? WHERE id=?",
                  (adw_id, str(rel_prompt), tid))
     conn.commit()
     conn.close()
