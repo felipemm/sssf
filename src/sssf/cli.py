@@ -5,7 +5,7 @@ from pathlib import Path
 
 from sssf import __version__
 from sssf import registry
-from sssf.commands import init, misc, obs_cmds, run, sandbox_cmd, sweep, ticket, viz
+from sssf.commands import heal, init, misc, obs_cmds, run, sandbox_cmd, sweep, ticket, viz
 from sssf.project import find_project, data_dir
 
 
@@ -120,6 +120,10 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--no-sandbox", action="store_true",
                        help="run in the current dir instead of a sandbox container")
     p_ticket.set_defaults(func=lambda a: _dispatch_ticket(a))
+
+    p_heal = sub.add_parser("heal", help="self-healing monitor daemon (start / stop / status)")
+    p_heal.add_argument("action", nargs="?", default="status", choices=["start", "stop", "status"])
+    p_heal.set_defaults(func=lambda a: heal.main(a.action))
 
     p_sb = sub.add_parser("sandbox", help="sandbox lifecycle (build / list / prune)")
     sbsub = p_sb.add_subparsers(dest="sandbox_action", required=True)

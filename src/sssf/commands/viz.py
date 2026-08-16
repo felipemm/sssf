@@ -104,6 +104,13 @@ def start(port: int, db_override: str | None, project: str | None) -> int:
         return 1
     print(f"sssf viz: started (pid {pid}) — {url}")
     print(f"sssf viz: log at {_log_file()} · stop with `sssf viz stop`")
+    # the self-healing monitor rides along with the viz
+    try:
+        from sssf import healer
+        if healer.running_pid() is None:
+            healer.start()
+    except Exception:
+        pass
     webbrowser.open(url)
     return 0
 
