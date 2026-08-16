@@ -392,6 +392,10 @@ def sandbox_env(project_root: Path) -> tuple[Path, Path, dict[str, str]]:
     env: dict[str, str] = {}
     if os.environ.get("GENPLAT_TOKEN"):
         env["GENPLAT_TOKEN"] = os.environ["GENPLAT_TOKEN"]
+    if os.environ.get("SNYK_TOKEN"):
+        # snyk auth is an env token on the operator machine (or a configstore
+        # token); the container gets it the same way it gets GENPLAT_TOKEN.
+        env["SNYK_TOKEN"] = os.environ["SNYK_TOKEN"]
     name, email = _git_identity(project_root)
     if name and email:
         # Author AND committer — git needs both pairs inside the container, or

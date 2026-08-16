@@ -13,7 +13,7 @@ quality:
   checks:
     - name: test
       area: backend          # frontend | backend — how the dashboard buckets it
-      operation: build       # lint | typecheck | build — what the check is
+      operation: build       # lint | typecheck | build | security — what the check is
       argv: ["bun", "test"]  # a LIST, never a shell string
       timeout_seconds: 600   # hard budget; the run fails if the command hangs
 ```
@@ -62,6 +62,13 @@ is touched. Delete the checks you don't want.
 | python (uv) | `["uv", "run", "pytest", "-q"]` | — | `["uv", "run", "ruff", "check"]` | `["uv", "build"]` |
 | node/npm | `["npm", "test", "--", "--ci"]` | `["npm", "run", "typecheck"]` | `["npm", "run", "lint"]` | `["npm", "run", "build"]` |
 | rust | `["cargo", "test"]` | `["cargo", "check"]` | `["cargo", "clippy", "--", "-D", "warnings"]` | `["cargo", "build", "--release"]` |
+
+**Security scans** use `operation: security` — e.g. `["snyk", "test"]` (SCA
+over your lockfile; exit 0 clean, non-zero on findings, so a finding fails the
+check and reaches the builder like any other red gate). Snyk needs auth: run
+`snyk auth` once on the operator machine. In sandboxed runs the host's
+`~/.config` mount carries the token (`/tmp/.config/configstore/snyk.json`);
+the sssf-runner image ships the snyk CLI.
 
 Start with **test** — it is the highest-value block. Wire `typecheck`/`build`
 when the suite alone cannot catch the failure mode you care about (a red

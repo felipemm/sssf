@@ -131,7 +131,7 @@ class DocumentOutput(EnvelopeBase):
 # ── Deterministic quality blocks ─────────────────────────────────────────────
 
 QualityArea = Literal["frontend", "backend"]
-QualityOperation = Literal["lint", "typecheck", "build"]
+QualityOperation = Literal["lint", "typecheck", "build", "security"]
 
 
 class QualityCheckSpec(BaseModel):
