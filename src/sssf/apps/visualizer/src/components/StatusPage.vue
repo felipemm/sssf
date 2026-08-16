@@ -6,6 +6,7 @@ import type { StatusResponse } from '../lib/api'
 import { hrefFor } from '../lib/router'
 import { fmtCost, fmtTokens } from '../lib/format'
 import StatusCharts from './StatusCharts.vue'
+import ContributionsHeatmap from './ContributionsHeatmap.vue'
 
 const { selectedProject, projectsLoaded } = useProjects()
 const status = ref<StatusResponse | null>(null)
@@ -105,16 +106,50 @@ watch(projectsLoaded, () => {
             </dl>
           </section>
           <section class="kpi">
-            <h2 class="kpi-title">agents</h2>
+            <h2 class="kpi-title">repo</h2>
             <dl>
-              <template v-for="a in status.agents" :key="a.role">
-                <dt>{{ a.role }}</dt>
-                <dd class="agent">
-                  <span class="model">{{ a.model ?? '—' }}</span>
-                  <span class="x">{{ a.sessions }} run{{ a.sessions === 1 ? '' : 's' }}</span>
-                </dd>
-              </template>
+              <dt>commits</dt><dd>{{ status.git.commits }}<span class="x" v-if="status.git.commits_30d">+{{ status.git.commits_30d }}/30d</span></dd>
+              <dt>contributors</dt><dd>{{ status.git.contributors.length }}</dd>
+              <dt>branch</dt><dd class="agent"><span class="model">{{ status.git.current_branch ?? '—' }}</span><span class="x">{{ status.git.branches }} total</span></dd>
+              <dt>last commit</dt><dd v-if="status.git.last_commit" class="agent"><span class="model">{{ status.git.last_commit.subject }}</span><span class="x">{{ status.git.last_commit.date }}</span></dd>
+              <dd v-else>—</dd>
+              <dt>uncommitted</dt><dd>{{ status.git.dirty }}<span class="x" v-if="status.git.dirty">dirty</span></dd>
             </dl>
+          </section>
+          <section class="kpi kpi-wide">
+            <h2 class="kpi-title">agents — cost</h2>
+            <table class="cost-tbl">
+              <thead><tr><th>role</th><th>model</th><th>tokens</th><th>actual</th><th>share</th></tr></thead>
+              <tbody>
+                <tr v-for="a in status.agents" :key="a.role">
+                  <td>{{ a.role }}</td>
+                  <td class="m">{{ a.model ?? '—' }}</td>
+                  <td>{{ fmtTokens(a.tokens) }}</td>
+                  <td>{{ fmtCost(a.cost_actual) }}</td>
+                  <td class="dim">{{ fmtCost(a.cost_share) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section class="kpi kpi-wide">
+            <h2 class="kpi-title">models — cost</h2>
+            <table class="cost-tbl">
+              <thead><tr><th>model</th><th>tokens</th><th>runs</th><th>actual</th><th>share</th></tr></thead>
+              <tbody>
+                <tr v-for="m in status.models" :key="m.model">
+                  <td class="m">{{ m.model }}</td>
+                  <td>{{ fmtTokens(m.tokens) }}</td>
+                  <td>{{ m.sessions }}</td>
+                  <td>{{ fmtCost(m.cost_actual) }}</td>
+                  <td class="dim">{{ fmtCost(m.cost_share) }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="footnote">
+              actual = summed provider billing per agent call · share = each run's cost split by
+              token count — the gap reflects models with different $/token.
+            </p>
           </section>
         </div>
 
@@ -133,6 +168,11 @@ watch(projectsLoaded, () => {
             </div>
           </div>
           <StatusCharts :buckets="status.trends.buckets" />
+        </section>
+
+        <section v-if="status.contributions.length" class="hm-sec">
+          <h2 class="kpi-title">contributions</h2>
+          <ContributionsHeatmap :days="status.contributions" />
         </section>
 
         <!-- tickets -->
@@ -155,7 +195,6 @@ watch(projectsLoaded, () => {
 <style scoped>
 .status-page {
   padding: 22px 28px 40px;
-  max-width: 1100px;
 }
 .s-head {
   display: flex;
@@ -195,9 +234,22 @@ watch(projectsLoaded, () => {
 .tile .v.code { font-size: 12px; font-family: ui-monospace, monospace; }
 .tile a.v { color: var(--purple); }
 .cards {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px; margin-bottom: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
 }
+.kpi-wide { grid-column: span 2; }
+.cost-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cost-tbl th {
+  text-align: left; font-weight: 500; color: var(--faint);
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 2px 8px 6px 0; border-bottom: 1px solid var(--border-soft);
+}
+.cost-tbl td { padding: 5px 8px 5px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.cost-tbl td.m { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cyan); font-size: 12px; }
+.cost-tbl td.dim { color: var(--faint); }
+.footnote { margin: 10px 0 0; font-size: 11px; color: var(--faint); line-height: 1.5; }
 .kpi {
   padding: 14px 16px; border: 1px solid var(--border-soft);
   border-radius: 12px; background: var(--surface);
@@ -206,8 +258,8 @@ watch(projectsLoaded, () => {
 .kpi dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; }
 .kpi dt { font-size: 13px; color: var(--faint); }
 .kpi dd { margin: 0; font-size: 14px; text-align: right; }
-.kpi dd.agent { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
-.model { font-size: 12px; color: var(--cyan); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kpi dd.agent { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; min-width: 0; }
+.model { font-size: 12px; color: var(--cyan); max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .x { font-size: 11px; color: var(--faint); margin-left: 6px; }
 .trends { margin-bottom: 20px; }
 .trends-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
@@ -227,4 +279,5 @@ watch(projectsLoaded, () => {
 .board-empty {
   padding: 40px 0; text-align: center; color: var(--faint); font-size: 14px;
 }
+.hm-sec { margin-bottom: 20px; }
 </style>
