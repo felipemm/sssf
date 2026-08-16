@@ -274,7 +274,7 @@ async function archive(s: SessionSummary, event: MouseEvent) {
                   </button>
                   <button
                     v-if="s.status === 'running'"
-                    class="card-archive card-stop"
+                    class="card-archive card-second"
                     type="button"
                     title="Stop — cancel this run (marked failed, sandbox torn down)"
                     aria-label="Stop run"
@@ -284,7 +284,7 @@ async function archive(s: SessionSummary, event: MouseEvent) {
                   </button>
                   <button
                     v-if="s.status === 'success' || s.status === 'fail'"
-                    class="card-archive card-restart"
+                    class="card-archive card-second"
                     type="button"
                     title="Restart — re-run this session in a fresh sandbox"
                     aria-label="Restart run"
@@ -470,23 +470,13 @@ async function archive(s: SessionSummary, event: MouseEvent) {
   opacity: 0.35;
   cursor: not-allowed;
 }
+/* A second action beside the archive button (stop/restart). */
+.card-second {
+  right: 46px;
+}
 .card-archive:disabled:hover {
   color: var(--faint);
   background: none;
-}
-.card-stop {
-  color: var(--faint);
-}
-.card-stop:hover {
-  color: #ffb454;
-  background: rgba(255, 180, 84, 0.12);
-}
-.card-restart {
-  color: var(--faint);
-}
-.card-restart:hover {
-  color: var(--blue);
-  background: rgba(108, 182, 255, 0.12);
 }
 
 .card:hover {

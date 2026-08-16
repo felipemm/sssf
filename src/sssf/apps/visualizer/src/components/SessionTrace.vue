@@ -11,7 +11,7 @@ import type {
   Session,
   SessionUsage,
 } from '../lib/types'
-import { Archive, ArchiveRestore, Bot, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
+import { Archive, ArchiveRestore, Bot, RotateCw, Square, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
 import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, restartRun, stopRun, type Ticket as TicketInfo } from '../lib/api'
 import { axisTicks, fmtCost, fmtDate, payloadOk, ts } from '../lib/format'
 import { modelIcon, modelName } from '../lib/models'
@@ -531,18 +531,24 @@ function selectPhase(p: Phase) {
       </button>
       <button
         v-if="session.status === 'running'"
-        class="review-btn stop"
+        class="strip-archive strip-stop"
         type="button"
-        title="Stop the run — kills the sandbox and marks it failed"
+        title="Stop — kill the sandbox and mark the run failed"
+        aria-label="Stop run"
         @click="stop"
-      >stop</button>
+      >
+        <Square :size="16" :stroke-width="2" />
+      </button>
       <button
         v-if="session.status === 'success' || session.status === 'fail'"
-        class="review-btn restart"
+        class="strip-archive strip-restart"
         type="button"
         title="Restart — re-run this session in a fresh sandbox"
+        aria-label="Restart run"
         @click="restart"
-      >restart</button>
+      >
+        <RotateCw :size="16" :stroke-width="2" />
+      </button>
       <span class="dim">started {{ fmtDate(session.started_at) }}</span>
       <span class="run-stats">
         <StatChip kind="cost" :value="session.total_cost" />
@@ -708,20 +714,6 @@ function selectPhase(p: Phase) {
 .strip-archive:disabled:hover {
   color: var(--faint);
   border-color: var(--border);
-}
-.review-btn.stop {
-  color: #ffb454;
-  border-color: rgba(255, 180, 84, 0.4);
-}
-.review-btn.stop:hover {
-  background: rgba(255, 180, 84, 0.12);
-}
-.review-btn.restart {
-  color: var(--blue);
-  border-color: rgba(108, 182, 255, 0.4);
-}
-.review-btn.restart:hover {
-  background: rgba(108, 182, 255, 0.12);
 }
 
 .run-strip {
