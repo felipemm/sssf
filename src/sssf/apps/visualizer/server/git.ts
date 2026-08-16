@@ -101,9 +101,8 @@ export function gitStats(root: string): GitStats {
       firstCommit = utcDate(min);
     }
 
-    const dirty = run(root, ["status", "--porcelain"]).ok
-      ? run(root, ["status", "--porcelain"]).out.split("\n").filter((l) => l.length > 0).length
-      : 0;
+    const st = run(root, ["status", "--porcelain"]);
+    const dirty = st.ok ? st.out.split("\n").filter((l) => l.length > 0).length : 0;
 
     return {
       commits, commits_30d: commits30d, commits_year: commitsYear,

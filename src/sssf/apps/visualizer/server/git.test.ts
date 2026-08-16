@@ -36,7 +36,7 @@ function makeRepo(daysAgo: number[], extraFile = false): { root: string; today: 
 describe("gitStats", () => {
   test("parses commits, contributors, branches, last/first commit, dirty", () => {
     // 2 today, 1 yesterday, 1 40 days ago, 1 400 days ago (outside the 1-year window)
-    const { root, today } = makeRepo([0, 0, 1, 40, 400]);
+    const { root } = makeRepo([0, 0, 1, 40, 400]);
     const s = gitStats(root);
     expect(s.commits).toBe(5);
     expect(s.commits_30d).toBe(3);       // 2 today + 1 yesterday
