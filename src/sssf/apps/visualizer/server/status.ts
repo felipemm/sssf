@@ -37,6 +37,17 @@ export interface AgentStat {
   model: string | null;      // most recent agent_sessions.model; null if never used
   sessions: number;          // distinct adw_ids (one agent_sessions row per run+agent) — displayed as 'runs'
   context_tokens: number;    // sum across rows
+  tokens: number;         // actual tokens from agent_end events
+  cost_actual: number;    // summed provider billing (agent_end payload .cost)
+  cost_share: number;     // session cost apportioned by token share
+}
+
+export interface ModelStat {
+  model: string;
+  tokens: number;
+  sessions: number;
+  cost_actual: number;
+  cost_share: number;
 }
 
 export interface TicketsCounts {
@@ -60,6 +71,7 @@ export interface StatusResponse {
   totals: Totals;
   quality: Quality;
   agents: AgentStat[];
+  models: ModelStat[];
   tickets: TicketsCounts | null;
   trends: { window: number; buckets: TrendBucket[] };
 }
@@ -88,7 +100,8 @@ export function computeStatus(dbPath: string, root: string, name: string, window
               total_tokens: 0, avg_tokens_per_run: 0 },
     quality: { gate_pass_rate: 0, hotspot_phase: null, hotspot_count: 0,
                total_retries: 0, failed_phases: 0 },
-    agents: AGENT_ROLES.map((role) => ({ role, model: null, sessions: 0, context_tokens: 0 })),
+    agents: [],
+    models: [],
     tickets: null,
     trends: { window: windowDays, buckets: [] },
   };
@@ -157,31 +170,102 @@ export function computeStatus(dbPath: string, root: string, name: string, window
       quality.gate_pass_rate = total > 0 ? ok / total : 0;
     }
 
-    // ── agents ────────────────────────────────────────────────────────────
-    const agents: AgentStat[] = AGENT_ROLES.map((role) => ({ role, model: null, sessions: 0, context_tokens: 0 }));
-    if (has("agent_sessions")) {
-      // Most recent model per role: max last_used_at wins.
-      const rows = db.query<{ agent: string; model: string | null; n: number; tokens: number }, []>(
-        `SELECT a.agent, a.model, COUNT(*) n, COALESCE(SUM(a.context_tokens),0) tokens
-           FROM agent_sessions a
-           JOIN (SELECT agent, MAX(last_used_at) m FROM agent_sessions GROUP BY agent) m
-             ON m.agent = a.agent AND m.m = a.last_used_at
-          GROUP BY a.agent`
+    // ── agents: dynamic roles with cost attribution ──────────────────────
+    const agents: AgentStat[] = [];
+    const models: ModelStat[] = [];
+    if (has("events") && has("phases")) {
+      // per-role tokens + actual cost (agent_end events carry provider billing)
+      const rows = db.query<{ agent: string; tokens: number; cost: number }, []>(
+        `SELECT p.owner agent, SUM(e.tokens) tokens,
+                SUM(json_extract(e.payload_json, '$.cost')) cost
+           FROM events e JOIN phases p ON p.phase_id = e.phase_id
+          WHERE e.type = 'agent_end' AND e.tokens IS NOT NULL
+          GROUP BY p.owner`,
       ).all();
+      const costByAgent = new Map<string, number>();
+      const tokensByAgent = new Map<string, number>();
       for (const row of rows) {
-        const stat = agents.find((x) => x.role === row.agent);
-        if (!stat) continue;
-        stat.model = row.model;
+        tokensByAgent.set(row.agent, Number(row.tokens ?? 0));
+        costByAgent.set(row.agent, Number(row.cost ?? 0));
       }
-      const counts = db.query<{ agent: string; n: number; tokens: number }, []>(
-        `SELECT agent, COUNT(DISTINCT adw_id) n, COALESCE(SUM(context_tokens),0) tokens
-           FROM agent_sessions GROUP BY agent`
+      // per-session agent tokens → token-share cost
+      const perSession = db.query<{ adw_id: string; agent: string; tokens: number }, []>(
+        `SELECT e.adw_id, p.owner agent, SUM(e.tokens) tokens
+           FROM events e JOIN phases p ON p.phase_id = e.phase_id
+          WHERE e.type = 'agent_end' AND e.tokens IS NOT NULL
+          GROUP BY e.adw_id, p.owner`,
       ).all();
-      for (const row of counts) {
-        const stat = agents.find((x) => x.role === row.agent);
-        if (!stat) continue;
-        stat.sessions = row.n;
-        stat.context_tokens = Number(row.tokens ?? 0);
+      const sessionTotals = new Map<string, { cost: number; tokens: number }>();
+      if (has("sessions")) {
+        for (const s of db.query<{ adw_id: string; total_cost: number; total_tokens: number }, []>(
+          "SELECT adw_id, total_cost, total_tokens FROM sessions",
+        ).all()) {
+          sessionTotals.set(s.adw_id, { cost: Number(s.total_cost ?? 0), tokens: Number(s.total_tokens ?? 0) });
+        }
+      }
+      const shareByAgent = new Map<string, number>();
+      for (const row of perSession) {
+        const tot = sessionTotals.get(row.adw_id);
+        if (!tot || tot.tokens <= 0) continue;
+        shareByAgent.set(row.agent, (shareByAgent.get(row.agent) ?? 0) + tot.cost * (Number(row.tokens) / tot.tokens));
+      }
+      // models: per-model tokens/cost/share via agent_sessions join
+      const modelRows = db.query<{ model: string; tokens: number; cost: number; n: number }, []>(
+        `SELECT ag.model model, SUM(e.tokens) tokens,
+                SUM(json_extract(e.payload_json, '$.cost')) cost, COUNT(DISTINCT e.adw_id) n
+           FROM events e
+           JOIN phases p ON p.phase_id = e.phase_id
+           JOIN agent_sessions ag ON ag.adw_id = e.adw_id AND ag.agent = p.owner
+          WHERE e.type = 'agent_end' AND e.tokens IS NOT NULL AND ag.model IS NOT NULL
+          GROUP BY ag.model`,
+      ).all();
+      const modelShare = new Map<string, number>();
+      const perSessionModel = db.query<{ adw_id: string; model: string; tokens: number }, []>(
+        `SELECT e.adw_id, ag.model model, SUM(e.tokens) tokens
+           FROM events e
+           JOIN phases p ON p.phase_id = e.phase_id
+           JOIN agent_sessions ag ON ag.adw_id = e.adw_id AND ag.agent = p.owner
+          WHERE e.type = 'agent_end' AND e.tokens IS NOT NULL AND ag.model IS NOT NULL
+          GROUP BY e.adw_id, ag.model`,
+      ).all();
+      for (const row of perSessionModel) {
+        const tot = sessionTotals.get(row.adw_id);
+        if (!tot || tot.tokens <= 0) continue;
+        modelShare.set(row.model, (modelShare.get(row.model) ?? 0) + tot.cost * (Number(row.tokens) / tot.tokens));
+      }
+      for (const row of modelRows) {
+        models.push({
+          model: row.model,
+          tokens: Number(row.tokens ?? 0),
+          sessions: row.n,
+          cost_actual: Number(row.cost ?? 0),
+          cost_share: modelShare.get(row.model) ?? 0,
+        });
+      }
+      models.sort((a, b) => b.cost_actual - a.cost_actual);
+
+      // merge agent_sessions metadata (model, sessions, context_tokens) for each role
+      const meta = has("agent_sessions")
+        ? db.query<{ agent: string; model: string | null; n: number; tokens: number }, []>(
+            `SELECT agent, MAX(model) model, COUNT(DISTINCT adw_id) n, COALESCE(SUM(context_tokens),0) tokens
+               FROM agent_sessions GROUP BY agent`,
+          ).all()
+        : [];
+      const metaByAgent = new Map(meta.map((m) => [m.agent, m]));
+
+      const allRoles = new Set([...AGENT_ROLES, ...tokensByAgent.keys()]);
+      const roleOrder = [...AGENT_ROLES, ...Array.from(allRoles).filter((r) => !AGENT_ROLES.includes(r)).sort()];
+      for (const role of roleOrder) {
+        const m = metaByAgent.get(role);
+        agents.push({
+          role,
+          model: m?.model ?? null,
+          sessions: m?.n ?? 0,
+          context_tokens: Number(m?.tokens ?? 0),
+          tokens: tokensByAgent.get(role) ?? 0,
+          cost_actual: costByAgent.get(role) ?? 0,
+          cost_share: shareByAgent.get(role) ?? 0,
+        });
       }
     }
 
@@ -233,7 +317,7 @@ export function computeStatus(dbPath: string, root: string, name: string, window
 
     return {
       project: { name, root, ticketing_enabled: ticketingEnabled(root), last_run: lastRun },
-      totals, quality, agents, tickets,
+      totals, quality, agents, models, tickets,
       trends: { window: windowDays, buckets },
     };
   } catch (err) {

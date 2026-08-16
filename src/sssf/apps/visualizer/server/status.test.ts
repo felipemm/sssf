@@ -27,6 +27,9 @@ function fixtureDb(path: string): string[] {
     id TEXT PRIMARY KEY, provider TEXT NOT NULL, external_id TEXT,
     title TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'backlog',
     prompt_file TEXT, adw_id TEXT, source_url TEXT, created_at TEXT, updated_at TEXT)`);
+  db.run(`CREATE TABLE events (
+    event_id TEXT, adw_id TEXT, phase_id TEXT, type TEXT, name TEXT,
+    payload_json TEXT, tokens INTEGER)`);
 
   // Dates are RELATIVE to now so the tests stay green regardless of when they run.
   const now = Date.now();
@@ -45,10 +48,12 @@ function fixtureDb(path: string): string[] {
 
   const p = db.prepare(`INSERT INTO phases VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   p.run("s1_01", "s1", 1, "request", "engineer", "eng", "", "success", 0, 0, null, s1, end(s1, 1));
-  p.run("s1_02", "s1", 2, "commit_build", "code", "git", "", "fail", 0, 1, "boom", s1, end(s1, 1));
-  p.run("s1_03", "s1", 3, "commit_build", "code", "git", "", "success", 1, 0, null, s1, end(s1, 1));
+  // agent phases are owned by the agent that runs them (real-system invariant:
+  // agent_end fires inside the agent's own phase, so phases.owner == event.name).
+  p.run("s1_02", "s1", 2, "commit_build", "code", "planner", "", "fail", 0, 1, "boom", s1, end(s1, 1));
+  p.run("s1_03", "s1", 3, "commit_build", "code", "builder", "", "success", 1, 0, null, s1, end(s1, 1));
   p.run("s2_01", "s2", 1, "review_1", "agent", "reviewer", "", "fail", 0, 2, "nope", s2, end(s2, 30));
-  p.run("s3_01", "s3", 1, "plan", "agent", "planner", "", "success", 0, 0, null, s3, end(s3, 30));
+  p.run("s3_01", "s3", 1, "plan", "agent", "documenter", "", "success", 0, 0, null, s3, end(s3, 30));
 
   const g = db.prepare(`INSERT INTO gate_results (adw_id, phase_id, attempt, gate, passed, checks_json, created_at) VALUES (?,?,?,?,?,?,?)`);
   g.run("s2", "s2_02", 0, "quality", 1, '[{"item":"a","ok":true},{"item":"b","ok":true}]', s2);
@@ -59,6 +64,16 @@ function fixtureDb(path: string): string[] {
   a.run("s1", "builder", "litellm/gpt-5.5", 40000, s1, s1);
   a.run("s2", "reviewer", "litellm/gemini-2.5-flash", 30000, s2, s2);
   a.run("s3", "documenter", "litellm/gemini-2.5-flash", 20000, s3, s3);
+
+  // agent_end events: per-call billing must reconcile with session totals.
+  // s1: planner 25000 tok / $0.10, builder 75000 tok / $0.40  (sums: 100000, $0.50)
+  // s2: reviewer 50000 tok / $0.20                            (sums:  50000, $0.20)
+  // s3: documenter 10000 tok / $0.05                          (sums:  10000, $0.05)
+  const ev = db.prepare(`INSERT INTO events VALUES (?,?,?,?,?,?,?)`);
+  ev.run("e1", "s1", "s1_02", "agent_end", "planner", '{"cost":0.10,"usage":{"total_tokens":25000}}', 25000);
+  ev.run("e2", "s1", "s1_03", "agent_end", "builder", '{"cost":0.40,"usage":{"total_tokens":75000}}', 75000);
+  ev.run("e3", "s2", "s2_01", "agent_end", "reviewer", '{"cost":0.20,"usage":{"total_tokens":50000}}', 50000);
+  ev.run("e4", "s3", "s3_01", "agent_end", "documenter", '{"cost":0.05,"usage":{"total_tokens":10000}}', 10000);
 
   db.run(`INSERT INTO tickets (id, provider, external_id, title, status) VALUES ('internal:b','internal','','backlog ticket','backlog')`);
   db.run(`INSERT INTO tickets (id, provider, external_id, title, status, adw_id) VALUES ('internal:r','internal','','running ticket','running','s4')`);
@@ -109,6 +124,31 @@ describe("computeStatus", () => {
     expect(planner.sessions).toBe(1);
     expect(planner.context_tokens).toBe(60000);
     expect(status.agents).toHaveLength(4);
+
+    // agents: dynamic roles, cost attribution
+    expect(status.agents.map((a) => a.role).sort()).toEqual(["builder", "documenter", "planner", "reviewer"]);
+    const p = status.agents.find((a) => a.role === "planner")!;
+    expect(p.tokens).toBe(25000);
+    expect(p.cost_actual).toBeCloseTo(0.10, 5);
+    expect(p.cost_share).toBeCloseTo(0.125, 5);   // 0.50 × (25000/100000)
+    const b = status.agents.find((a) => a.role === "builder")!;
+    expect(b.cost_actual).toBeCloseTo(0.40, 5);
+    expect(b.cost_share).toBeCloseTo(0.375, 5);
+    // per-agent actual costs sum to the sessions' total cost
+    expect(status.agents.reduce((n, a) => n + a.cost_actual, 0)).toBeCloseTo(0.75, 5);
+
+    // models: per-model cost attribution
+    expect(status.models.map((m) => m.model).sort()).toEqual([
+      "litellm/deepseek-v4-flash-official", "litellm/gemini-2.5-flash", "litellm/gpt-5.5",
+    ]);
+    const gpt = status.models.find((m) => m.model === "litellm/gpt-5.5")!;
+    expect(gpt.tokens).toBe(75000);              // s1 builder
+    expect(gpt.cost_actual).toBeCloseTo(0.40, 5);
+    expect(gpt.cost_share).toBeCloseTo(0.375, 5);
+    const gem = status.models.find((m) => m.model === "litellm/gemini-2.5-flash")!;
+    expect(gem.tokens).toBe(60000);              // s2 reviewer + s3 documenter
+    expect(gem.cost_actual).toBeCloseTo(0.25, 5);
+    expect(status.models.reduce((n, m) => n + m.cost_actual, 0)).toBeCloseTo(0.75, 5);
 
     // tickets: enabled? root has no ticketing.yaml -> null
     expect(status.tickets).toBeNull();
