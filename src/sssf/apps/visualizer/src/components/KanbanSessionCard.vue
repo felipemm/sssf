@@ -242,4 +242,14 @@ async function archive(event: MouseEvent) {
   gap: 12px;
   min-width: 0;
 }
+/* StatChip is sized for the full SessionCard — shrink it here only */
+.card-stats :deep(.stat) {
+  font-size: 12px;
+  padding: 1px 8px;
+  gap: 5px;
+}
+.card-stats :deep(.stat-icon) {
+  width: 13px;
+  height: 13px;
+}
 </style>
