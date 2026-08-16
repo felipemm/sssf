@@ -1,43 +1,50 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Recycle } from 'lucide-vue-next'
+import { HeartPulse, Recycle } from 'lucide-vue-next'
 import { useRoute, hrefFor, phaseCrumb, navigate } from './lib/router'
-import { runSweep, setProject } from './lib/api'
+import { runSweep, setProject, useProjects } from './lib/api'
 import SessionsList from './components/SessionsList.vue'
 import SessionTrace from './components/SessionTrace.vue'
 import KanbanBoard from './components/KanbanBoard.vue'
 import StatusPage from './components/StatusPage.vue'
+import MissionControl from './components/MissionControl.vue'
 import ProjectPicker from './components/ProjectPicker.vue'
 
 const route = useRoute()
+const { selectedProject } = useProjects()
 
-// The status dashboard is the default landing page: #/ and #/status show it.
-// #/board, #/sessions, #/archived are the other views; anything else is a trace.
+// Mission Control is the default landing page (#/). Per-project views live
+// under #/p/<project>/<tab>; legacy #/<tab> and #/<adwId> hashes resolve
+// against the picked project. A trace with no project scope needs one to
+// fetch — fall back to the picker, or to the cockpit when none is picked.
 const view = computed(() => {
-  const id = route.value.adwId
-  if (!id || id === 'status') return 'status'
-  if (id === 'board') return 'board'
-  if (id === 'sessions') return 'list'
-  if (id === 'archived') return 'archived'
-  return 'trace'
+  const r = route.value
+  if (r.cockpit) return 'cockpit'
+  if (r.project) {
+    if (r.adwId) return 'trace'
+    return r.tab === 'sessions' ? 'list' : (r.tab ?? 'status')
+  }
+  if (r.adwId) return 'trace'
+  if (r.tab) return selectedProject.value ? (r.tab === 'sessions' ? 'list' : r.tab) : 'cockpit'
+  return 'cockpit'
 })
 // In the trace branch adwId is non-null by construction; the template can't
 // narrow the ref, so hand it a computed string.
 const traceAdwId = computed(() => route.value.adwId ?? '')
+// The project a trace belongs to: explicit scope, else the picked project.
+const traceProject = computed(() => route.value.project ?? selectedProject.value)
 
-// A project switch changes the meaning of every hash route. Stay on the same
-// page for the tab views (status/board/sessions/archived) — the contents just
-// re-fetch for the new project. A trace is per-adw_id, so it can't follow;
-// land on the default (status) instead.
+// The project a tab click targets: the picked project, else the cockpit.
+const tabProject = computed(() => selectedProject.value)
+
+function tabHref(tab: string): string {
+  return tabProject.value ? hrefFor({ project: tabProject.value, tab }) : '#/'
+}
+
+// A project switch drills into that project's status page.
 function onProjectSelect(name: string) {
   setProject(name)
-  const viewHash: Record<string, string> = {
-    status: '',
-    board: 'board',
-    list: 'sessions',
-    archived: 'archived',
-  }
-  navigate(viewHash[view.value] ?? '')
+  navigate({ project: name, tab: 'status' })
 }
 
 // Manual archival sweep across every registered project — the `sssf sweep` CLI
@@ -86,13 +93,21 @@ async function onSweep() {
           <a
             :href="hrefFor()"
             class="tab"
+            :class="{ active: view === 'cockpit' }"
+            role="tab"
+            :aria-selected="view === 'cockpit'"
+            ><HeartPulse :size="14" :stroke-width="2" style="vertical-align: -2px; margin-right: 5px" />cockpit</a
+          >
+          <a
+            :href="tabHref('status')"
+            class="tab"
             :class="{ active: view === 'status' }"
             role="tab"
             :aria-selected="view === 'status'"
             >status</a
           >
           <a
-            :href="hrefFor('board')"
+            :href="tabHref('board')"
             class="tab"
             :class="{ active: view === 'board' }"
             role="tab"
@@ -100,7 +115,7 @@ async function onSweep() {
             >board</a
           >
           <a
-            :href="hrefFor('sessions')"
+            :href="tabHref('sessions')"
             class="tab"
             :class="{ active: view === 'list' }"
             role="tab"
@@ -108,7 +123,7 @@ async function onSweep() {
             >sessions</a
           >
           <a
-            :href="hrefFor('archived')"
+            :href="tabHref('archived')"
             class="tab"
             :class="{ active: view === 'archived' }"
             role="tab"
@@ -118,7 +133,11 @@ async function onSweep() {
         </div>
         <template v-if="view === 'trace' && route.adwId">
           <span class="sep">›</span>
-          <a :href="hrefFor(route.adwId)" :class="{ current: !route.phaseId }">{{ route.adwId }}</a>
+          <a
+            :href="hrefFor({ project: traceProject, adwId: route.adwId })"
+            :class="{ current: !route.phaseId }"
+            >{{ route.adwId }}</a
+          >
         </template>
         <template v-if="view === 'trace' && route.adwId && route.phaseId">
           <span class="sep">›</span>
@@ -141,7 +160,8 @@ async function onSweep() {
       </div>
     </header>
     <main>
-      <KanbanBoard v-if="view === 'board'" />
+      <MissionControl v-if="view === 'cockpit'" />
+      <KanbanBoard v-else-if="view === 'board'" />
       <StatusPage v-else-if="view === 'status'" />
       <SessionsList v-else-if="view === 'list'" />
       <SessionsList v-else-if="view === 'archived'" archived />
