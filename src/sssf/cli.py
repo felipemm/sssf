@@ -69,8 +69,11 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("--project", default=None, help="project root (default: cwd)")
     p_init.add_argument("--refresh", action="store_true", help="copy only missing files")
     p_init.add_argument("--force", action="store_true", help="overwrite existing files")
+    p_init.add_argument("--auto", action="store_true",
+                        help="--refresh without prompts (accept all — scripting)")
     p_init.set_defaults(func=lambda a: init.run(Path(a.project or ".").resolve(),
-                                                refresh=a.refresh, force=a.force))
+                                                refresh=a.refresh, force=a.force,
+                                                auto=a.auto))
 
     p_run = sub.add_parser("run", help="execute an ADW chain: sssf run <adw> \"<prompt>\" [--adw-id X]")
     p_run.add_argument("adw", help="chain name; the adw_ prefix is optional")

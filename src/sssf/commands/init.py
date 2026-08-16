@@ -28,12 +28,14 @@ GITIGNORE_ENTRIES = [
 
 
 def _copy_tree(src, dest: Path, *, force: bool = False, confirm: bool = False,
-               label: str = "") -> list[str]:
+               auto: bool = False, label: str = "") -> list[str]:
     """Copy a template tree into dest.
 
     Existing files are skipped unless forced; with ``confirm`` the user is asked
     per file first (y/N/a — a = yes to all), default no, so a --refresh can
-    never silently clobber an edited chain.
+    never silently clobber an edited chain. ``auto`` answers yes to every
+    prompt without reading stdin (--refresh --auto: the accept-all scripting
+    mode the cockpit refresh button uses).
     """
     copied = []
     state = {"all": False}
@@ -57,7 +59,7 @@ def _copy_tree(src, dest: Path, *, force: bool = False, confirm: bool = False,
                 walk(item, rel / item.name)
                 continue
             target = dest / rel / item.name
-            if target.exists() and not force and not (confirm and ask(rel / item.name)):
+            if target.exists() and not force and not (confirm and (auto or ask(rel / item.name))):
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(item.read_text())
@@ -67,12 +69,13 @@ def _copy_tree(src, dest: Path, *, force: bool = False, confirm: bool = False,
     return copied
 
 
-def run(root: Path, *, refresh: bool = False, force: bool = False) -> int:
+def run(root: Path, *, refresh: bool = False, force: bool = False,
+        auto: bool = False) -> int:
     templates = resources.files("sssf.templates")
     root.mkdir(parents=True, exist_ok=True)
 
     _copy_tree(templates / "adws", root / "adws", force=force, confirm=refresh,
-               label="adws")
+               auto=auto, label="adws")
     config_dest = root / "adws" / "adw_sssf_config" / "sssf.config.yaml"
     if not config_dest.exists() or force:
         config_dest.parent.mkdir(parents=True, exist_ok=True)
