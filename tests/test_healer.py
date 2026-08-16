@@ -24,8 +24,8 @@ def test_hung_phase_restarts():
 
 
 def test_failed_spawn_returns_ticket():
-    assert diagnose(None, "starting", False, True, False, NO_PROGRESS_MIN + 1) == "ticket_backlog"
-    assert diagnose(None, "starting", True, True, False, 1.0) is None   # still warming up
+    assert diagnose(None, "starting", False, True, False, None, NO_PROGRESS_MIN + 1) == "ticket_backlog"
+    assert diagnose(None, "starting", True, True, False, 1.0, 1.0) is None   # still warming up
 
 
 def test_recover_finalize_marks_failed(tmp_path, monkeypatch):

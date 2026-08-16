@@ -48,6 +48,21 @@ def _project_db(root: Path) -> Path:
 
 # ── diagnosis ──────────────────────────────────────────────────────────────
 
+def _age_minutes(ts: str | None) -> float | None:
+    """Minutes since an ISO timestamp (used for ticket updated_at ages).
+    Naive timestamps are treated as UTC (the tracer writes UTC)."""
+    if not ts:
+        return None
+    import datetime
+    try:
+        last = datetime.datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=datetime.timezone.utc)
+        return (datetime.datetime.now(datetime.timezone.utc) - last).total_seconds() / 60
+    except ValueError:
+        return None
+
+
 def _last_event_minutes(db: Path, adw_id: str) -> float | None:
     """Minutes since the session's most recent event; None when none exist."""
     try:
@@ -70,7 +85,8 @@ def _last_event_minutes(db: Path, adw_id: str) -> float | None:
 
 def diagnose(session_status: str | None, ticket_status: str | None,
              has_container: bool, has_worktree: bool,
-             per_run_db_exists: bool, last_event_min: float | None) -> str | None:
+             per_run_db_exists: bool, last_event_min: float | None,
+             ticket_age_min: float | None = None) -> str | None:
     """Return the recovery action for one run, or None when it is healthy."""
     # A running session with neither container nor worktree: the ADW died
     # silently and nothing can be recovered — finalize it.
@@ -86,10 +102,12 @@ def diagnose(session_status: str | None, ticket_status: str | None,
     if session_status == "running" and has_container and last_event_min is not None \
             and last_event_min > NO_PROGRESS_MIN:
         return "restart"
-    # A ticket still 'starting' with no session materialising: the spawn
-    # failed — put the ticket back in the backlog and clean up.
-    if ticket_status == "starting" and last_event_min is not None \
-            and last_event_min > NO_PROGRESS_MIN:
+    # A ticket still 'starting' too long (its spawn never produced a session):
+    # put the ticket back in the backlog and clean up. The age is the time
+    # since the ticket was marked starting (updated_at) — a spawn-failed
+    # ticket has no session, hence no events to measure.
+    if ticket_status == "starting" and ticket_age_min is not None \
+            and ticket_age_min > NO_PROGRESS_MIN:
         return "ticket_backlog"
     return None
 
@@ -181,7 +199,7 @@ def heal_once(state: dict | None = None) -> list[str]:
             rows = conn.execute(
                 "SELECT adw_id, status FROM sessions WHERE status='running'").fetchall()
             tickets = conn.execute(
-                "SELECT adw_id, status FROM tickets WHERE status='starting'").fetchall()
+                "SELECT adw_id, status, updated_at FROM tickets WHERE status='starting'").fetchall()
             conn.close()
         except sqlite3.Error:
             continue
@@ -194,11 +212,12 @@ def heal_once(state: dict | None = None) -> list[str]:
                               _last_event_minutes(project_db, adw_id))
             if action:
                 actions.append(recover(root, adw_id, status, None, action, state))
-        for adw_id, ticket_status in tickets:
+        for adw_id, ticket_status, updated_at in tickets:
             wt = sandbox_dir(root, adw_id)
             has_ct = _container_exists(adw_id)
             action = diagnose(None, ticket_status, has_ct, wt.exists(), False,
-                              _last_event_minutes(project_db, adw_id))
+                              _last_event_minutes(project_db, adw_id),
+                              _age_minutes(updated_at))
             if action:
                 actions.append(recover(root, adw_id, None, ticket_status, action, state))
         # orphaned containers/worktrees whose session is gone
