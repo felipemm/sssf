@@ -211,6 +211,29 @@ export interface StatusAgent {
   model: string | null
   sessions: number
   context_tokens: number
+  tokens: number
+  cost_actual: number
+  cost_share: number
+}
+export interface GitContributor { name: string; commits: number }
+export interface GitStats {
+  commits: number
+  commits_30d: number
+  commits_year: number
+  contributors: GitContributor[]
+  branches: number
+  current_branch: string | null
+  last_commit: { date: string; subject: string } | null
+  dirty: number
+  first_commit: string | null
+}
+export interface ContributionDay { date: string; count: number }
+export interface StatusModel {
+  model: string
+  tokens: number
+  sessions: number
+  cost_actual: number
+  cost_share: number
 }
 export interface StatusTickets {
   backlog: number
@@ -231,8 +254,11 @@ export interface StatusResponse {
   totals: StatusTotals
   quality: StatusQuality
   agents: StatusAgent[]
+  models: StatusModel[]
   tickets: StatusTickets | null
   trends: { window: number; buckets: StatusTrendBucket[] }
+  git: GitStats
+  contributions: ContributionDay[]
 }
 
 export async function fetchStatus(windowDays = 30): Promise<StatusResponse> {
