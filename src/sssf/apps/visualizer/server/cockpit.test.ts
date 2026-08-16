@@ -105,6 +105,22 @@ describe("computeCockpit", () => {
     rmSync(env.root, { recursive: true, force: true });
   });
 
+  test("completedHourly: 14-day hourly series feeds the windowed chart", async () => {
+    const env = makeEnv();
+    const hour = new Date().toISOString().slice(0, 13); // current UTC hour
+    const da = new Database(join(env.root, "proj-a", "adws", "adw_data", "sssf.db"));
+    da.run(`UPDATE sessions SET ended_at=? WHERE adw_id='done1'`, [`${hour}:00:00`]);
+    da.close();
+    const data = await computeCockpit({ registry: env.registry, sssfHome: env.home, dockerPs: async () => "" });
+    const hourly = data.completedHourly;
+    expect(hourly.length).toBe(14 * 24); // 336 hours, oldest first
+    expect(hourly.reduce((n, p) => n + p.count, 0)).toBe(1); // done1 only — run1 still running
+    // the current hour's bucket holds the completion (within the last 24h slice)
+    const last24 = hourly.slice(-24);
+    expect(last24.reduce((n, p) => n + p.count, 0)).toBe(1);
+    rmSync(env.root, { recursive: true, force: true });
+  });
+
   test("broken db renders zeros + stale, never throws", async () => {
     const env = makeEnv();
     rmSync(join(env.root, "proj-a", "adws", "adw_data", "sssf.db"));

@@ -360,6 +360,11 @@ export interface ActivityItem {
   event: string
 }
 
+export interface CockpitCompletedPoint {
+  date: string
+  count: number
+}
+
 export interface CockpitData {
   generatedAt: string
   kpis: CockpitKpis
@@ -368,6 +373,8 @@ export interface CockpitData {
   containers: CockpitContainer[]
   heal: HealSummary
   activity: ActivityItem[]
+  /** Per-hour completed-session counts, last 14 days (oldest first). */
+  completedHourly: CockpitCompletedPoint[]
 }
 
 export interface ControlResult {

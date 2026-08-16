@@ -17,6 +17,7 @@ import type { ContributionDay } from "./git.ts";
 import type { ProjectRegistry } from "./registry.ts";
 import type {
   ActivityItem,
+  CockpitCompletedPoint,
   CockpitData,
   CockpitProject,
   ContainerLogsResponse,
@@ -79,10 +80,11 @@ interface ContainerInfo {
 }
 
 interface ProjectRow extends CockpitProject {
-  /** internal: per-project running detail + activity + owned adw_ids */
+  /** internal: per-project running detail + activity + owned adw_ids + completions */
   _running: RunningSession[];
   _activity: ActivityItem[];
   _owned: Set<string>;
+  _completed: Map<string, number>;  // UTC hour (YYYY-MM-DDTHH) → completed sessions
 }
 
 const logTailLines = (path: string, n = 5): string[] => {
@@ -193,6 +195,7 @@ function projectRow(
     containers: 0, worktrees: 0, costTodayUsd: 0, costTotalUsd: 0,
     lastActivity: deps.registry.list().find((p) => p.name === name)?.lastRun ?? null,
     stale: false, _running: [], _activity: [], _owned: new Set<string>(),
+    _completed: new Map<string, number>(),
   };
   if (!existsSync(dbPath)) {
     return { ...empty, stale: true };
@@ -276,6 +279,14 @@ function projectRow(
       empty.ticketsBacklog = backlog;
       empty.ticketsInFlight = inflight;
     }
+    if (hasTable(db, "sessions")) {
+      const ended = db.query<{ ended_at: string | null }, []>(
+        "SELECT ended_at FROM sessions WHERE status IN ('success','fail') AND ended_at IS NOT NULL").all();
+      for (const e of ended) {
+        const h = e.ended_at!.slice(0, 13); // UTC ISO hour
+        empty._completed.set(h, (empty._completed.get(h) ?? 0) + 1);
+      }
+    }
     if (hasTable(db, "events")) {
       const evs = db.query<{ adw_id: string; started_at: string; type: string }, []>(
         "SELECT adw_id, started_at, type FROM events ORDER BY started_at DESC LIMIT 30").all();
@@ -321,6 +332,7 @@ export async function computeCockpit(deps: CockpitDeps): Promise<CockpitData> {
       dockerOk, dockerError,
     },
     projects: [], running: [], containers: [], heal, activity: [],
+    completedHourly: [],
   };
   const rows: ProjectRow[] = [];
   for (const p of projects) {
@@ -349,6 +361,22 @@ export async function computeCockpit(deps: CockpitDeps): Promise<CockpitData> {
   }));
   out.kpis.orphanContainers = containers.filter((c) => !ownedGlobal.has(c.adwId)).length;
   out.activity = activity.sort((x, y) => y.ts.localeCompare(x.ts)).slice(0, 30);
+  // completed sessions over time: merge per-project completion hours, then a
+  // 14-day hourly series (oldest first). The client slices it into the
+  // selected sliding window (24h/72h/7d/14d) and cumulates — the window
+  // toggle needs no refetch. Updates on every poll = live.
+  const completedByHour = new Map<string, number>();
+  for (const row of rows) {
+    for (const [h, n] of row._completed) completedByHour.set(h, (completedByHour.get(h) ?? 0) + n);
+  }
+  const HOUR_MS = 3600_000;
+  const hours = 14 * 24;
+  const completed: CockpitCompletedPoint[] = [];
+  for (let i = hours - 1; i >= 0; i--) {
+    const hour = new Date(Date.now() - i * HOUR_MS).toISOString().slice(0, 13);
+    completed.push({ date: hour, count: completedByHour.get(hour) ?? 0 });
+  }
+  out.completedHourly = completed;
   return out;
 }
 

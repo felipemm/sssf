@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   Activity,
   HeartPulse,
@@ -25,6 +25,7 @@ import { navigate } from '../lib/router'
 import type { CockpitData, ControlResult } from '../lib/types'
 import type { ContributionDay } from '../lib/api'
 import ContributionsHeatmap from './ContributionsHeatmap.vue'
+import CompletedChart from './CompletedChart.vue'
 
 const data = ref<CockpitData | null>(null)
 const contribDays = ref<ContributionDay[]>([])
@@ -45,6 +46,28 @@ function flashNote(msg: string) {
 }
 
 const CONTRIB_POLL_MS = 5 * 60 * 1000
+
+// Completed-sessions chart: the aggregate carries 14 days of per-hour counts;
+// the selected sliding window slices + cumulates client-side (instant toggle).
+const CHART_WINDOWS = [
+  { key: '24h', hours: 24, label: 'last 24h' },
+  { key: '72h', hours: 72, label: 'last 72h' },
+  { key: '7d', hours: 168, label: 'last 7d' },
+  { key: '14d', hours: 336, label: 'last 14d' },
+] as const
+type ChartWindow = (typeof CHART_WINDOWS)[number]['key']
+const chartWindow = ref<ChartWindow>('24h')
+
+const chartPoints = computed(() => {
+  const hourly = data.value?.completedHourly ?? []
+  const hours = CHART_WINDOWS.find((w) => w.key === chartWindow.value)?.hours ?? 24
+  const slice = hourly.slice(-hours)
+  let cum = 0
+  return slice.map((p) => ({ date: p.date, count: (cum += p.count) }))
+})
+const chartWindowLabel = computed(
+  () => CHART_WINDOWS.find((w) => w.key === chartWindow.value)?.label ?? 'last 24h',
+)
 
 async function fetchContribs() {
   try {
@@ -320,6 +343,23 @@ function fmtRel(iso: string | null): string {
           </span>
         </div>
       </div>
+    </section>
+
+    <!-- Live cumulative completed-sessions chart (updates with the 8s poll) -->
+    <section v-if="data" class="panel">
+      <h3>Completed sessions <span class="count hint" data-hint="Cumulative count of finished sessions (success + fail, by ended_at, UTC) across all projects within the selected window. Updates live with the cockpit poll.">{{ chartWindowLabel }} · live</span></h3>
+      <div class="window-switch" role="tablist" aria-label="chart window">
+        <button
+          v-for="w in CHART_WINDOWS"
+          :key="w.key"
+          class="window-btn"
+          :class="{ active: chartWindow === w.key }"
+          role="tab"
+          :aria-selected="chartWindow === w.key"
+          @click="chartWindow = w.key"
+        >{{ w.key }}</button>
+      </div>
+      <CompletedChart :points="chartPoints" />
     </section>
 
     <!-- Containers (docker ps filtered to sssf) — always visible, even when empty -->
@@ -602,6 +642,32 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
 }
 .ctable tr.selected td:first-child {
   box-shadow: inset 3px 0 0 var(--purple);
+}
+
+/* chart window switch */
+.window-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+.window-btn {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+.window-btn:hover { color: var(--text); }
+.window-btn.active {
+  color: var(--text);
+  background: rgba(200, 155, 255, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(200, 155, 255, 0.35);
 }
 
 /* docker-down warning */
