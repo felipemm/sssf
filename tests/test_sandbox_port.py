@@ -23,3 +23,12 @@ def test_skips_busy_ports():
 def test_skips_used_set():
     p = allocate_port(31100, used={31100, 31101})
     assert p >= 31102
+
+
+def test_exhaustion_raises():
+    import pytest
+
+    from sssf.sandbox import SandboxError, allocate_port
+
+    with pytest.raises(SandboxError):
+        allocate_port(70000)
