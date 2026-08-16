@@ -1,4 +1,5 @@
 """Self-healing monitor: diagnosis + recovery."""
+import json
 import sqlite3
 
 from sssf.healer import NO_PROGRESS_MIN, diagnose
@@ -117,15 +118,55 @@ def test_heal_summary_running_when_pid_alive(tmp_path, monkeypatch):
     assert s["running"] is True and s["pid"] == os.getpid()
 
 
-def test_healed_total_counts_recovery_actions_only(tmp_path, monkeypatch):
+def test_healed_total_counts_last_7_days_from_state(tmp_path, monkeypatch):
+    """The healed metric counts timestamped state records within 7 days."""
+    import datetime
     import sssf.healer as h
     monkeypatch.setattr(h, "STATE_DIR", tmp_path)
-    (tmp_path / "heal.log").write_text(
-        "sssf heal: daemon started — interval 30s\n"
-        "sssf heal: abc123: finalized (dead run)\n"
-        "sssf heal: pass error: something\n"
-        "sssf heal: def456: restarted (1/3)\n"
-        "sssf heal: 0beef0: orphaned sandbox removed\n")
+    now = datetime.datetime.now(datetime.timezone.utc)
+    days_ago = lambda n: (now - datetime.timedelta(days=n)).isoformat()
+    (tmp_path / "heal-state.json").write_text(json.dumps({
+        "restarts": {},
+        "healed": [
+            {"adw_id": "abc123", "ts": days_ago(1)},
+            {"adw_id": "def456", "ts": days_ago(6)},
+            {"adw_id": "old99", "ts": days_ago(10)},   # outside the window
+        ],
+    }))
     s = h.heal_summary()
-    assert s["healedTotal"] == 3   # header + pass-error lines do not count
-    assert h.healed_total() == 3
+    assert s["healed7d"] == 2
+    assert h.healed_total() == 2
+    assert h.healed_total(days=14) == 3
+
+
+def test_recover_records_and_prunes_healed_state(tmp_path, monkeypatch):
+    """recover() appends a timestamped record and prunes to 7 days."""
+    import datetime
+    import subprocess
+    import sssf.sandbox as sb
+    import sssf.healer as h
+    root = tmp_path / "proj"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "T"], cwd=root, check=True)
+    (root / "f.txt").write_text("x\n")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
+    data = root / "adws" / "adw_data"
+    data.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(sb.project_db_path(data)))
+    conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
+    conn.execute("INSERT INTO sessions VALUES ('stuck1', 'running', NULL)")
+    conn.commit()
+    conn.close()
+    state = {"restarts": {}}
+    h.recover(root, "stuck1", "running", None, "finalize", state)
+    healed = state["healed"]
+    assert len(healed) == 1 and healed[0]["adw_id"] == "stuck1"
+    # a 10-day-old record is pruned on the next append
+    old = (datetime.datetime.now(datetime.timezone.utc)
+           - datetime.timedelta(days=10)).isoformat()
+    state["healed"].append({"adw_id": "ancient", "ts": old})
+    h.recover(root, "stuck2", "running", None, "finalize", state)
+    assert {x["adw_id"] for x in state["healed"]} == {"stuck1", "stuck2"}

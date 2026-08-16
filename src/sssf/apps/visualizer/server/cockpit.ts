@@ -108,14 +108,20 @@ function alivePid(pid: number | null): pid is number {
   }
 }
 
-const HEAL_ACTION_LINE = /^sssf heal: [0-9a-f]+: /;
+interface HealRecord {
+  adw_id: string;
+  ts: string;
+}
 
-/** Lifetime count of the daemon's recovery actions, parsed from heal.log. */
-function healedTotal(logPath: string): number {
+/** Recovery actions taken in the LAST 7 DAYS, from the state file's
+ * timestamped 'healed' list (the daemon log has no timestamps, so it cannot
+ * answer a sliding-window question). */
+function healed7d(home: string): number {
   try {
-    return readFileSync(logPath, "utf8")
-      .split("\n")
-      .filter((l) => HEAL_ACTION_LINE.test(l.trim())).length;
+    const st = JSON.parse(readFileSync(join(home, "heal-state.json"), "utf8"));
+    const cutoff = new Date(Date.now() - 7 * DAY_MS).toISOString();
+    return (st.healed as HealRecord[] | undefined ?? [])
+      .filter((h) => (h.ts ?? "") >= cutoff).length;
   } catch {
     return 0;
   }
@@ -137,7 +143,7 @@ function readHeal(home: string): HealSummary {
   return {
     running: alivePid(pid), pid,
     logTail: logTailLines(join(home, "heal.log")), restarts,
-    healedTotal: healedTotal(join(home, "heal.log")),
+    healed7d: healed7d(home),
   };
 }
 

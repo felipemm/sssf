@@ -352,7 +352,8 @@ export interface HealSummary {
   pid: number | null
   logTail: string[]
   restarts: Record<string, number>
-  healedTotal: number
+  /** Recovery actions taken in the last 7 days (from heal-state.json). */
+  healed7d: number
 }
 
 export interface ActivityItem {

@@ -86,7 +86,7 @@ describe("computeCockpit", () => {
     expect(data.running[0]!.project).toBe("proj-a");
     expect(data.running[0]!.phase).toBe("ph1");
     expect(data.heal.restarts).toEqual({ run1: 2 });
-    expect(data.heal.healedTotal).toBe(0); // fixture log has no action lines
+    expect(data.heal.healed7d).toBe(0); // fixture state has no healed records
     expect(data.heal.logTail).toEqual(["h2", "h3", "h4", "h5", "h6"]); // last 5 of 6 lines
     expect(data.activity[0]!.event).toBe("agent_end");
     rmSync(env.root, { recursive: true, force: true });
@@ -332,24 +332,21 @@ describe("computeCockpitContributions", () => {
   });
 });
 
-describe("healedTotal", () => {
-  test("counts recovery action lines in heal.log", async () => {
+describe("healed7d", () => {
+  test("counts state-file heal records within the last 7 days only", async () => {
     const env = makeEnv();
-    writeFileSync(join(env.home, "heal.log"),
-      "sssf heal: daemon started — interval 30s\n" +
-      "sssf heal: abc123: finalized (dead run)\n" +
-      "sssf heal: pass error: boom\n" +
-      "sssf heal: def456: restarted (1/3)\n" +
-      "sssf heal: 0beef0: orphaned sandbox removed\n");
+    const now = new Date();
+    const daysAgo = (n: number) => new Date(now.getTime() - n * 86400_000).toISOString();
+    writeFileSync(join(env.home, "heal-state.json"), JSON.stringify({
+      restarts: {},
+      healed: [
+        { adw_id: "abc123", ts: daysAgo(1) },  // 1 day ago → counts
+        { adw_id: "def456", ts: daysAgo(6) },  // 6 days ago → counts
+        { adw_id: "old99", ts: daysAgo(10) },  // 10 days ago → excluded
+      ],
+    }));
     const data = await computeCockpit({ registry: env.registry, sssfHome: env.home, dockerPs: async () => "" });
-    expect(data.heal.healedTotal).toBe(3);
-    expect(data.heal.logTail).toEqual([
-      "sssf heal: daemon started — interval 30s",
-      "sssf heal: abc123: finalized (dead run)",
-      "sssf heal: pass error: boom",
-      "sssf heal: def456: restarted (1/3)",
-      "sssf heal: 0beef0: orphaned sandbox removed",
-    ]);
+    expect(data.heal.healed7d).toBe(2);
     rmSync(env.root, { recursive: true, force: true });
   });
 });

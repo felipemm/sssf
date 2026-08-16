@@ -258,11 +258,11 @@ function fmtRel(iso: string | null): string {
         <span class="kpi-n">{{ fmtUsd(data.kpis.costTotalUsd) }}</span><span class="kpi-l hint-line">total cost</span>
       </div>
       <div class="kpi heal hint" :class="data.heal.running ? 'ok' : 'off'"
-           data-hint="The self-healing monitor daemon (sssf heal): watches running sessions, restarts hung ones (max 3× per session), finalizes dead ones. 'Healed' = lifetime recovery actions taken, counted from the daemon log. Start/stop toggles it.">
+           data-hint="The self-healing monitor daemon (sssf heal): watches running sessions, restarts hung ones (max 3× per session), finalizes dead ones. 'Healed' = recovery actions taken in the LAST 7 DAYS (timestamped in heal-state.json). Start/stop toggles it.">
         <HeartPulse :size="16" />
         <div>
-          <div class="kpi-n">{{ data.heal.running ? data.heal.healedTotal : 'off' }}</div>
-          <div class="kpi-l">{{ data.heal.running ? 'sessions healed' : 'healer' }}</div>
+          <div class="kpi-n">{{ data.heal.running ? data.heal.healed7d : 'off' }}</div>
+          <div class="kpi-l">{{ data.heal.running ? 'sessions healed · 7d' : 'healer' }}</div>
           <div class="heal-actions">
             <button v-if="!data.heal.running" class="mini" @click="onHeal('start')">start</button>
             <button v-else class="mini" @click="onHeal('stop')">stop</button>
@@ -426,7 +426,7 @@ function fmtRel(iso: string | null): string {
     <div v-if="data" class="lower">
       <!-- Healer panel -->
       <section class="panel">
-        <h3>Healer <span class="count hint" :class="data.heal.running ? 'ok' : ''" data-hint="The self-healing monitor daemon (sssf heal) — pid from ~/.sssf/heal.pid, alive-checked. 'healed N' = lifetime recovery actions counted from the daemon log.">{{ data.heal.running ? `pid ${data.heal.pid} · healed ${data.heal.healedTotal}` : 'stopped' }}</span></h3>
+        <h3>Healer <span class="count hint" :class="data.heal.running ? 'ok' : ''" data-hint="The self-healing monitor daemon (sssf heal) — pid from ~/.sssf/heal.pid, alive-checked. 'healed N' = recovery actions taken in the LAST 7 DAYS.">{{ data.heal.running ? `pid ${data.heal.pid} · healed ${data.heal.healed7d} (7d)` : 'stopped' }}</span></h3>
         <div v-if="!data.heal.running" class="empty hint" data-hint="The daemon is off — running sessions are not being watched. Start it to enable auto-recovery.">the self-healing monitor is off — running sessions are not being watched</div>
         <template v-else>
           <pre class="log hint" data-hint="The daemon's log tail (~/.sssf/heal.log) — every recovery action it takes.">{{ data.heal.logTail.join('\n') || '(no log lines yet)' }}</pre>

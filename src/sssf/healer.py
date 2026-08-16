@@ -137,8 +137,19 @@ def _restart_count(state: dict, adw_id: str) -> int:
 
 def recover(root: Path, adw_id: str, session_status: str | None,
             ticket_status: str | None, action: str, state: dict) -> str:
-    """Perform one recovery action; returns a human summary line."""
+    """Perform one recovery action; returns a human summary line.
+
+    Every recovery is recorded in the state file with a UTC timestamp (the
+    'healed' list, pruned to the last 7 days) — that record is the source of
+    the cockpit's 'sessions healed (7d)' metric, so a daemon restart never
+    loses or double-counts a heal.
+    """
     project_db = _project_db(root)
+    import datetime
+    now = datetime.datetime.now(datetime.timezone.utc)
+    state.setdefault("healed", []).append({"adw_id": adw_id, "ts": now.isoformat()})
+    cutoff = (now - datetime.timedelta(days=7)).isoformat()
+    state["healed"] = [h for h in state["healed"] if h.get("ts", "") >= cutoff][-1000:]
     wt = sandbox_dir(root, adw_id)
     per_run_db = wt / "adws" / "adw_data" / "sssf.db"
 
@@ -253,22 +264,17 @@ def _clean_orphans(root: Path) -> list[str]:
     return cleaned
 
 
-def healed_total() -> int:
-    """Lifetime count of recovery actions the daemon has taken.
+def healed_total(days: int = 7) -> int:
+    """Count recovery actions taken in the LAST N days (default 7).
 
-    Every recovery writes a line shaped "sssf heal: <adw_id>: <action>"
-    (finalize, restart, sync+teardown, ticket-back-to-backlog, orphan
-    removal). The log appends across daemon restarts, so this is the
-    lifetime total, not a per-run figure. Header and pass-error lines are
-    ignored.
+    Sources the timestamped 'healed' list in heal-state.json, written by
+    recover() — the daemon log has no timestamps and appends across restarts,
+    so it cannot answer a sliding-window question.
     """
-    try:
-        lines = _log_file().read_text().splitlines()
-    except OSError:
-        return 0
-    import re
-    action = re.compile(r"^sssf heal: [0-9a-f]+: ")
-    return sum(1 for line in lines if action.match(line.strip()))
+    import datetime
+    cutoff = (datetime.datetime.now(datetime.timezone.utc)
+              - datetime.timedelta(days=days)).isoformat()
+    return sum(1 for h in state().get("healed", []) if h.get("ts", "") >= cutoff)
 
 
 def log_tail(n: int = 5) -> list[str]:
@@ -285,19 +291,21 @@ def heal_summary() -> dict:
     pid = running_pid()
     return {"running": pid is not None, "pid": pid,
             "logTail": log_tail(), "restarts": state().get("restarts", {}),
-            "healedTotal": healed_total()}
+            "healed7d": healed_total()}
 
 
 # ── daemon loop ────────────────────────────────────────────────────────────
 
 def run_loop(interval: int = DEFAULT_INTERVAL) -> int:
     """The daemon: heal every interval until killed. stdout feeds heal.log."""
-    print(f"sssf heal: daemon started — interval {interval}s", flush=True)
+    import datetime
+    stamp = lambda: datetime.datetime.now(datetime.timezone.utc).isoformat()
+    print(f"{stamp()} sssf heal: daemon started — interval {interval}s", flush=True)
     while True:
         try:
             actions = heal_once()
             for a in actions:
-                print(f"sssf heal: {a}", flush=True)
+                print(f"{stamp()} sssf heal: {a}", flush=True)
         except Exception as e:   # the daemon must never die
             print(f"sssf heal: pass error: {e}", flush=True)
         time.sleep(interval)
