@@ -106,6 +106,7 @@ New small table (tracer-owned, `CREATE TABLE IF NOT EXISTS`):
 ```
 run_reviews (adw_id TEXT PRIMARY KEY,
              status TEXT NOT NULL,          -- pending | approved | rejected
+             host_port INTEGER,             -- the allocated host port (see below)
              updated_at TEXT)
 ```
 
@@ -116,6 +117,23 @@ run_reviews (adw_id TEXT PRIMARY KEY,
   viz shells to, same pattern as ticket run).
 - The trace page reads the review status via the session detail API (extended)
   and renders Approve/Reject buttons when `pending`.
+
+### Port allocation (parallel containers must not collide)
+
+The app inside every container listens on the same container port
+(`review.port`, e.g. 3000), so the **host port is allocated per run**:
+
+- Before `docker run`, the host picks the first free port `>= sandbox.port_base`
+  (default 3000): bind-test the candidate (TCP socket) and skip busy ones —
+  free-port detection across parallel sssf runs of the same project.
+- The chosen host port is recorded in the `run_reviews` row and the sandbox
+  metadata, and passed into the container as `REVIEW_HOST_PORT` (env). The
+  review phase logs the URL as `http://localhost:<host_port>` — the trace page
+  shows it, so the engineer knows where to click.
+- `docker run -p <host_port>:<review.port>`. If docker reports the port already
+  allocated (external process raced us), reallocate and retry.
+- Teardown frees the port implicitly (container removal); the sandbox record
+  goes with the sandbox.
 
 ### Data layer changes
 
@@ -152,15 +170,18 @@ run_reviews (adw_id TEXT PRIMARY KEY,
 sandbox:
   enabled: true            # false → behave like today (cwd)
   image: sssf-runner       # tag auto-appended: sssf-runner:<sssf-version>
+  port_base: 3000          # host ports allocated from here upward (per run)
 review:
   command: "bun run dev"   # started inside the container at the review stage
-  port: 3000               # forwarded to the host
+  port: 3000               # the CONTAINER port the app listens on
 ```
 
 ## Error handling
 
 - **docker unavailable / image missing** → `sssf sandbox build` instructions,
   fail loudly (no silent cwd fallback unless `sandbox.enabled: false`).
+- **Host port already taken** at `docker run` time (an external process raced
+  the allocation) → reallocate from the next free port and retry.
 - **cwd never changes** — approval never checks out the branch anywhere; the
   branch persists as a ref. Parallel runs and the engineer's checkout are
   unaffected (worktrees are structurally isolated; a branch can be checked out
