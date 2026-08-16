@@ -245,7 +245,8 @@ async function archive(s: SessionSummary, event: MouseEvent) {
                   <button
                     class="card-archive"
                     type="button"
-                    title="Archive — remove this run from review"
+                    :disabled="s.status !== 'success' && s.status !== 'fail'"
+                    :title="s.status === 'running' ? 'Running — archive available once done or failed' : 'Archive — remove this run from review'"
                     aria-label="Archive run"
                     @click="archive(s, $event)"
                   >
@@ -424,6 +425,14 @@ async function archive(s: SessionSummary, event: MouseEvent) {
 .card-archive:hover {
   color: var(--text);
   background: rgba(200, 155, 255, 0.12);
+}
+.card-archive:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.card-archive:disabled:hover {
+  color: var(--faint);
+  background: none;
 }
 
 .card:hover {

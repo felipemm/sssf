@@ -192,7 +192,8 @@ const hiddenRowCount = computed(() =>
     <button
       class="card-archive"
       type="button"
-      :title="archived ? 'Restore — bring this run back to review' : 'Archive — remove this run from review'"
+      :disabled="!archived && session.status !== 'success' && session.status !== 'fail'"
+      :title="archived ? 'Restore — bring this run back to review' : (session.status === 'running' ? 'Running — archive available once done or failed' : 'Archive — remove this run from review')"
       :aria-label="archived ? 'Restore run' : 'Archive run'"
       @click="archive"
     >
@@ -307,6 +308,14 @@ const hiddenRowCount = computed(() =>
 .card-archive:hover {
   background: rgba(255, 111, 103, 0.16);
   color: #ff6f67;
+}
+.card-archive:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.card-archive:disabled:hover {
+  background: none;
+  color: var(--faint);
 }
 
 .card:hover {

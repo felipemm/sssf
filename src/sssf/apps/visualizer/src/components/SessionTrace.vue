@@ -462,7 +462,8 @@ function selectPhase(p: Phase) {
       <button
         class="strip-archive"
         type="button"
-        :title="session.archived ? 'Restore — bring this run back to review' : 'Archive — remove this run from review'"
+        :disabled="!session.archived && session.status !== 'success' && session.status !== 'fail'"
+        :title="session.archived ? 'Restore — bring this run back to review' : (session.status === 'running' ? 'Running — archive available once done or failed' : 'Archive — remove this run from review')"
         :aria-label="session.archived ? 'Restore run' : 'Archive run'"
         @click="toggleArchive"
       >
@@ -647,6 +648,14 @@ function selectPhase(p: Phase) {
 .strip-archive:hover {
   color: var(--text);
   border-color: rgba(200, 155, 255, 0.5);
+}
+.strip-archive:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.strip-archive:disabled:hover {
+  color: var(--faint);
+  border-color: var(--border);
 }
 
 .run-strip {
