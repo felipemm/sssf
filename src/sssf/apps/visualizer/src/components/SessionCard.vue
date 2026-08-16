@@ -1,28 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, shallowRef, watch, type Component } from 'vue'
-import {
-  Archive,
-  ArchiveRestore,
-  Bot,
-  ClipboardList,
-  Eye,
-  FileText,
-  FlaskConical,
-  Gauge,
-  Hammer,
-  Layers,
-  ListChecks,
-  MessageSquareText,
-  Radar,
-  RotateCw,
-  ShieldCheck,
-  Square,
-  User,
-  Workflow,
-} from 'lucide-vue-next'
+import { computed, onMounted, onUnmounted, shallowRef, watch } from 'vue'
+import { Archive, ArchiveRestore, RotateCw, Square, User } from 'lucide-vue-next'
 import type { EventRow, SessionSummary } from '../lib/types'
 import { archiveSession, fetchEvents, restartRun, stopRun } from '../lib/api'
 import { axisTicks, fmtOffset, ts } from '../lib/format'
+import { adwIconFor } from '../lib/adwIcons'
 import { agentColor, dotColor, eventLabel } from '../lib/events'
 import { hrefFor } from '../lib/router'
 import StatChip from './StatChip.vue'
@@ -30,22 +12,6 @@ import StatChip from './StatChip.vue'
 const props = defineProps<{ session: SessionSummary; nowMs: number; archived?: boolean }>()
 const emit = defineEmits<{ archived: [adwId: string] }>()
 
-// One icon per ADW type; a chained run ('adw_plan + adw_build_test') takes its
-// first ADW's icon, anything unknown falls back to Bot.
-const ADW_ICONS: Record<string, Component> = {
-  adw_simple_sdlc: Workflow,
-  adw_plan: ClipboardList,
-  adw_build: Hammer,
-  adw_build_test: FlaskConical,
-  adw_build_review: Eye,
-  adw_plan_build: Layers,
-  adw_plan_build_test: ListChecks,
-  adw_plan_build_test_quality: Gauge,
-  adw_document: FileText,
-  adw_quality: ShieldCheck,
-  adw_prompt: MessageSquareText,
-  adw_scout: Radar,
-}
 const durationMs = computed(() => {
   const s = props.session
   const start = ts(s.started_at)
@@ -54,10 +20,7 @@ const durationMs = computed(() => {
   return (Number.isFinite(end) ? end : props.nowMs) - start
 })
 
-const adwIcon = computed(() => {
-  const first = props.session.adw_name?.split(' + ')[0]?.trim()
-  return (first && ADW_ICONS[first]) || Bot
-})
+const adwIcon = computed(() => adwIconFor(props.session.adw_name))
 
 // The card is an <a>; the button lives inside it, so the click must not
 // navigate. Told the parent optimistically — the poll would take up to half a
