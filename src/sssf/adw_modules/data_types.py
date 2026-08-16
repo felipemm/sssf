@@ -172,6 +172,18 @@ class QualityResult(BaseModel):
     artifacts: list[str] = Field(default_factory=list)
 
 
+class QualityConfig(BaseModel):
+    """Per-project deterministic quality commands (kind="code" phases).
+
+    When non-empty, these replace the package's placeholder defaults for the
+    names they cover; a name with no configured entry keeps its placeholder.
+    Every check also records a gate_results row, so the dashboard's quality-gate
+    KPI counts these runs, not just the agents' claim gates.
+    """
+
+    checks: list[QualityCheckSpec] = Field(default_factory=list)
+
+
 # ── Change capture (git diff, deterministic) ─────────────────────────────────
 
 class ChangeCapture(BaseModel):
@@ -355,6 +367,7 @@ class SSSFConfig(BaseModel):
     defaults: ConfigDefaults = Field(default_factory=ConfigDefaults)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
+    quality: QualityConfig = Field(default_factory=QualityConfig)
     agents: list[AgentConfig] = Field(default_factory=list)
 
 
