@@ -304,3 +304,68 @@ export interface HealthResponse {
 export interface ApiError {
   error: string;
 }
+
+// ── Mission Control cockpit (cross-project) ────────────────────────────────
+
+export interface CockpitKpis {
+  runningSessions: number
+  liveContainers: number
+  orphanContainers: number
+  sandboxWorktrees: number
+  ticketsInFlight: number
+  costTodayUsd: number
+  healRunning: boolean
+  healPid: number | null
+}
+
+export interface CockpitProject {
+  name: string
+  root: string
+  sessionsRunning: number
+  sessionsToday: number
+  sessionsFailedToday: number
+  ticketsBacklog: number
+  ticketsInFlight: number
+  containers: number
+  worktrees: number
+  costTodayUsd: number
+  lastActivity: string | null
+  stale: boolean
+}
+
+export interface RunningSession {
+  project: string
+  adwId: string
+  phase: string | null
+  phaseStatus: string | null
+  ageSec: number
+}
+
+export interface HealSummary {
+  running: boolean
+  pid: number | null
+  logTail: string[]
+  restarts: Record<string, number>
+}
+
+export interface ActivityItem {
+  project: string
+  adwId: string
+  ts: string
+  event: string
+}
+
+export interface CockpitData {
+  generatedAt: string
+  kpis: CockpitKpis
+  projects: CockpitProject[]
+  running: RunningSession[]
+  heal: HealSummary
+  activity: ActivityItem[]
+}
+
+export interface ControlResult {
+  ok: boolean
+  output?: string
+  error?: string
+}
