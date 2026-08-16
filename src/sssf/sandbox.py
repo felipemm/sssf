@@ -215,6 +215,43 @@ def teardown_sandbox(project_root: Path, adw_id: str) -> int:
     return 0
 
 
+def _forward_merge(conn: sqlite3.Connection, src: sqlite3.Connection,
+                  table: str, adw_id: str) -> None:
+    """Merge one row-table (sessions/phases) forward-only: INSERT rows the
+    project lacks, and UPDATE a row's status only while the project row is
+    still un-ended (ended_at IS NULL). A stale mid-run copy can never
+    downgrade a terminal status."""
+    try:
+        cols = [r[1] for r in src.execute(f"PRAGMA table_info({table})")]
+        if not cols or "adw_id" not in cols:
+            return
+        pk = "adw_id" if table == "sessions" else "phase_id"
+        if pk not in cols:
+            return
+        rows = src.execute(f"SELECT * FROM {table} WHERE adw_id=?", (adw_id,)).fetchall()
+        if not rows:
+            return
+        q = ",".join("?" * len(cols))
+        # insert missing rows (by PK)
+        existing = {r[cols.index(pk)] for r in
+                    conn.execute(f"SELECT {pk} FROM {table} WHERE adw_id=?", (adw_id,)).fetchall()}
+        insert_cols = ",".join(cols)
+        for row in rows:
+            if row[cols.index(pk)] not in existing:
+                conn.execute(f"INSERT INTO {table} ({insert_cols}) VALUES ({q})", row)
+        # forward update: fill un-ended rows with the source's terminal state
+        if "ended_at" in cols and "status" in cols:
+            for row in rows:
+                pk_val = row[cols.index(pk)]
+                if row[cols.index("ended_at")] is not None:
+                    sets = [f"{c}=?" for c in cols if c not in (pk, "adw_id")]
+                    conn.execute(
+                        f"UPDATE {table} SET {','.join(sets)} WHERE {pk}=? AND ended_at IS NULL",
+                        [row[cols.index(c)] for c in cols if c not in (pk, "adw_id")] + [pk_val])
+    except sqlite3.Error:
+        pass
+
+
 def sync_run_db(conn: sqlite3.Connection, per_run_db: Path, adw_id: str) -> None:
     """Merge a run's per-run db (written by the ADW inside the container) into
     the project db via the given connection. The per-run db is COPIED first —
@@ -237,8 +274,14 @@ def sync_run_db(conn: sqlite3.Connection, per_run_db: Path, adw_id: str) -> None
             # tickets is PROJECT-owned (the host's ticket commands write it; the
             # per-run db never contains tickets) — syncing it would DELETE the
             # run's ticket row and insert nothing.
-            for table in ("sessions", "phases", "events", "envelopes",
-                          "gate_results", "processes", "agent_sessions"):
+            # sessions/phases merge FORWARD-ONLY: INSERT missing rows, and
+            # update a status only when the project row is still un-ended. A
+            # torn mid-run copy (status 'running') can therefore never
+            # downgrade a terminal state the project already recorded.
+            _forward_merge(conn, src, "sessions", adw_id)
+            _forward_merge(conn, src, "phases", adw_id)
+            for table in ("events", "envelopes", "gate_results",
+                          "processes", "agent_sessions"):
                 try:
                     cols = [r[1] for r in src.execute(f"PRAGMA table_info({table})")]
                     if not cols or "adw_id" not in cols:
