@@ -246,3 +246,23 @@ review:
 - No sandbox reuse/caching, no multi-image per project, no IDE attach.
 - No board/status approve buttons (trace only).
 - No dev-server auto-restart on change (a plain `bun run dev`-style command).
+
+---
+
+# Revision 3 (2026-08-15): no human review gate — auto-teardown
+
+The manual engineer-review stage was removed during implementation. The final
+flow:
+
+- Sandboxed runs execute the ADW's **original stages only** (plan/build/test/
+  reviewer/document — no `review` human phase).
+- When the ADW exits (success or fail), a **detached monitor** (`docker wait`
+  → container removal + worktree removal) tears the sandbox down automatically.
+- The branch `sssf/<adw_id>` survives as the deliverable; the engineer merges
+  or PRs it with their own tooling; `sssf sandbox prune` deletes it once
+  resolved.
+- Kept: `sssf run stop` (kill a live run), `sandbox build/list/prune`,
+  `--no-sandbox`, deterministic idempotent lifecycle, per-run worktree +
+  container, shared live data dir, credential boundary.
+- Removed: the review phase + `run_reviews` + approve/reject + pause state +
+  per-run port allocation + the review config + bun/uv in the runner image.
