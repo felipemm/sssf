@@ -371,6 +371,18 @@ def prune_sandbox(project_root: Path, adw_id: str) -> int:
     return 0
 
 
+def _git_identity(project_root: Path) -> tuple[str, str]:
+    """The operator's git identity, resolved from the project root so both
+    repo-local and global config work. Empty strings when unset — the
+    container then has no identity and git fails loudly instead of silently
+    attributing the commit."""
+    def get(key: str) -> str:
+        r = subprocess.run(["git", "-C", str(project_root), "config", key],
+                           capture_output=True, text=True, check=False)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    return get("user.name"), get("user.email")
+
+
 def sandbox_env(project_root: Path) -> tuple[Path, Path, dict[str, str]]:
     """The per-run data dir (shared, bind-mounted rw), the pi home (read-only
     mount), and the env passed to the container: credentials + git identity
@@ -380,13 +392,16 @@ def sandbox_env(project_root: Path) -> tuple[Path, Path, dict[str, str]]:
     env: dict[str, str] = {}
     if os.environ.get("GENPLAT_TOKEN"):
         env["GENPLAT_TOKEN"] = os.environ["GENPLAT_TOKEN"]
-    for var, key in (("GIT_AUTHOR_NAME", "user.name"),
-                     ("GIT_AUTHOR_EMAIL", "user.email")):
-        if not os.environ.get(var):
-            r = subprocess.run(["git", "config", "--global", key],
-                               capture_output=True, text=True, check=False)
-            if r.returncode == 0 and r.stdout.strip():
-                env[var] = r.stdout.strip()
+    name, email = _git_identity(project_root)
+    if name and email:
+        # Author AND committer — git needs both pairs inside the container, or
+        # `git commit` dies with "Committer identity unknown". ENGINEER_NAME is
+        # how engineer_name() resolves the run's engineer label in the sandbox.
+        env.update({
+            "GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email,
+            "GIT_COMMITTER_NAME": name, "GIT_COMMITTER_EMAIL": email,
+            "ENGINEER_NAME": name,
+        })
     return data_dir, pi_home, env
 
 
