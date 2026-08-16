@@ -40,6 +40,7 @@ observability:
 # placeholder argv with the project's real commands (`bun test`, `uv run
 # pytest -q`, `bun x tsc --noEmit`, `npm run build`). Each check runs as a
 # gate: pass/fail lands in gate_results and the status dashboard's quality KPI.
+# - operation is lint | typecheck | build | security (e.g. ["snyk", "test"]).
 # - argv is a LIST, never a shell string.
 # - Call binaries by bare name (`bun`, `uv`); they resolve via the operator's
 #   environment, never a hard-coded absolute path.

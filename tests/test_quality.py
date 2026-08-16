@@ -111,3 +111,16 @@ def test_run_quality_runs_every_configured_check(tmp_path):
     rows = dict(_gate_rows(tmp_path))
     assert rows == {"quality:test": 1, "quality:typecheck": 0,
                     "quality:lint": 1, "quality:build": 1}
+
+
+def test_security_operation_is_accepted(tmp_path):
+    """A security scan (e.g. snyk test) is a valid operation — the literal
+    covers lint | typecheck | build | security."""
+    run = _make_run(tmp_path, checks=[QualityCheckSpec(
+        name="snyk", area="backend", operation="security", argv=["true"])])
+    result = quality.run_quality(run)
+    names = [c.name for c in result.checks]
+    assert names == ["snyk", "test", "lint", "typecheck", "build"]
+    assert result.checks[0].operation == "security"
+    assert result.checks[0].passed
+    assert dict(_gate_rows(tmp_path))["quality:snyk"] == 1

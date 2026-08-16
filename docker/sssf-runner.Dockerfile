@@ -14,6 +14,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 # pi — the coding-agent CLI the ADW shells to for agent calls
 RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 
+# snyk — the security quality gate (quality.checks). Auth rides the host's
+# ~/.config mount (the configstore token lands at /tmp/.config/configstore/snyk.json).
+RUN npm install -g --ignore-scripts snyk
+
 # sssf itself (the build context is the sssf repo root)
 COPY pyproject.toml README.md /opt/sssf/
 COPY src/sssf /opt/sssf/src/sssf/
