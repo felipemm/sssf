@@ -334,8 +334,8 @@ const server = Bun.serve({
       if (!root) return notFound(`no project ${name}`);
       const db = dbForProject(name);
       if (!db) return notFound("no trace db for project");
-      const windowDays = [7, 30, 90].includes(intQuery(req, "window", 30))
-        ? intQuery(req, "window", 30) : 30;
+      const w = intQuery(req, "window", 30);
+      const windowDays = [7, 30, 90].includes(w) ? w : 30;
       return json(computeStatus(db.path, root, name, windowDays));
     }),
     "/api/projects/:project/tickets/sync": scoped(async (req) => {

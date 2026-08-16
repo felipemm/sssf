@@ -33,14 +33,15 @@ function fixtureDb(path: string): string[] {
   const iso = (daysAgo: number) => new Date(now - daysAgo * 86400_000).toISOString();
   const day = (daysAgo: number) => new Date(now - daysAgo * 86400_000).toISOString().slice(0, 10);
   const end = (start: string, seconds: number) => new Date(Date.parse(start) + seconds * 1000).toISOString();
-  const s1 = iso(6), s2 = iso(4), s3 = iso(2), s4 = iso(0);
+  const s1 = iso(6), s2 = iso(4), s3 = iso(2), s4 = iso(0), s5 = iso(5);
 
   const s = db.prepare(`INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?,?,?)`);
-  // s1, s2 success · s3 fail · s4 running (no ended_at)
+  // s1, s2, s5 success · s3 fail · s4 running (no ended_at)
   s.run("s1", "adw_simple_sdlc", "r1", "success", "eng", s1, end(s1, 300), 100000, 0.50, 0);
   s.run("s2", "adw_simple_sdlc", "r2", "success", "eng", s2, end(s2, 120), 50000, 0.20, 0);
   s.run("s3", "adw_simple_sdlc", "r3", "fail", "eng", s3, end(s3, 60), 10000, 0.05, 0);
   s.run("s4", "adw_simple_sdlc", "r4", "running", "eng", s4, null, 0, 0, 0);
+  s.run("s5", "adw_simple_sdlc", "r5", "success", "eng", s5, end(s5, 60), 0, 0, 1); // Archived session
 
   const p = db.prepare(`INSERT INTO phases VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   p.run("s1_01", "s1", 1, "request", "engineer", "eng", "", "success", 0, 0, null, s1, end(s1, 1));
@@ -78,19 +79,19 @@ describe("computeStatus", () => {
     const status = computeStatus(dbPath, root, "fixture", 30);
 
     // totals: all-time, includes the running session
-    expect(status.totals.runs).toBe(4);
+    expect(status.totals.runs).toBe(5);
     expect(status.totals.active).toBe(1);
-    expect(status.totals.success).toBe(2);
+    expect(status.totals.success).toBe(3);
     expect(status.totals.failed).toBe(1);
-    expect(status.totals.archived).toBe(0);
-    expect(status.totals.success_rate).toBeCloseTo(2 / 3, 5);   // 2 of 3 finished
+    expect(status.totals.archived).toBe(1);
+    expect(status.totals.success_rate).toBeCloseTo(3 / 4, 5);   // 3 of 4 finished
     // julianday() arithmetic on current-era dates carries ~1e-5 s of double noise,
     // so assert within 0.5 ms rather than expecting exactly 210.
-    expect(status.totals.avg_duration_s).toBeCloseTo(210, 3);   // (300+120)/2, successful only
+    expect(status.totals.avg_duration_s).toBeCloseTo(160, 3);   // (300+120+60)/3, successful only
     expect(status.totals.total_cost).toBeCloseTo(0.75, 5);
-    expect(status.totals.avg_cost_per_run).toBeCloseTo(0.1875, 5); // 0.75/4
+    expect(status.totals.avg_cost_per_run).toBeCloseTo(0.15, 5); // 0.75/5
     expect(status.totals.total_tokens).toBe(160000);
-    expect(status.totals.avg_tokens_per_run).toBe(40000);
+    expect(status.totals.avg_tokens_per_run).toBe(32000);
     // last_run is the full ISO timestamp of the most recent start (s4, running today);
     // Task 5 displays its date part — assert that part is today.
     expect(status.project.last_run?.slice(0, 10)).toBe(new Date(Date.now()).toISOString().slice(0, 10)); // today

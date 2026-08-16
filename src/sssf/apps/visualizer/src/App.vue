@@ -134,7 +134,7 @@ async function onSweep() {
     </header>
     <main>
       <KanbanBoard v-if="view === 'board'" />
-      <StatusPage v-if="view === 'status'" />
+      <StatusPage v-else-if="view === 'status'" />
       <SessionsList v-else-if="view === 'list'" />
       <SessionsList v-else-if="view === 'archived'" archived />
       <SessionTrace v-else :key="traceAdwId" :adw-id="traceAdwId" :phase-id="route.phaseId" />

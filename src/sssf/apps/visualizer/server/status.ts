@@ -35,7 +35,7 @@ export interface Quality {
 export interface AgentStat {
   role: string;
   model: string | null;      // most recent agent_sessions.model; null if never used
-  sessions: number;          // distinct adw_ids (one agent_sessions row per run+agent)
+  sessions: number;          // distinct adw_ids (one agent_sessions row per run+agent) — displayed as 'runs'
   context_tokens: number;    // sum across rows
 }
 
@@ -221,7 +221,7 @@ export function computeStatus(dbPath: string, root: string, name: string, window
                 COALESCE(SUM(total_cost),0) cost, COALESCE(SUM(total_tokens),0) tokens,
                 SUM(status='success') success, SUM(status='fail') fail
            FROM sessions
-          WHERE started_at IS NOT NULL AND date(started_at) >= ?
+          WHERE started_at IS NOT NULL AND date(started_at) >= ? AND COALESCE(archived,0)=0
           GROUP BY day ORDER BY day ASC`,
       ).all(cutoff);
       for (const row of rows) {
