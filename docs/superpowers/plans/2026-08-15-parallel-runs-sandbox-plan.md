@@ -629,7 +629,7 @@ import sqlite3
 
 from sssf.adw_modules.tracer import Tracer
 from sssf.adw_modules.data_types import ConfigDefaults, ObservabilityConfig
-from sssf.sandbox import run_reviews_path
+from sssf.sandbox import review_db_path
 
 
 def _tracer(tmp_path) -> Tracer:
@@ -896,13 +896,13 @@ def human_review(run, cfg, ph, prompt: str) -> bool:
     """Start review.command (or the auto-detected one), wait for the port,
     mark pending, log the URL, poll for a decision. Returns True on approve."""
     review = cfg.review
-    command = review.command or auto_review_command(run.root)
+    command = review.command or auto_review_command(run.repo_root)
     if not command:
         ph.log(input="no review command configured — skipping the human gate")
         return True   # treat as approved; the run completes without the gate
 
     host_port = int(os.environ.get("REVIEW_HOST_PORT", review.port))
-    proc = subprocess.Popen(command, cwd=str(run.root), shell=True)
+    proc = subprocess.Popen(command, cwd=str(run.repo_root), shell=True)
 
     try:
         if not _port_open(review.port):
@@ -1007,7 +1007,7 @@ def _make_repo(tmp_path) -> Path:
     return root
 
 
-def test_spawn_sandbox_creates_worktree_and_records_port(tmp_path, monkeypatch):
+def test_spawn_sandbox_creates_worktree_and_records_port(tmp_path, monkeypatch, fake_docker):
     root = _make_repo(tmp_path)
     from sssf.sandbox import allocate_port, create_worktree, run_reviews_path, SandboxError
     wt = create_worktree(root, "abc123")
