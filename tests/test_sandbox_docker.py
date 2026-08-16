@@ -46,6 +46,17 @@ def test_build_image_calls_docker(fake_docker, tmp_path):
     assert any("build" in c and "Dockerfile" in c for c in calls)
 
 
+def test_build_image_tags_the_image(fake_docker, tmp_path):
+    """docker build without -t leaves the image untagged — runs keep using the
+    stale sssf-runner:latest and a rebuilt image never takes effect."""
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text("FROM scratch\n")
+    build_image("sssf-runner:latest", dockerfile)
+    calls = fake_docker.read_text().splitlines()
+    build = next(c for c in calls if c.startswith("build"))
+    assert "-t sssf-runner:latest" in build
+
+
 def test_build_failure_raises(fake_docker, tmp_path, monkeypatch):
     bin_dir = fake_docker.parent / "bin"
     (bin_dir / "docker").write_text("#!/usr/bin/env python3\nimport sys\nsys.exit(1)\n")

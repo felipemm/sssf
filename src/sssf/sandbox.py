@@ -105,7 +105,10 @@ def docker_available() -> bool:
 
 
 def build_image(image: str, dockerfile: Path, context: Path | None = None) -> None:
-    r = _docker("build", "-f", str(dockerfile), str(context or dockerfile.parent))
+    # -t is mandatory: an untagged build leaves the image dangling and every
+    # run keeps using the stale sssf-runner:latest.
+    r = _docker("build", "-t", image, "-f", str(dockerfile),
+                str(context or dockerfile.parent))
     if r.returncode != 0:
         raise SandboxError(f"docker build failed: {r.stderr.strip()[:500]}")
 

@@ -14,9 +14,14 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 # pi — the coding-agent CLI the ADW shells to for agent calls
 RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 
-# snyk — the security quality gate (quality.checks). Auth rides the host's
-# ~/.config mount (the configstore token lands at /tmp/.config/configstore/snyk.json).
-RUN npm install -g --ignore-scripts snyk
+# snyk — the security quality gate (quality.checks). Static binary (the
+# canonical Snyk pattern — no npm wrapper, no first-run extraction into
+# root-owned dirs, works as the non-root container user). Arch-aware: the
+# bare snyk-linux is x64-only, ARM needs snyk-linux-arm64. Auth comes from
+# SNYK_TOKEN (forwarded by sandbox_env), never a configstore file.
+RUN ARCH=$(uname -m); [ "$ARCH" = "x86_64" ] && SUF=linux || SUF=linux-arm64; \
+    curl -fsSL "https://static.snyk.io/cli/latest/snyk-$SUF" -o /usr/local/bin/snyk \
+    && chmod +x /usr/local/bin/snyk
 
 # sssf itself (the build context is the sssf repo root)
 COPY pyproject.toml README.md /opt/sssf/
