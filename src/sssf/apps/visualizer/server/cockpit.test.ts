@@ -115,3 +115,70 @@ describe("computeCockpit", () => {
     rmSync(env.root, { recursive: true, force: true });
   });
 });
+
+import { handleControl } from "./cockpit.ts";
+
+describe("handleControl", () => {
+  test("add validates the dir before spawning", async () => {
+    const env = makeEnv();
+    const calls: string[][] = [];
+    const spawn = async (a: string[]) => {
+      calls.push(a);
+      return { code: 0, out: "ok" };
+    };
+    const bad = await handleControl("add", { root: join(env.root, "no-such") },
+      { registry: env.registry, sssfHome: env.home, spawnCli: spawn });
+    expect(bad.ok).toBe(false);
+    expect(calls.length).toBe(0); // never spawned for a missing dir
+    const good = await handleControl("add", { root: join(env.root, "proj-b") },
+      { registry: env.registry, sssfHome: env.home, spawnCli: spawn });
+    expect(good.ok).toBe(true);
+    expect(calls[0]).toEqual(["projects", "add", join(env.root, "proj-b")]);
+    rmSync(env.root, { recursive: true, force: true });
+  });
+
+  test("add requires an adws/ directory", async () => {
+    const env = makeEnv();
+    const calls: string[][] = [];
+    const bare = join(env.root, "not-a-project");
+    mkdirSync(bare, { recursive: true }); // exists but has no adws/
+    const res = await handleControl("add", { root: bare },
+      { registry: env.registry, sssfHome: env.home, spawnCli: async (a) => { calls.push(a); return { code: 0, out: "" }; } });
+    expect(res.ok).toBe(false);
+    expect(calls.length).toBe(0);
+    rmSync(env.root, { recursive: true, force: true });
+  });
+
+  test("remove requires confirm", async () => {
+    const env = makeEnv();
+    const calls: string[][] = [];
+    const spawn = async (a: string[]) => { calls.push(a); return { code: 0, out: "" }; };
+    const no = await handleControl("remove", { project: "proj-a" },
+      { registry: env.registry, sssfHome: env.home, spawnCli: spawn });
+    expect(no.ok).toBe(false);
+    const yes = await handleControl("remove", { project: "proj-a", confirm: true },
+      { registry: env.registry, sssfHome: env.home, spawnCli: spawn });
+    expect(yes.ok).toBe(true);
+    expect(calls[0]).toEqual(["projects", "remove", "proj-a"]);
+    rmSync(env.root, { recursive: true, force: true });
+  });
+
+  test("refresh spawns init --refresh --auto at the project root", async () => {
+    const env = makeEnv();
+    const calls: string[][] = [];
+    const res = await handleControl("refresh", { project: "proj-a" },
+      { registry: env.registry, sssfHome: env.home, spawnCli: async (a) => { calls.push(a); return { code: 0, out: "" }; } });
+    expect(res.ok).toBe(true);
+    expect(calls[0]).toEqual(["init", "--refresh", "--auto", "--project", join(env.root, "proj-a")]);
+    rmSync(env.root, { recursive: true, force: true });
+  });
+
+  test("non-zero cli exit surfaces the error", async () => {
+    const env = makeEnv();
+    const res = await handleControl("refresh", { project: "proj-a" },
+      { registry: env.registry, sssfHome: env.home, spawnCli: async () => ({ code: 3, out: "boom" }) });
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe("boom");
+    rmSync(env.root, { recursive: true, force: true });
+  });
+});

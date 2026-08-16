@@ -24,7 +24,8 @@ import { ProjectRegistry } from "./registry.ts";
 import { sweepAll } from "./sweep.ts";
 import { isEnabled, readTickets } from "./tickets.ts";
 import { computeStatus } from "./status.ts";
-import type { AgentPrompts, ApiError, HealthResponse } from "../shared/types.ts";
+import { computeCockpit, defaultSpawnCli, handleControl } from "./cockpit.ts";
+import type { AgentPrompts, ApiError, ControlResult, HealthResponse } from "../shared/types.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
 const DIST_DIR = resolve(import.meta.dir, "..", "dist");
@@ -314,6 +315,48 @@ const server = Bun.serve({
         })),
       ),
     ),
+
+    // Mission Control — cross-project aggregate + controls.
+    "/api/cockpit": safely(() => json(computeCockpit({ registry: projects }))),
+    "/api/cockpit/projects/:project/refresh": {
+      POST: safely(async (req) =>
+        json(await handleControl("refresh", { project: param(req, "project") },
+          { registry: projects, spawnCli: defaultSpawnCli })),
+      ),
+    },
+    "/api/cockpit/projects/add": {
+      POST: safely(async (req) => {
+        let root = "";
+        try {
+          root = (await req.json()).root ?? "";
+        } catch {
+          return json({ ok: false, error: "malformed json" } satisfies ControlResult, 400);
+        }
+        return json(await handleControl("add", { root }, { registry: projects, spawnCli: defaultSpawnCli }));
+      }),
+    },
+    "/api/cockpit/projects/:project/remove": {
+      POST: safely(async (req) => {
+        let confirm = false;
+        try {
+          confirm = (await req.json()).confirm === true;
+        } catch {
+          return json({ ok: false, error: "malformed json" } satisfies ControlResult, 400);
+        }
+        return json(await handleControl("remove", { project: param(req, "project"), confirm },
+          { registry: projects, spawnCli: defaultSpawnCli }));
+      }),
+    },
+    "/api/cockpit/heal/:action": {
+      POST: safely(async (req) => {
+        const action = param(req, "action");
+        if (action !== "start" && action !== "stop") {
+          return json({ ok: false, error: "action must be start or stop" } satisfies ControlResult, 400);
+        }
+        const r = await defaultSpawnCli(["heal", action]);
+        return json(r.code === 0 ? { ok: true, output: r.out } : { ok: false, error: r.out } satisfies ControlResult);
+      }),
+    },
 
     // Manual archival sweep across every registered project (the `sssf sweep`
     // CLI equivalent) — review triage, the only batch write the server makes.

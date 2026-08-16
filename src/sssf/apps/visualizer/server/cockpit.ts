@@ -235,6 +235,62 @@ export async function computeCockpit(deps: CockpitDeps): Promise<CockpitData> {
   return out;
 }
 
+export interface SpawnResult {
+  code: number;
+  out: string;
+}
+
+export interface ControlParams {
+  project?: string;
+  root?: string;
+  confirm?: boolean;
+}
+
+/**
+ * Run a cockpit control. Every control shells to the sssf CLI (the only
+ * writer) and returns a ControlResult; validations happen before any spawn.
+ */
+export async function handleControl(
+  kind: "refresh" | "add" | "remove",
+  params: ControlParams,
+  deps: CockpitDeps & { spawnCli?: (args: string[]) => Promise<SpawnResult> },
+): Promise<ControlResult> {
+  const spawn = deps.spawnCli ?? defaultSpawnCli;
+  const fail = (error: string): ControlResult => ({ ok: false, error });
+
+  if (kind === "add") {
+    if (!params.root) return fail("root is required");
+    const root = resolve(params.root);
+    if (!existsSync(root) || !existsSync(join(root, "adws"))) {
+      return fail("not a project: no adws/ directory at the given path");
+    }
+    const r = await spawn(["projects", "add", root]);
+    return r.code === 0 ? { ok: true, output: r.out } : fail(r.out || `sssf projects add exited ${r.code}`);
+  }
+
+  if (kind === "remove") {
+    if (!params.confirm) return fail("removal requires confirm: true");
+    if (!params.project) return fail("project is required");
+    const r = await spawn(["projects", "remove", params.project]);
+    return r.code === 0 ? { ok: true, output: r.out } : fail(r.out || `sssf projects remove exited ${r.code}`);
+  }
+
+  // refresh
+  if (!params.project) return fail("project is required");
+  const entry = deps.registry.list().find((p) => p.name === params.project);
+  if (!entry) return fail(`no project ${params.project}`);
+  const r = await spawn(["init", "--refresh", "--auto", "--project", entry.root]);
+  return r.code === 0 ? { ok: true, output: r.out } : fail(r.out || `sssf init exited ${r.code}`);
+}
+
+export async function defaultSpawnCli(args: string[]): Promise<SpawnResult> {
+  const proc = Bun.spawn(["sssf", ...args], { stdout: "pipe", stderr: "pipe" });
+  const out = await new Response(proc.stdout).text();
+  const err = await new Response(proc.stderr).text();
+  await proc.exited;
+  return { code: proc.exitCode ?? 0, out: (out + err).trim() };
+}
+
 export async function realDockerPs(): Promise<string> {
   const proc = Bun.spawn(
     ["docker", "ps", "-a", "--filter", "name=sssf-", "--format", "{{.Names}} {{.Status}}"],
