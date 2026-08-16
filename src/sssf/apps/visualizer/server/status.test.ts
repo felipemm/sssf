@@ -13,9 +13,19 @@ function fakeProject() {
   const db = new Database(path);
   db.run(`CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, started_at TEXT,
           ended_at TEXT, total_cost REAL, total_tokens INTEGER, archived INTEGER DEFAULT 0)`);
-  db.run(`CREATE TABLE phases (phase_id TEXT PRIMARY KEY, adw_id TEXT, status TEXT)`);
-  db.run(`CREATE TABLE events (event_id TEXT PRIMARY KEY, adw_id TEXT, type TEXT, started_at TEXT)`);
-  db.run(`CREATE TABLE tickets (id TEXT PRIMARY KEY, status TEXT)`);
+  // real tracer schemas — the quality/agents sections read more than status
+  db.run(`CREATE TABLE phases (phase_id TEXT PRIMARY KEY, adw_id TEXT, seq INTEGER,
+          name TEXT, kind TEXT, owner TEXT, description TEXT,
+          status TEXT DEFAULT 'fail', attempt INTEGER DEFAULT 0, retries INTEGER DEFAULT 0,
+          error TEXT, started_at TEXT, ended_at TEXT)`);
+  db.run(`CREATE TABLE events (event_id TEXT PRIMARY KEY, adw_id TEXT, phase_id TEXT,
+          parent_id TEXT, type TEXT, name TEXT, payload_json TEXT, tokens INTEGER,
+          started_at TEXT, ended_at TEXT)`);
+  db.run(`CREATE TABLE tickets (id TEXT PRIMARY KEY, provider TEXT, external_id TEXT,
+          title TEXT, description TEXT, status TEXT, prompt_file TEXT, adw_id TEXT,
+          source_url TEXT, created_at TEXT, updated_at TEXT)`);
+  db.run(`CREATE TABLE agent_sessions (agent TEXT, adw_id TEXT, model TEXT,
+          context_tokens INTEGER, last_used_at TEXT)`);
   return { root, db, path };
 }
 
