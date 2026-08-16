@@ -1,0 +1,35 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import DocsSidebar from '../components/DocsSidebar.astro';
+
+interface Props {
+  title: string;
+  description: string;
+  current: string;
+  prev?: { href: string; label: string };
+  next?: { href: string; label: string };
+}
+
+const { title, description, current, prev, next } = Astro.props;
+const path = `/sssf${current === '/docs/' ? '/docs/' : current}`;
+---
+
+<BaseLayout title={title} description={description} current="/docs/">
+  <div class="container docs">
+    <DocsSidebar current={current} />
+    <article class="docs__article">
+      <slot name="toc" />
+      <h1>{title}</h1>
+      <p class="lede">{description}</p>
+      <slot />
+      <nav class="docs__next" aria-label="Docs navigation">
+        {prev ? (
+          <a href={`/sssf${prev.href}`}>&larr; {prev.label}</a>
+        ) : <span />}
+        {next ? (
+          <a href={`/sssf${next.href}`}>{next.label} &rarr;</a>
+        ) : <span />}
+      </nav>
+    </article>
+  </div>
+</BaseLayout>

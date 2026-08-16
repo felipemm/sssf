@@ -1,0 +1,139 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+
+const description =
+  'The global, multi-project visualizer: mission control, status dashboard, kanban, sessions, archived, and the trace waterfall.';
+---
+<DocsLayout
+  title="Visualizer"
+  description={description}
+  current="/docs/visualizer"
+  prev={{ href: '/docs/ticketing', label: 'Ticketing' }}
+  next={{ href: '/docs/cli', label: 'CLI reference' }}
+>
+  <p>
+    <span class="cmd">sssf viz</span> serves a global, multi-project UI as a background service
+    (Vue + Vite on Bun, default port <code class="hl">4600</code>). It is a global service over
+    every registered project, with a project picker in the UI, and it is read-only against the
+    trace dbs (agents write to SQLite, readers poll SQLite).
+  </p>
+
+  <h2>Running it</h2>
+  <pre><code>sssf viz start                # spawn the server, open the browser (default action)
+sssf viz stop                 # terminate the server
+sssf viz start --port 4700    # different port
+sssf viz start --db PATH      # adhoc single-db mode: point at any trace db
+sssf viz start --project P    # use a specific project's registry</code></pre>
+  <p>
+    Runtime state lives beside the registry in <code class="hl">~/.sssf/</code>:
+    <code class="hl">viz.pid</code> (the server pid) and <code class="hl">viz.log</code> (server
+    output). Starting rides the <a href="/sssf/docs/healer">healer</a> along if it is not already
+    running. The server polls <code class="hl">/api/health</code> during startup so a dead port or
+    a crash is reported immediately, and every connection opens WAL, so reads never block running
+    writers.
+  </p>
+
+  <h2>Routing</h2>
+  <table>
+    <thead>
+      <tr><th>Hash route</th><th>View</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code class="hl">#/</code></td><td><strong>Mission control</strong>: the default landing, cross-project</td></tr>
+      <tr><td><code class="hl">#/p/:project</code></td><td><strong>Status dashboard</strong> for one project (default tab)</td></tr>
+      <tr><td><code class="hl">#/p/:project/board</code></td><td>Kanban board for one project</td></tr>
+      <tr><td><code class="hl">#/p/:project/sessions</code></td><td>Session list for one project</td></tr>
+      <tr><td><code class="hl">#/p/:project/archived</code></td><td>Archived sessions + sweep control</td></tr>
+      <tr><td><code class="hl">#/p/:project/s/:adwId</code></td><td>Session trace (the phase waterfall)</td></tr>
+    </tbody>
+  </table>
+  <p>
+    Legacy hashes (<code class="hl">#/status</code>, <code class="hl">#/board</code>,
+    <code class="hl">#/list</code>, <code class="hl">#/archived</code>,
+    <code class="hl">#/&lt;adw_id&gt;</code>) resolve into the per-project routing so old links and
+    bookmarks keep working.
+  </p>
+
+  <h2>Mission control (<code class="hl">#/</code>)</h2>
+  <p>
+    The cross-project cockpit: it ignores the project picker and monitors everything:
+  </p>
+  <ul>
+    <li><strong>KPI strip</strong>: running sessions, live containers, sandbox worktrees,
+      tickets in flight, cost today, and a healer chip (running/stopped + start/stop button).</li>
+    <li><strong>Projects table</strong>: one row per project: name, root, sessions running/today,
+      tickets in flight/backlog, containers, worktrees, cost today, last activity, stale flag.
+      Click a row to drill into that project; row actions include refreshing templates and
+      removing the project from the registry.</li>
+    <li><strong>Running-now strip</strong>: every running session across projects, with project,
+      phase, age, and <strong>stop</strong> / <strong>restart</strong> buttons. This is the
+      operational control surface.</li>
+    <li><strong>Healer panel</strong>: daemon status, log tail (last lines, monospace), and
+      restart budgets per session.</li>
+    <li><strong>Recent activity</strong>: the last ~30 cross-project events.</li>
+  </ul>
+  <p>
+    Empty states are first-class: no registry yet shows an &ldquo;add a project&rdquo; prompt with
+    a root-path input; nothing running shows &ldquo;nothing running&rdquo; instead of a blank strip.
+  </p>
+
+  <h2>Status dashboard (<code class="hl">#/p/:project</code>)</h2>
+  <p>
+    Per-project KPIs over one dashboard:
+  </p>
+  <ul>
+    <li><strong>Runs &amp; health</strong>: run counts, health signals, live status.</li>
+    <li><strong>Cost &amp; tokens</strong>: actual billing plus token-share per agent and per
+      model, so you can see which phase is actually costing you.</li>
+    <li><strong>Quality gates</strong>: gate pass/fail history.</li>
+    <li><strong>Git repo stats</strong>: repo health plus a yearly contributions heatmap.</li>
+    <li><strong>Trend charts</strong>: 7/30/90-day windows.</li>
+    <li><strong>Ticket pipeline</strong>: the ticket funnel for the project.</li>
+  </ul>
+
+  <h2>Kanban board (<code class="hl">#/p/:project/board</code>)</h2>
+  <p>
+    Sessions and tickets by stage: <strong>Backlog · Planning · Building · Reviewing ·
+    Done/Blocked</strong>. Cards carry the agent-roster identity: the ADW icon header, phase dots,
+    title, user, and a stats row (duration · tokens · total cost). The timeline on a card shows the
+    entire roster; nothing clips. Clicking a card opens a detail modal; backlog tickets can be run
+    or closed from the board.
+  </p>
+
+  <h2>Sessions &amp; archived</h2>
+  <p>
+    The session list (<code class="hl">sessions</code>) is the per-project history with archive
+    buttons; the archived tab (<code class="hl">archived</code>) holds swept sessions and the
+    sweep control (<span class="cmd">sssf sweep</span>: archive finished sessions older than N
+    days, default 30).
+  </p>
+
+  <h2>Trace waterfall (<code class="hl">#/p/:project/s/:adwId</code>)</h2>
+  <p>
+    The per-run drill-down: a waterfall of phases, envelopes, costs, and events:
+  </p>
+  <ul>
+    <li><strong>Swim lanes</strong>: engineer / agent / code, tinted by each agent&rsquo;s roster
+      color.</li>
+    <li><strong>Model identity</strong>: each agent lane names its model, with an icon for the
+      model family (a 161-model catalog across every GenPlat family).</li>
+    <li><strong>Per-phase tool calls</strong>: every event named the way you read it aloud:
+      <code class="hl">bash: ls -la src</code>, with args, result snippet, ok/error, duration, and
+      agent.</li>
+    <li><strong>Envelopes &amp; gates</strong>: the typed handoff and every gate check, green or
+      red.</li>
+    <li><strong>Cost breakdown</strong>: per-agent, per-phase spend for the run.</li>
+  </ul>
+  <p>
+    Live view and full history are the same cursor query at different cadence: the UI polls the
+    db every <code class="hl">observability.poll_ms</code> (default 500ms).
+  </p>
+
+  <h2>Terminal observability</h2>
+  <p>
+    The same data is reachable without the browser:
+    <code class="hl">sssf sessions</code>, <code class="hl">sssf phases &lt;id&gt;</code>,
+    <code class="hl">sssf tail &lt;id&gt;</code>, <code class="hl">sssf procs &lt;id&gt;</code>, or plain <code class="hl">sqlite3 adws/adw_data/sssf.db</code>, which is WAL so reads never
+    block a running workflow.
+  </p>
+</DocsLayout>
