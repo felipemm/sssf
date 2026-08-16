@@ -350,6 +350,7 @@ export interface HealSummary {
   pid: number | null
   logTail: string[]
   restarts: Record<string, number>
+  healedTotal: number
 }
 
 export interface ActivityItem {

@@ -253,6 +253,24 @@ def _clean_orphans(root: Path) -> list[str]:
     return cleaned
 
 
+def healed_total() -> int:
+    """Lifetime count of recovery actions the daemon has taken.
+
+    Every recovery writes a line shaped "sssf heal: <adw_id>: <action>"
+    (finalize, restart, sync+teardown, ticket-back-to-backlog, orphan
+    removal). The log appends across daemon restarts, so this is the
+    lifetime total, not a per-run figure. Header and pass-error lines are
+    ignored.
+    """
+    try:
+        lines = _log_file().read_text().splitlines()
+    except OSError:
+        return 0
+    import re
+    action = re.compile(r"^sssf heal: [0-9a-f]+: ")
+    return sum(1 for line in lines if action.match(line.strip()))
+
+
 def log_tail(n: int = 5) -> list[str]:
     """Last n non-empty lines of the daemon log; [] when unreadable."""
     try:
@@ -266,7 +284,8 @@ def heal_summary() -> dict:
     """Read-only snapshot for the cockpit: running state, log tail, restart budgets."""
     pid = running_pid()
     return {"running": pid is not None, "pid": pid,
-            "logTail": log_tail(), "restarts": state().get("restarts", {})}
+            "logTail": log_tail(), "restarts": state().get("restarts", {}),
+            "healedTotal": healed_total()}
 
 
 # ── daemon loop ────────────────────────────────────────────────────────────

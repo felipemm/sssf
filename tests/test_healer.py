@@ -115,3 +115,17 @@ def test_heal_summary_running_when_pid_alive(tmp_path, monkeypatch):
     (tmp_path / "heal.pid").write_text(str(os.getpid()))   # we are alive
     s = h.heal_summary()
     assert s["running"] is True and s["pid"] == os.getpid()
+
+
+def test_healed_total_counts_recovery_actions_only(tmp_path, monkeypatch):
+    import sssf.healer as h
+    monkeypatch.setattr(h, "STATE_DIR", tmp_path)
+    (tmp_path / "heal.log").write_text(
+        "sssf heal: daemon started — interval 30s\n"
+        "sssf heal: abc123: finalized (dead run)\n"
+        "sssf heal: pass error: something\n"
+        "sssf heal: def456: restarted (1/3)\n"
+        "sssf heal: 0beef0: orphaned sandbox removed\n")
+    s = h.heal_summary()
+    assert s["healedTotal"] == 3   # header + pass-error lines do not count
+    assert h.healed_total() == 3

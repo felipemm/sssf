@@ -105,6 +105,19 @@ function alivePid(pid: number | null): pid is number {
   }
 }
 
+const HEAL_ACTION_LINE = /^sssf heal: [0-9a-f]+: /;
+
+/** Lifetime count of the daemon's recovery actions, parsed from heal.log. */
+function healedTotal(logPath: string): number {
+  try {
+    return readFileSync(logPath, "utf8")
+      .split("\n")
+      .filter((l) => HEAL_ACTION_LINE.test(l.trim())).length;
+  } catch {
+    return 0;
+  }
+}
+
 function readHeal(home: string): HealSummary {
   let pid: number | null = null;
   try {
@@ -118,7 +131,11 @@ function readHeal(home: string): HealSummary {
   } catch {
     restarts = {};
   }
-  return { running: alivePid(pid), pid, logTail: logTailLines(join(home, "heal.log")), restarts };
+  return {
+    running: alivePid(pid), pid,
+    logTail: logTailLines(join(home, "heal.log")), restarts,
+    healedTotal: healedTotal(join(home, "heal.log")),
+  };
 }
 
 interface ContainersResult {
