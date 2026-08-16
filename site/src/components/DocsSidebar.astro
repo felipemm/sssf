@@ -1,0 +1,57 @@
+---
+interface Props {
+  current: string;
+}
+
+const { current } = Astro.props;
+
+const groups = [
+  {
+    heading: 'Getting started',
+    items: [
+      { href: '/docs/', label: 'Overview' },
+      { href: '/docs/quickstart', label: 'Quickstart' },
+      { href: '/docs/core-concepts', label: 'Core concepts' },
+    ],
+  },
+  {
+    heading: 'Guides',
+    items: [
+      { href: '/docs/architecture', label: 'Architecture' },
+      { href: '/docs/configuration', label: 'Configuration' },
+      { href: '/docs/run-semantics', label: 'Run semantics' },
+      { href: '/docs/sandbox', label: 'Sandboxed runs' },
+      { href: '/docs/healer', label: 'Healer' },
+      { href: '/docs/ticketing', label: 'Ticketing' },
+    ],
+  },
+  {
+    heading: 'Reference',
+    items: [
+      { href: '/docs/visualizer', label: 'Visualizer' },
+      { href: '/docs/cli', label: 'CLI reference' },
+    ],
+  },
+];
+---
+<aside class="docs__sidebar" aria-label="Docs navigation">
+  {
+    groups.map((group) => (
+      <>
+        <h4>{group.heading}</h4>
+        <ul>
+          {group.items.map((item) => (
+            <li>
+              <a
+                href={item.href === '/docs/' ? '/sssf/docs/' : `/sssf${item.href}`}
+                aria-current={current === item.href ? 'page' : undefined}
+              >
+                {item.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </>
+    ))
+  }
+</aside>

@@ -1,0 +1,115 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+import Terminal from '../../components/Terminal.astro';
+
+const description =
+  'Install the CLI, stamp the factory into a repo, and prove the whole path with a read-only run.';
+---
+<DocsLayout
+  title="Quickstart"
+  description={description}
+  current="/docs/quickstart"
+  prev={{ href: '/docs/', label: 'Overview' }}
+  next={{ href: '/docs/core-concepts', label: 'Core concepts' }}
+>
+  <h2>Prerequisites</h2>
+  <table>
+    <thead>
+      <tr><th>Tool</th><th>Why</th><th>Checked by</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><span class="cmd">uv</span> + Python 3.11+</td><td>The CLI is installed as a uv tool</td><td><span class="cmd">sssf doctor</span></td></tr>
+      <tr><td><span class="cmd">pi</span></td><td>The coding agent every agent phase runs</td><td><span class="cmd">sssf doctor</span></td></tr>
+      <tr><td><span class="cmd">bun</span></td><td>Serves the global visualizer (<span class="cmd">sssf viz</span>)</td><td><span class="cmd">sssf doctor</span></td></tr>
+      <tr><td><span class="cmd">sqlite3</span></td><td>The trace database reads</td><td><span class="cmd">sssf doctor</span></td></tr>
+      <tr><td><span class="cmd">docker</span></td><td>Sandboxed runs (optional for local runs)</td><td><span class="cmd">sssf sandbox build</span></td></tr>
+    </tbody>
+  </table>
+  <p>
+    You also need a model registered in the coding agent&rsquo;s catalog for whatever
+    <code class="hl">model:</code> entries your roster names. <span class="cmd">sssf doctor</span>
+    checks the toolchain; a missing API key fails when that agent runs, not at startup.
+  </p>
+
+  <h2>1 · Install</h2>
+  <pre><code>uv tool install sssf</code></pre>
+  <p>
+    One global install, any number of projects. You can also install from a checkout with
+    <code class="hl">uv tool install --editable .</code>. There is no per-project install step:
+    that is what <span class="cmd">sssf init</span> is for.
+  </p>
+
+  <h2>2 · Stamp the factory into a repo</h2>
+  <pre><code>cd your-repo
+sssf init</code></pre>
+  <p>
+    <span class="cmd">sssf init</span> stamps the <strong>customization surface</strong> into the
+    current directory and registers the project:
+  </p>
+  <ul>
+    <li><code class="hl">adws/adw_*.py</code>: your chains (AI Developer Workflows)</li>
+    <li><code class="hl">adws/adw_sssf_config/sssf.config.yaml</code>: your agent roster</li>
+    <li><code class="hl">adws/adw_data/prompt_engineering/</code>: your prompts, per agent</li>
+    <li><code class="hl">adws/adw_data/harness_engineering/</code>: pi extensions</li>
+    <li><code class="hl">.env.sample</code>: provider keys template</li>
+  </ul>
+  <p>
+    It also appends an <code class="hl">&lt;!-- sssf --&gt;</code> block to
+    <code class="hl">AGENTS.md</code> and adds the runtime state
+    (<code class="hl">adws/adw_data/sessions/</code>, <code class="hl">sssf.db</code> and its WAL
+    sidecars) to <code class="hl">.gitignore</code>.
+  </p>
+
+  <h2>3 · Run something safe</h2>
+  <pre><code>sssf run scout "map the repo"</code></pre>
+  <p>
+    <span class="cmd">scout</span> is the read-only recon chain: it changes nothing. A green run
+    proves the whole path end to end: config validated, session minted, agent ran, envelope
+    parsed, events landed in <code class="hl">adws/adw_data/sssf.db</code>. Fix it here before
+    composing anything larger, because every multi-agent chain rides this exact path.
+  </p>
+  <p>
+    The <code class="hl">adw_</code> prefix is optional: <span class="cmd">sssf run adw_scout</span>
+    and <span class="cmd">sssf run scout</span> are the same thing.
+  </p>
+
+  <h2>4 · Look at the trace</h2>
+  <pre><code>sssf sessions        # recent runs, status, tokens, cost
+sssf phases a1b2c3d4  # the phase waterfall of one run
+sssf tail a1b2c3d4    # recent events of one run
+sssf procs a1b2c3d4   # live processes of one run</code></pre>
+
+  <h2>5 · Open the visualizer</h2>
+  <pre><code>sssf viz</code></pre>
+  <p>
+    Spawns the global visualizer as a background service on port <code class="hl">4600</code> and
+    opens your browser. It is a global service over every registered project, with a project
+    picker in the UI. If the healer is not running, <span class="cmd">sssf viz start</span> rides
+    it along.
+  </p>
+  <div style="margin-top: 26px;">
+    <Terminal
+      title="sssf: the whole quickstart"
+      lines={[
+        { kind: 'prompt', text: '❯ uv tool install sssf' },
+        { kind: 'out', text: '✓ installed sssf 1.0.0' },
+        { kind: 'prompt', text: '❯ sssf init' },
+        { kind: 'out', text: '✓ stamped adws/ · registered <repo>' },
+        { kind: 'prompt', text: '❯ sssf run scout "map the repo"' },
+        { kind: 'ok', text: '✔ scout done: findings in context_handoff/' },
+        { kind: 'prompt', text: '❯ sssf sessions' },
+        { kind: 'out', text: 'a1b2c3d4  scout  success  3 findings  1.4k tok  $0.00' },
+        { kind: 'prompt', text: '❯ sssf viz' },
+        { kind: 'out', text: '→ http://localhost:4600/#/status' },
+      ]}
+    />
+  </div>
+
+  <h2>Sanity check</h2>
+  <pre><code>sssf doctor   # uv · pi · bun · sqlite3 · ~/.local/bin on PATH</code></pre>
+  <p>
+    <span class="cmd">sssf doctor</span> checks the global prerequisites and reports each one
+    with the path it resolved. Every recipe here is also available as a plain command: nothing
+    depends on aliases or wrappers.
+  </p>
+</DocsLayout>

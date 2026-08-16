@@ -1,0 +1,187 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+
+const description =
+  'The vocabulary of the factory: AI Developer Workflows, phases, typed envelopes, deterministic gates, and the trace.';
+---
+<DocsLayout
+  title="Core concepts"
+  description={description}
+  current="/docs/core-concepts"
+  prev={{ href: '/docs/quickstart', label: 'Quickstart' }}
+  next={{ href: '/docs/architecture', label: 'Architecture' }}
+>
+  <p>
+    A software factory exists for one reason: <strong>leverage on your prompt</strong>. How much
+    leverage you get depends on what you invest in the workflows. The whole design comes down to
+    one decision: <strong>code owns sequencing, retries, and acceptance; the agent owns only the
+    work inside one bounded phase.</strong> Everything below falls out of that line.
+  </p>
+
+  <h2>ADWs: AI Developer Workflows</h2>
+  <p>
+    An ADW is a plain-Python script that runs one chain end to end. It owns the order of phases,
+    the retry loops, and the final acceptance call. It never names a model; it names
+    <em>agents</em> (from the roster) and <em>kinds</em> (who owns the phase).
+  </p>
+  <pre><code>from sssf.adw_modules import agents, gates, git_helper, quality, session, run
+from sssf.adw_modules.data_types import AgentCall, PhaseParams, PlanOutput, BuildOutput
+
+REQUIRED_AGENTS = ["planner", "builder", "reviewer"]   # names, never models
+cfg = agents.load_config("adws/adw_sssf_config/sssf.config.yaml")
+agents.validate(cfg, REQUIRED_AGENTS)                  # fails before anything spawns
+run = session.ensure(cfg, adw_id)                      # pin-or-create the session
+
+with run.phase(PhaseParams(name="plan", kind="agent", owner="planner",
+                           description="Turn the request into an implementable plan")) as ph:
+    plan = ph.call(AgentCall(output_type=PlanOutput, prompt=prompt,
+                             gates=[gates.artifacts_exist, gates.files_non_empty]))
+
+with run.phase(PhaseParams(name="test", kind="code", owner="quality",
+                           description="Run the suite: a known command, so code runs it")) as ph:
+    result = quality.run_suite(ph)
+
+return run.finish(accepted=result.ok, reason="the suite decides")</code></pre>
+  <p>
+    No DSL. No framework to learn. It is Python, YAML, agents, and a CLI, exactly what these
+    models are already trained on. Staying in distribution is a feature.
+  </p>
+
+  <h2>Phases: three lanes, one primitive</h2>
+  <p>
+    Every run is a sequence of phases, and every phase is the same context manager no matter who
+    owns it. Each phase declares a <code class="hl">kind</code>, which is its swim lane in the trace:
+  </p>
+  <table>
+    <thead>
+      <tr><th>Lane</th><th>Kind</th><th>Owns</th><th>Example</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span style="color: var(--text);">Engineer</span></td>
+        <td><code class="hl">kind="engineer"</code></td>
+        <td>The human</td>
+        <td><code class="hl">request</code>: capture the incoming ask</td>
+      </tr>
+      <tr>
+        <td><span style="color: var(--builder);">Agent</span></td>
+        <td><code class="hl">kind="agent"</code></td>
+        <td>A coding agent from the roster</td>
+        <td><code class="hl">plan</code>, <code class="hl">build</code>, <code class="hl">review</code></td>
+      </tr>
+      <tr>
+        <td><span style="color: var(--text-faint);">Code</span></td>
+        <td><code class="hl">kind="code"</code></td>
+        <td>Deterministic logic</td>
+        <td><code class="hl">test</code> (pytest), <code class="hl">commit_plan</code> (git)</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="note" data-impeccable-ignore="side-tab">
+    <strong>Agents are great. You do not always need one.</strong> If the invocation is already
+    known (<code class="hl">bun test</code>, <code class="hl">ruff check</code>), write it down
+    as a <code class="hl">kind="code"</code> phase. An agent rediscovering your test runner burns a
+    context window to learn what a subprocess already knows, and charges you for it on every run.
+    When code fails, the failure comes back to the builder as an envelope, through the same door an
+    agent&rsquo;s report would have used. The repair loop is identical; you just stopped paying an
+    agent to do arithmetic.
+  </div>
+  <p>
+    Every phase needs a one-sentence <code class="hl">description</code>: what it does and why,
+    never a restatement of its name. It is the only intent the trace, the console, and the UI ever
+    show, and it is enforced at construction.
+  </p>
+
+  <h2>Envelopes: typed context across the seams</h2>
+  <p>
+    An agent has exactly two output channels: reference files written into
+    <code class="hl">context_handoff/</code>, and a final valid-JSON response parsed against the
+    output type the call declared. Code persists that response as <code class="hl">envelope.json</code>,
+    records it, and injects it into the next agent&rsquo;s prompt. <strong>Context transfers in
+    code, not in conversation.</strong>
+  </p>
+  <pre><code>class EnvelopeBase(BaseModel):
+    status: Literal["success", "fail"]
+    summary: str = ""
+    artifacts: list[str] = Field(default_factory=list)
+    notes_for_next_agent: str = ""
+
+class BuildOutput(EnvelopeBase):
+    changed_files: list[str] = Field(default_factory=list)
+    commit_message: str = ""        # consumed by the git commit phase</code></pre>
+  <p>
+    Determinism is wired into every step: agents must return a specific structure, every time. If
+    it does not parse, they get asked again until it does: same session, context intact.
+  </p>
+  <div class="note" data-impeccable-ignore="side-tab">
+    <strong>The synced triad.</strong> The output contract lives in three places and is one thing:
+    the type in <code class="hl">adw_modules/data_types.py</code>, the JSON example in that
+    agent&rsquo;s <code class="hl">user.md</code> <code class="hl">## Report</code> section, and
+    <code class="hl">output_type=</code> at every call site. Change one, change all three in the
+    same edit: grep the type name to find every call site.
+  </div>
+
+  <h2>Gates: validation, not vibes</h2>
+  <p>
+    Gates verify <em>claims</em>, never predictions. Nobody knows which files an agent will touch
+    before it finishes, so gates run <strong>after</strong> the fact against the envelope&rsquo;s own
+    declarations. A gate is a callable with the signature
+    <code class="hl">gate(envelope, run) -&gt; GateReport</code>, one
+    <code class="hl">check(item, ok, note)</code> per thing it examined, so a green gate tells you
+    <em>what</em> it verified.
+  </p>
+  <ul>
+    <li><code class="hl">artifacts_exist</code>: claimed files are actually there</li>
+    <li><code class="hl">files_non_empty</code>: claimed files are not empty stubs</li>
+    <li><code class="hl">json_parses</code>: the report is valid JSON</li>
+    <li><code class="hl">diff_matches_claims</code>: the working tree matches the report</li>
+    <li><code class="hl">tests_pass(...)</code>: the suite that was run came back green</li>
+    <li><code class="hl">verdict_consistent</code>: the reviewer&rsquo;s verdict matches its findings</li>
+  </ul>
+  <p>
+    When JSON does not parse or a gate returns violations, <strong>nothing restarts</strong>. The
+    harness re-prompts the same session with a correction naming exactly what was wrong, and the
+    context window stays intact. A cold restart throws away everything the agent learned; a
+    correction costs one message.
+  </p>
+
+  <h2>Success must be earned</h2>
+  <p>
+    Every phase defaults to <code class="hl">fail</code>. A clean exit flips it, and an agent phase
+    also needs its envelope to parse and every gate to come back green.
+    <code class="hl">run.finish(accepted=...)</code> adds the second question, because phases
+    passing is not the same as the run being acceptable: a test phase that ran a red suite did its
+    job perfectly. One call settles the exit code, the session status, and the banner together, so
+    they cannot disagree.
+  </p>
+
+  <h2>The trace: one data path, no exceptions</h2>
+  <p>
+    <strong>Agents write to SQLite, readers poll SQLite.</strong> The agent runner tails the coding
+    agent&rsquo;s JSONL stdout line by line and the tracer inserts each event while the agent is
+    still working, so tool calls are visible mid-run instead of batched at the end. Ten event types
+    land across seven tables: <code class="hl">sessions</code>, <code class="hl">phases</code>,
+    <code class="hl">events</code>, <code class="hl">envelopes</code>,
+    <code class="hl">gate_results</code>, <code class="hl">agent_sessions</code>, and
+    <code class="hl">processes</code> (adw_id to pid, so a stuck run can be found and stopped).
+  </p>
+  <pre><code>select * from events where adw_id = ? and rowid > ? order by rowid limit 500;</code></pre>
+  <p>
+    That one cursor query is the entire transport. Live view and full history are the same query at
+    a different cadence, which is why there is no ingest endpoint, no WebSocket, no backfill, and
+    no separate replay path. Every connection opens WAL, so reads never block the running writers.
+  </p>
+  <p>
+    Files stay the raw record (<code class="hl">raw_output.jsonl</code>,
+    <code class="hl">envelope.json</code>, <code class="hl">agent_map.json</code>); the db is the
+    queryable mirror. Losing the db loses nothing you cannot rebuild.
+  </p>
+
+  <h2>The three actors</h2>
+  <p>
+    The design keeps three actors separate on purpose: <strong>the engineer</strong> (incoming
+    prompts, final judgment), <strong>the code</strong> (sequencing, validation, acceptance), and
+    <strong>the agents</strong> (the reading-and-deciding work inside phases). The trick is not
+    running more agents. The trick is using all three at the right moment.
+  </p>
+</DocsLayout>
