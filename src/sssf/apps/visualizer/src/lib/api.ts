@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import type {
   CockpitData,
+  ContainerLogsResponse,
   ControlResult,
   Envelope,
   EventRow,
@@ -76,6 +77,12 @@ export function removeProject(name: string, confirm: boolean): Promise<ControlRe
 
 export function healControl(action: 'start' | 'stop'): Promise<ControlResult> {
   return postJson(`/api/cockpit/heal/${action}`)
+}
+
+export async function fetchContainerLogs(name: string, tail = 100): Promise<ContainerLogsResponse> {
+  const res = await fetch(`/api/cockpit/containers/${encodeURIComponent(name)}/logs?tail=${tail}`)
+  if (!res.ok) return { ok: false, lines: [], error: `logs ${res.status}` }
+  return (await res.json()) as ContainerLogsResponse
 }
 
 export async function fetchProjects(): Promise<ProjectInfo[]> {

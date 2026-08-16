@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { HeartPulse, Recycle } from 'lucide-vue-next'
 import { useRoute, hrefFor, phaseCrumb, navigate } from './lib/router'
-import { runSweep, setProject, useProjects } from './lib/api'
+import { fetchProjects, runSweep, setProject, useProjects } from './lib/api'
 import SessionsList from './components/SessionsList.vue'
 import SessionTrace from './components/SessionTrace.vue'
 import KanbanBoard from './components/KanbanBoard.vue'
@@ -12,6 +12,25 @@ import ProjectPicker from './components/ProjectPicker.vue'
 
 const route = useRoute()
 const { selectedProject } = useProjects()
+
+// The project registry is global state — fetch it at the app root, not inside
+// the picker: the picker is hidden on the cockpit page, but the per-project
+// tabs still need a selected project to link to. (The picker also fetches on
+// mount; fetchProjects is idempotent.)
+onMounted(() => void fetchProjects())
+
+// The URL is the source of truth for the selected project. Entering a
+// project-scoped route — a cockpit project click, a direct URL, back/forward —
+// selects that project, so every per-project view (which fetches through
+// base() → selectedProject) shows the project the URL names. The cockpit
+// (#/, project null) leaves the selection untouched.
+watch(
+  () => route.value.project,
+  (project) => {
+    if (project && selectedProject.value !== project) setProject(project)
+  },
+  { immediate: true },
+)
 
 // Mission Control is the default landing page (#/). Per-project views live
 // under #/p/<project>/<tab>; legacy #/<tab> and #/<adwId> hashes resolve
@@ -145,7 +164,7 @@ async function onSweep() {
         </template>
       </nav>
       <div class="topbar-right">
-        <ProjectPicker @select="onProjectSelect" />
+        <ProjectPicker v-if="view !== 'cockpit'" @select="onProjectSelect" />
         <button
           class="sweep-btn"
           type="button"

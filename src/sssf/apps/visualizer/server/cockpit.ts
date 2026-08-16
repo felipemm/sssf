@@ -17,6 +17,7 @@ import type {
   ActivityItem,
   CockpitData,
   CockpitProject,
+  ContainerLogsResponse,
   ControlResult,
   HealSummary,
   RunningSession,
@@ -32,12 +33,16 @@ export interface CockpitDeps {
 interface ContainerInfo {
   adwId: string;
   running: boolean;
+  image: string;
+  status: string;
+  created: string;
 }
 
 interface ProjectRow extends CockpitProject {
-  /** internal: per-project running detail + activity merged by computeCockpit */
+  /** internal: per-project running detail + activity + owned adw_ids */
   _running: RunningSession[];
   _activity: ActivityItem[];
+  _owned: Set<string>;
 }
 
 const logTailLines = (path: string, n = 5): string[] => {
@@ -76,21 +81,38 @@ function readHeal(home: string): HealSummary {
   return { running: alivePid(pid), pid, logTail: logTailLines(join(home, "heal.log")), restarts };
 }
 
-async function parseContainers(dockerPs: () => Promise<string>): Promise<ContainerInfo[]> {
+interface ContainersResult {
+  containers: ContainerInfo[];
+  dockerOk: boolean;
+  dockerError: string;
+}
+
+async function parseContainers(dockerPs: () => Promise<string>): Promise<ContainersResult> {
   let out = "";
   try {
     out = await dockerPs();
-  } catch {
-    return [];
+  } catch (e) {
+    // docker itself is down/unreachable — the container list is meaningless
+    return { containers: [], dockerOk: false, dockerError: (e as Error).message };
   }
-  return out
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [name, ...rest] = line.split(/\s+/);
-      return { adwId: name.replace(/^sssf-/, ""), running: (rest[0] ?? "") === "Up" };
-    });
+  return {
+    containers: out
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [name, image, status, created] = line.split("\t");
+        return {
+          adwId: (name ?? "").replace(/^sssf-/, ""),
+          running: (status ?? "").startsWith("Up"),
+          image: image ?? "",
+          status: status ?? "",
+          created: created ?? "",
+        };
+      }),
+    dockerOk: true,
+    dockerError: "",
+  };
 }
 
 function hasTable(db: Database, table: string): boolean {
@@ -113,7 +135,7 @@ function projectRow(
     ticketsBacklog: 0, ticketsInFlight: 0,
     containers: 0, worktrees: 0, costTodayUsd: 0,
     lastActivity: deps.registry.list().find((p) => p.name === name)?.lastRun ?? null,
-    stale: false, _running: [], _activity: [],
+    stale: false, _running: [], _activity: [], _owned: new Set<string>(),
   };
   if (!existsSync(dbPath)) {
     return { ...empty, stale: true };
@@ -126,7 +148,7 @@ function projectRow(
   }
   // adw_ids owned by THIS project (sessions + sandbox worktree dirs) —
   // containers map to projects via this set, never the global one.
-  const owned = new Set<string>();
+  const owned = empty._owned;
   try {
     const hasSessions = hasTable(db, "sessions");
     if (hasSessions) {
@@ -207,7 +229,7 @@ function projectRow(
 export async function computeCockpit(deps: CockpitDeps): Promise<CockpitData> {
   const home = resolve(deps.sssfHome ?? process.env.SSSF_HOME ?? join(homedir(), ".sssf"));
   const projects = deps.registry.list();
-  const containers = await parseContainers(deps.dockerPs ?? realDockerPs);
+  const { containers, dockerOk, dockerError } = await parseContainers(deps.dockerPs ?? realDockerPs);
   const heal = readHeal(home);
 
   const ownedGlobal = new Set<string>();
@@ -218,12 +240,14 @@ export async function computeCockpit(deps: CockpitDeps): Promise<CockpitData> {
       runningSessions: 0, liveContainers: containers.length, orphanContainers: 0,
       sandboxWorktrees: 0, ticketsInFlight: 0, costTodayUsd: 0,
       healRunning: heal.running, healPid: heal.pid,
+      dockerOk, dockerError,
     },
-    projects: [], running: [], heal, activity: [],
+    projects: [], running: [], containers: [], heal, activity: [],
   };
+  const rows: ProjectRow[] = [];
   for (const p of projects) {
     const row = projectRow(deps, p.name, p.root, p.db, home, containers, ownedGlobal);
-    out.projects.push(row);
+    rows.push(row);
     out.kpis.runningSessions += row.sessionsRunning;
     out.kpis.sandboxWorktrees += row.worktrees;
     out.kpis.ticketsInFlight += row.ticketsInFlight;
@@ -231,6 +255,19 @@ export async function computeCockpit(deps: CockpitDeps): Promise<CockpitData> {
     out.running.push(...row._running);
     activity = activity.concat(row._activity);
   }
+  // container detail with project ownership (orphans get '')
+  const adwToProject = new Map<string, string>();
+  for (const row of rows) for (const id of row._owned) adwToProject.set(id, row.name);
+  out.projects.push(...rows);
+  out.containers = containers.map((c) => ({
+    name: `sssf-${c.adwId}`,
+    adwId: c.adwId,
+    image: c.image,
+    status: c.status,
+    created: c.created,
+    running: c.running,
+    project: adwToProject.get(c.adwId) ?? "",
+  }));
   out.kpis.orphanContainers = containers.filter((c) => !ownedGlobal.has(c.adwId)).length;
   out.activity = activity.sort((x, y) => y.ts.localeCompare(x.ts)).slice(0, 30);
   return out;
@@ -292,12 +329,46 @@ export async function defaultSpawnCli(args: string[]): Promise<SpawnResult> {
   return { code: proc.exitCode ?? 0, out: (out + err).trim() };
 }
 
+const SAFE_CONTAINER = /^sssf-[A-Za-z0-9._-]+$/;
+
+/**
+ * Tail a sandbox container's logs (`docker logs --tail N --timestamps`).
+ * The name is validated — anything not shaped like an sssf container is
+ * rejected before docker is ever invoked.
+ */
+export async function containerLogs(
+  name: string,
+  tail: number,
+  dockerLogs?: (args: string[]) => Promise<string>,
+): Promise<ContainerLogsResponse> {
+  if (!SAFE_CONTAINER.test(name)) return { ok: false, lines: [], error: "invalid container name" };
+  const n = Math.min(500, Math.max(10, Math.floor(tail) || 100));
+  const run = dockerLogs ?? defaultDockerLogs;
+  try {
+    const out = await run(["logs", "--tail", String(n), "--timestamps", name]);
+    return { ok: true, lines: out.split("\n").filter(Boolean) };
+  } catch (e) {
+    return { ok: false, lines: [], error: (e as Error).message };
+  }
+}
+
+export async function defaultDockerLogs(args: string[]): Promise<string> {
+  const proc = Bun.spawn(["docker", ...args], { stdout: "pipe", stderr: "pipe" });
+  const out = await new Response(proc.stdout).text();
+  const err = await new Response(proc.stderr).text();
+  await proc.exited;
+  if (proc.exitCode !== 0) throw new Error(err.trim() || `docker exited ${proc.exitCode}`);
+  return out;
+}
+
 export async function realDockerPs(): Promise<string> {
   const proc = Bun.spawn(
-    ["docker", "ps", "-a", "--filter", "name=sssf-", "--format", "{{.Names}} {{.Status}}"],
+    ["docker", "ps", "-a", "--filter", "name=sssf-", "--format", "{{.Names}}\t{{.Image}}\t{{.Status}}\t{{.CreatedAt}}"],
     { stdout: "pipe", stderr: "pipe" },
   );
   const out = await new Response(proc.stdout).text();
+  const err = await new Response(proc.stderr).text();
   await proc.exited;
+  if (proc.exitCode !== 0) throw new Error(err.trim() || `docker exited ${proc.exitCode}`);
   return out;
 }

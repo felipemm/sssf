@@ -87,3 +87,31 @@ def test_restart_budget_exhausts_then_finalizes(tmp_path, monkeypatch):
     conn = sqlite3.connect(str(sb.project_db_path(data)))
     assert conn.execute("SELECT status FROM sessions WHERE adw_id='hung1'").fetchone()[0] == "fail"
     conn.close()
+
+
+def test_heal_summary_accessors(tmp_path, monkeypatch):
+    """heal_summary() exposes restarts + log tail; running only when the pid is alive."""
+    import sssf.healer as h
+    monkeypatch.setattr(h, "STATE_DIR", tmp_path)
+    (tmp_path / "heal-state.json").write_text('{"restarts": {"a1": 2, "b2": 1}}')
+    (tmp_path / "heal.log").write_text("line1\nline2\nline3\n")
+    s = h.heal_summary()
+    assert s["restarts"] == {"a1": 2, "b2": 1}
+    assert s["logTail"] == ["line1", "line2", "line3"]
+    assert s["running"] is False and s["pid"] is None
+
+
+def test_heal_summary_missing_files(tmp_path, monkeypatch):
+    import sssf.healer as h
+    monkeypatch.setattr(h, "STATE_DIR", tmp_path)
+    s = h.heal_summary()
+    assert s["restarts"] == {} and s["logTail"] == [] and s["running"] is False
+
+
+def test_heal_summary_running_when_pid_alive(tmp_path, monkeypatch):
+    import os
+    import sssf.healer as h
+    monkeypatch.setattr(h, "STATE_DIR", tmp_path)
+    (tmp_path / "heal.pid").write_text(str(os.getpid()))   # we are alive
+    s = h.heal_summary()
+    assert s["running"] is True and s["pid"] == os.getpid()

@@ -97,3 +97,31 @@ def test_refresh_yes_to_all_overwrites_every_adw(tmp_path, monkeypatch):
     monkeypatch.setattr("builtins.input", lambda prompt="": "a")
     assert _run_init(root, monkeypatch, ["--refresh"]) == 0
     assert "# user edit" not in adw.read_text()
+
+
+def test_refresh_auto_accepts_all_without_stdin(tmp_path, monkeypatch):
+    """--auto must overwrite every adws file without ever prompting."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert _run_init(root, monkeypatch) == 0          # initial stamp
+    target = root / "adws" / "adw_simple_sdlc.py"
+    target.write_text("OLD")                          # drift it
+    monkeypatch.setattr("builtins.input",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("prompted!")))
+    rc = init.run(root, refresh=True, auto=True)
+    assert rc == 0
+    assert target.read_text() != "OLD"                # overwritten by the template
+    assert (root / "adws" / "adw_sssf_config" / "ticketing.yaml").exists()
+
+
+def test_refresh_without_auto_still_prompts(tmp_path, monkeypatch):
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert _run_init(root, monkeypatch) == 0
+    target = root / "adws" / "adw_simple_sdlc.py"
+    target.write_text("OLD")
+    calls: list[str] = []
+    monkeypatch.setattr("builtins.input", lambda prompt: calls.append(str(prompt)) or "n")
+    assert _run_init(root, monkeypatch, ["--refresh"]) == 0
+    assert calls and "overwrite" in calls[0]          # the y/N/a prompt ran
+    assert target.read_text() == "OLD"                # answered 'n'
