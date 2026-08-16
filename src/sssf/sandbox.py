@@ -151,3 +151,8 @@ def wait_exit(name: str, timeout_s: int) -> int:
 def stop_remove(name: str) -> None:
     """Idempotent: remove the container whether running or stopped."""
     _docker("rm", "-f", name)
+
+def review_db_path(data_dir: Path) -> Path:
+    """The shared db lives in the project's data dir (bind-mounted into the
+    container at /work/adws/adw_data)."""
+    return data_dir / "sssf.db"

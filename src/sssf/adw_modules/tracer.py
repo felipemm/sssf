@@ -99,6 +99,10 @@ CREATE TABLE IF NOT EXISTS tickets (
   source_url  TEXT,               -- the ticket's origin link ('' for internal)
   created_at  TEXT, updated_at TEXT
 );
+CREATE TABLE IF NOT EXISTS run_reviews (
+  adw_id TEXT PRIMARY KEY, status TEXT NOT NULL,
+  host_port INTEGER, updated_at TEXT
+);
 """
 
 # Columns added after a schema shipped. CREATE TABLE IF NOT EXISTS never
@@ -281,3 +285,30 @@ class Tracer:
             (adw_id, agent.name, agent.coding_agent, agent.model, agent.color,
              session_id, context_tokens, context_window, ts, ts),
         )
+
+    # ── run reviews ─────────────────────────────────────────────────────────
+    def review_pending(self, adw_id: str, host_port: int) -> None:
+        """The ADW's review stage marks the run pending; the decision arrives
+        from the host CLI through the same shared db."""
+        import datetime
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        self.conn.execute(
+            "INSERT INTO run_reviews (adw_id, status, host_port, updated_at)"
+            " VALUES (?, 'pending', ?, ?)"
+            " ON CONFLICT(adw_id) DO NOTHING",
+            (adw_id, host_port, now))
+
+    def review_decide(self, adw_id: str, status: str) -> None:
+        import datetime
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        self.conn.execute(
+            "INSERT INTO run_reviews (adw_id, status, host_port, updated_at)"
+            " VALUES (?, ?, NULL, ?)"
+            " ON CONFLICT(adw_id) DO UPDATE SET status=excluded.status,"
+            " updated_at=excluded.updated_at",
+            (adw_id, status, now))
+
+    def review_status(self, adw_id: str) -> str | None:
+        row = self.conn.execute(
+            "SELECT status FROM run_reviews WHERE adw_id=?", (adw_id,)).fetchone()
+        return row[0] if row else None
