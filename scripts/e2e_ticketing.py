@@ -129,7 +129,10 @@ def main() -> int:
 
     success = sum(1 for r in rows if r[2] == "success")
     failed = sum(1 for r in rows if r[2] == "fail")
-    pending = sum(1 for r in rows if r[2] not in ("success", "fail"))
+    # a ticket whose run never produced a session = failed to start (a startup
+    # flake), not pending
+    failed_to_start = sum(1 for r in rows if r[2] is None)
+    pending = sum(1 for r in rows if r[2] not in ("success", "fail", None))
     finished = [r for r in rows if r[3] and r[4]]
     overlap = 0
     for i, a in enumerate(finished):
@@ -154,7 +157,8 @@ def main() -> int:
         print(f"  {tid:<20} {adw or '-':<10} {status or 'unlinked':8}")
     infra_ok = (integrity == "ok" and pending == 0 and overlap == N * (N - 1) // 2
                 and remaining_ct == 0 and remaining_wt == 0 and len(branches) == N)
-    print("RESULT:", "PASS (infra)" if infra_ok else "FAIL", f"— LLM verdicts: {success}/{N} success")
+    print("RESULT:", "PASS (infra)" if infra_ok else "FAIL",
+          f"— LLM verdicts: {success}/{N} success · failed-to-start: {failed_to_start}")
     return 0 if infra_ok else 1
 
 
