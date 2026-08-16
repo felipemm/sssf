@@ -1,0 +1,74 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+
+const description =
+  'Everything you need to install, operate, customize, and extend the Super Simple Software Factory CLI.';
+const toc = [
+  ['/docs/quickstart', 'Quickstart: from zero to a traced run'],
+  ['/docs/core-concepts', 'Core concepts: ADWs, phases, envelopes, gates'],
+  ['/docs/architecture', 'Architecture: the core components'],
+  ['/docs/configuration', 'Configuration: the agent roster'],
+  ['/docs/visualizer', 'Visualizer: every view, in detail'],
+  ['/docs/cli', 'CLI reference: every command and flag'],
+  ['/docs/run-semantics', 'Run semantics: re-runs, failures, no-ops'],
+  ['/docs/sandbox', 'Sandboxed runs: parallel-safe isolation'],
+  ['/docs/healer', 'Healer: the self-healing monitor'],
+  ['/docs/ticketing', 'Ticketing: from backlog to board'],
+];
+---
+<DocsLayout title="Documentation" description={description} current="/docs/">
+  <p>
+    Welcome to the <strong>sssf</strong> documentation. The factory is a global CLI that stamps
+    repeatable agents-plus-code workflows into any codebase. This documentation explains what it
+    does, how it is built, and how to operate it, from a first run to writing your own workflows.
+  </p>
+
+  <h2>Reading order</h2>
+  <p>
+    If you are new, start with the <a href="/sssf/docs/quickstart">Quickstart</a>, then read
+    <a href="/sssf/docs/core-concepts">Core concepts</a>: the vocabulary everything else builds
+    on. After that, jump to whatever you need:
+  </p>
+  <table>
+    <thead>
+      <tr><th>You want to&hellip;</th><th>Read</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Install and run your first chain</td><td><a href="/sssf/docs/quickstart">Quickstart</a></td></tr>
+      <tr><td>Understand ADWs, phases, envelopes, gates</td><td><a href="/sssf/docs/core-concepts">Core concepts</a></td></tr>
+      <tr><td>See how the engine is put together</td><td><a href="/sssf/docs/architecture">Architecture</a></td></tr>
+      <tr><td>Tune models, prompts, tools per agent</td><td><a href="/sssf/docs/configuration">Configuration</a></td></tr>
+      <tr><td>Explore the global visualizer</td><td><a href="/sssf/docs/visualizer">Visualizer</a></td></tr>
+      <tr><td>Find any command or flag</td><td><a href="/sssf/docs/cli">CLI reference</a></td></tr>
+      <tr><td>Understand re-runs and failure semantics</td><td><a href="/sssf/docs/run-semantics">Run semantics</a></td></tr>
+      <tr><td>Run workflows in parallel, isolated</td><td><a href="/sssf/docs/sandbox">Sandboxed runs</a></td></tr>
+      <tr><td>Recover stuck runs automatically</td><td><a href="/sssf/docs/healer">Healer</a></td></tr>
+      <tr><td>Drive the factory from tickets</td><td><a href="/sssf/docs/ticketing">Ticketing</a></td></tr>
+    </tbody>
+  </table>
+
+  <h2>The three principles</h2>
+  <p>
+    Everything is built to be <strong>observable</strong>, <strong>customizable</strong>, and
+    <strong>reusable</strong>. Those are not adjectives: they are the reason the parts are shaped
+    the way they are.
+  </p>
+  <ul>
+    <li><strong>Observable.</strong> Every event goes into SQLite as it happens, so you can watch a run mid-flight, not read about it afterwards.</li>
+    <li><strong>Customizable.</strong> One YAML file sets the core four for every agent: context, model, prompt, tools. Different models at different price and speed points, in the same run.</li>
+    <li><strong>Reusable.</strong> One global install, any number of projects, registered in <code class="hl">~/.sssf/projects.json</code>. The visualizer is a global service over all of them.</li>
+  </ul>
+  <p>
+    And the one line everything hangs on: <strong>code owns sequencing, retries, and acceptance;
+    the agent owns only the work inside one bounded phase.</strong> Agents plus code beats agents
+    alone.
+  </p>
+
+  <h2>Where the code lives</h2>
+  <p>
+    This documentation is written from the source. The engine is <code class="hl">src/sssf/</code>,
+    the command layer is <code class="hl">src/sssf/commands/</code>, the stamped templates are
+    <code class="hl">src/sssf/templates/</code>, and the visualizer is
+    <code class="hl">src/sssf/apps/visualizer/</code> (Vue + Bun).
+  </p>
+</DocsLayout>

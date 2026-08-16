@@ -1,0 +1,60 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+
+const description =
+  'From backlog to board: internal tickets, external sync, and spawning the SDLC chain for a ticket.';
+---
+<DocsLayout
+  title="Ticketing"
+  description={description}
+  current="/docs/ticketing"
+  prev={{ href: '/docs/healer', label: 'Healer' }}
+  next={{ href: '/docs/visualizer', label: 'Visualizer' }}
+>
+  <p>
+    Ticketing connects the factory to a queue of work: internal tickets you add with one command,
+    or external tickets synced from another provider. Tickets flow through the
+    <a href="/sssf/docs/visualizer">kanban board</a> (Backlog · Planning · Building · Reviewing ·
+    Done/Blocked), and a backlog ticket can be run through the full SDLC chain with one command.
+  </p>
+  <p>
+    Ticketing is optional and per-project: enable it in
+    <code class="hl">adws/adw_sssf_config/ticketing.yaml</code>.
+  </p>
+
+  <h2>Commands</h2>
+  <pre><code>sssf ticket add "Add a /health endpoint"     # create an internal backlog ticket
+sssf ticket sync                              # fetch external tickets into the backlog
+sssf ticket list                              # list tickets (id · provider · title · status)
+sssf ticket run &lt;ticket_id&gt;                   # spawn simple_sdlc for a ticket</code></pre>
+  <p>
+    All four take <code class="hl">--project</code> to target a specific project;
+    <span class="cmd">ticket run</span> also takes <code class="hl">--no-sandbox</code>.
+  </p>
+
+  <h2>How a ticket run works</h2>
+  <pre><code>1. the ticket is marked starting, an adw_id is minted
+2. the title + description are written to adws/prompts/&lt;slug&gt;.md
+3. simple_sdlc is spawned with that prompt (sandboxed by default)
+4. the ticket follows the run through the kanban stages
+5. on completion the run's trace, branch sssf/&lt;adw_id&gt;, and the board agree</code></pre>
+  <p>
+    In sandboxed mode the prompt lives in the per-run worktree (no name-collision races) and is
+    committed with the run. A ticket stuck in <code class="hl">starting</code> is returned to the
+    backlog by the <a href="/sssf/docs/healer">healer</a>.
+  </p>
+
+  <h2>Provider config</h2>
+  <p>
+    <code class="hl">ticketing.yaml</code> declares which providers are enabled. The
+    <code class="hl">internal</code> provider needs no external credentials:
+    <span class="cmd">sssf ticket add</span> works out of the box once enabled. External providers
+    plug into <code class="hl">ticketing.sync_tickets()</code> and return sync results per provider
+    (ticket counts or errors).
+  </p>
+  <div class="note" data-impeccable-ignore="side-tab">
+    <strong>Ticket table.</strong> Tickets live in the project db
+    (<code class="hl">tickets</code> table) with provider, external id, title, description, status,
+    source url, and the run&rsquo;s adw_id when spawned.
+  </div>
+</DocsLayout>

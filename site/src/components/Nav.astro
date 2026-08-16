@@ -1,0 +1,49 @@
+---
+const current = Astro.props.current ?? '/';
+
+const links = [
+  { href: '/', label: 'Home' },
+  { href: '/docs/', label: 'Docs' },
+];
+
+// Github link handled separately
+---
+<nav class="nav" aria-label="Main">
+  <div class="container nav__inner">
+    <a class="nav__brand" href="/sssf/">
+      <span class="brand-mark">▚</span> sssf
+    </a>
+    <button class="nav__toggle" aria-label="Toggle menu" aria-expanded="false" data-nav-toggle>
+      ☰
+    </button>
+    <ul class="nav__links" data-nav-links>
+      {
+        links.map((l) => (
+          <li>
+            <a
+              href={l.href === '/' ? '/sssf/' : `/sssf${l.href}`}
+              aria-current={current === l.href ? 'page' : undefined}
+            >
+              {l.label}
+            </a>
+          </li>
+        ))
+      }
+      <li>
+        <a href="https://github.com/felipemm/sssf" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </li>
+      <li>
+        <a class="nav__cta" href="/sssf/docs/quickstart">Get started</a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<script>
+  const toggle = document.querySelector('[data-nav-toggle]');
+  const links = document.querySelector('[data-nav-links]');
+  toggle?.addEventListener('click', () => {
+    const open = links?.classList.toggle('open') ?? false;
+    toggle.setAttribute('aria-expanded', String(open));
+  });
+</script>

@@ -1,0 +1,266 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Terminal from '../components/Terminal.astro';
+import PhaseLanes from '../components/PhaseLanes.astro';
+import VideoEmbed from '../components/VideoEmbed.astro';
+
+const terminalLines = [
+  { kind: 'prompt', text: '❯ sssf run simple_sdlc "add a side-by-side markdown viewer"' },
+  { kind: 'dim', text: 'request  ························ done' },
+  { kind: 'out', text: '  plan      planner        kimi-k3 · 2.1k tok · $0.02' },
+  { kind: 'out', text: '  build     builder        gemini-3.6-flash · 14.8k tok · $0.09' },
+  { kind: 'out', text: '  test      code           pytest · 42 passed' },
+  { kind: 'out', text: '  review    reviewer       gpt-5.6-terra · verdict: approved' },
+  { kind: 'ok', text: '✔ accepted: 3 commits, branch sssf/a1b2c3d4' },
+  { kind: 'dim', text: 'watch live: sssf viz → http://localhost:4600' },
+];
+
+const principles = [
+  {
+    eyebrow: 'Observable',
+    title: 'If you cannot measure your agents, you cannot improve them.',
+    body: 'Every run, phase, envelope, gate, and tool call streams into SQLite while it is still happening. Watch mid-flight in the visualizer, or from the terminal.',
+    color: 'builder',
+  },
+  {
+    eyebrow: 'Customizable',
+    title: 'One YAML file sets the core four for every agent: context, model, prompt, tools.',
+    body: 'Different models at different price and speed points, in the same run. Your chains, your roster, your prompts: stamped into the repo, yours to edit.',
+    color: 'planner',
+  },
+  {
+    eyebrow: 'Reusable',
+    title: 'One global install, any number of projects.',
+    body: 'Register every project, run them in parallel sandboxes, and watch them all in one global visualizer with a project picker.',
+    color: 'scout',
+  },
+];
+
+const concepts = [
+  {
+    glyph: 'ADW',
+    title: 'AI Developer Workflows',
+    body: 'Plain-Python scripts that own sequencing, retries, and acceptance. Each phase is a `with` block; the script is 40–180 lines on purpose. No DSL: staying in distribution is a feature.',
+  },
+  {
+    glyph: 'PHASE',
+    title: 'Three lanes, one primitive',
+    body: 'Engineer phases capture the ask. Agent phases call a coding agent inside a bounded task. Code phases run known commands (`pytest`, `git commit`) deterministically, no agent needed.',
+  },
+  {
+    glyph: 'ENV',
+    title: 'Typed JSON envelopes',
+    body: 'An agent has two output channels: reference files, and a final JSON envelope validated against the type the call declared. Context transfers in code, not in conversation.',
+  },
+  {
+    glyph: 'GATE',
+    title: 'Deterministic gates',
+    body: 'Gates verify claims after the fact: files exist, diffs match the report, tests pass. Violations re-prompt the same session as a correction. Nothing restarts, nothing is guessed.',
+  },
+];
+
+const quickstart = [
+  {
+    cmd: 'uv tool install sssf',
+    note: 'One global install. Python 3.11+, with the pi coding agent, bun for the viz, docker for sandboxed runs.',
+  },
+  {
+    cmd: 'sssf init',
+    note: 'Stamp the factory into this repo: your chains, your roster (sssf.config.yaml), your prompts. Register it in ~/.sssf/projects.json.',
+  },
+  {
+    cmd: 'sssf run scout "map the repo"',
+    note: 'Run a chain. Scout is read-only recon: a safe first run that proves the whole path: config → session → agent → envelope → trace.',
+  },
+  {
+    cmd: 'sssf sessions',
+    note: 'See what happened from the terminal: runs, phases, events, live processes.',
+  },
+  {
+    cmd: 'sssf viz',
+    note: 'Open the global visualizer on :4600: status dashboard, kanban board, and the full phase waterfall.',
+  },
+];
+
+const features = [
+  {
+    title: 'Status dashboard',
+    body: 'Per-project KPIs: runs & health, cost and tokens per agent and model, quality gates, git stats, and trend charts (7/30/90d).',
+  },
+  {
+    title: 'Kanban board',
+    body: 'Sessions and tickets by stage (Backlog · Planning · Building · Reviewing · Done/Blocked) with detail modals and one-click run/close.',
+  },
+  {
+    title: 'Trace waterfall',
+    body: 'Dial into any run: phases, envelopes, costs, and every tool call, named the way you read it aloud: `bash: ls -la src`.',
+  },
+  {
+    title: 'Sandboxed parallel runs',
+    body: 'Each run gets its own git worktree + container (branch `sssf/<adw_id>`), auto-torn-down on exit. Parallel-safe by construction.',
+  },
+  {
+    title: 'Self-healing monitor',
+    body: 'A daemon scans every project and recovers what is stuck: dead sandboxes, hung agents, torn state, spawn failures, with a restart budget.',
+  },
+  {
+    title: 'Ticketing',
+    body: 'Internal tickets or synced external ones flow into the backlog, get run through the SDLC chain, and return to the board.',
+  },
+];
+---
+<BaseLayout
+  title="Super Simple Software Factory"
+  description="A global CLI that stamps repeatable agents-plus-code workflows into any codebase. Deterministic Python owns the loop. Coding agents are bounded nodes inside it. Agent proposes, code disposes."
+  current="/"
+>
+  <!-- ============ HERO ============ -->
+  <header class="hero">
+    <div class="container hero__grid">
+      <div>
+        <h1 class="hero__title">
+          Agent proposes.<br />
+          <span class="accent">Code disposes.</span>
+        </h1>
+        <p class="hero__lede">
+          A global CLI that stamps <strong>repeatable agents-plus-code workflows</strong> into any
+          codebase. Deterministic Python owns sequencing, retries, and acceptance. Coding agents
+          work inside bounded phases. Typed JSON envelopes carry context across the seams.
+          Everything streams into SQLite for a polled visualizer.
+        </p>
+        <div class="hero__actions">
+          <a class="btn btn--primary" href="/sssf/docs/quickstart">Get started →</a>
+          <a class="btn btn--ghost" href="/sssf/docs/">Read the docs</a>
+          <a class="btn btn--ghost" href="https://github.com/felipemm/sssf" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+        </div>
+        <div class="hero__meta">
+          <span class="chip"><span class="dot dot--run"></span> live trace</span>
+          <span class="chip">SQLite WAL</span>
+          <span class="chip">MIT</span>
+          <span class="chip">pip-free · uv</span>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 18px;">
+        <Terminal lines={terminalLines} title="sssf: a run, live" />
+        <PhaseLanes />
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ PRINCIPLES ============ -->
+  <section class="section">
+    <div class="container">
+      <h2 class="section-title">Hand a model your whole SDLC, and you get a machine with no seams.</h2>
+      <p class="section-lede">
+        No phase boundary, so you cannot say which step failed. No acceptance criterion, so
+        &ldquo;done&rdquo; means &ldquo;the agent stopped talking.&rdquo; Run it twice, get two different
+        systems. The fix is not a better prompt: it is deciding that <strong>code owns the loop, and
+        the agent owns only the work inside one bounded phase</strong>. Everything else falls out of
+        that one line. Three principles are wired into the shape of the system:
+      </p>
+      <div class="principles">
+        {
+          principles.map((p) => (
+            <div class="card">
+              <span class={`eyebrow eyebrow--${p.color}`}>{p.eyebrow}</span>
+              <h3>{p.title}</h3>
+              <p>{p.body}</p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ VIDEO ============ -->
+  <section class="section section--tight">
+    <div class="container">
+      <h2 class="section-title">See the original factory in action</h2>
+      <p class="section-lede">
+        The ideas behind this project come from IndyDevDan&rsquo;s Super Simple Software Factory.
+        This CLI is a repackaging of that system: same engine, same visualizer, shipped as a
+        globally installed tool with sandboxed parallel runs, a healer, and ticketing on top.
+      </p>
+      <VideoEmbed />
+    </div>
+  </section>
+
+  <!-- ============ CONCEPTS ============ -->
+  <section class="section">
+    <div class="container">
+      <h2 class="section-title">The atomic units of the factory</h2>
+      <p class="section-lede">
+        Every run is a sequence of phases; every phase is the same primitive no matter who owns
+        it. Determinism is wired into every step, because the goal is the thousandth run looking
+        like the first.
+      </p>
+      <div class="concepts">
+        {
+          concepts.map((c) => (
+            <div class="concept">
+              <h3><span class="concept__glyph">{c.glyph}</span> {c.title}</h3>
+              <p>{c.body}</p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ QUICKSTART ============ -->
+  <section class="section">
+    <div class="container">
+      <h2 class="section-title">From zero to a traced run in five commands</h2>
+      <div class="quickstart">
+        <ol>
+          {
+            quickstart.map((q) => (
+              <li>
+                <div>
+                  <pre style="margin: 0 0 6px;"><code>{q.cmd}</code></pre>
+                  <p>{q.note}</p>
+                </div>
+              </li>
+            ))
+          }
+        </ol>
+        <Terminal
+          title="sssf: quickstart"
+          lines={[
+            { kind: 'prompt', text: '❯ uv tool install sssf' },
+            { kind: 'prompt', text: '❯ sssf init' },
+            { kind: 'out', text: '✓ stamped adws/ · registered project' },
+            { kind: 'prompt', text: '❯ sssf run scout "map the repo"' },
+            { kind: 'ok', text: '✔ scout: 3 findings → context_handoff/' },
+            { kind: 'prompt', text: '❯ sssf viz' },
+            { kind: 'out', text: '→ http://localhost:4600/#/status' },
+          ]}
+        />
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FEATURES ============ -->
+  <section class="section">
+    <div class="container">
+      <h2 class="section-title">Built to run without you</h2>
+      <p class="section-lede">
+        The engine gives you reproducible workflows. Around it sits the operating layer: a global
+        visualizer, parallel-safe sandboxes, a self-healing daemon, and ticketing.
+      </p>
+      <div class="features">
+        {
+          features.map((f) => (
+            <div class="card">
+              <h3>{f.title}</h3>
+              <p>{f.body}</p>
+            </div>
+          ))
+        }
+      </div>
+      <p style="margin-top: 36px;">
+        <a class="btn btn--primary" href="/sssf/docs/">Explore the documentation →</a>
+      </p>
+    </div>
+  </section>
+</BaseLayout>

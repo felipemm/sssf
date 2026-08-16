@@ -1,0 +1,171 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+
+const description =
+  'The agent roster in sssf.config.yaml: defaults, the core four per agent, tools vs writes, and protected files.';
+---
+<DocsLayout
+  title="Configuration"
+  description={description}
+  current="/docs/configuration"
+  prev={{ href: '/docs/architecture', label: 'Architecture' }}
+  next={{ href: '/docs/run-semantics', label: 'Run semantics' }}
+>
+  <p>
+    <code class="hl">adws/adw_sssf_config/sssf.config.yaml</code> answers one question per entry:
+    <em>who is this agent</em>. One agent, one prompt, one purpose. Everything the factory is (the
+    roster) lives in this one file.
+  </p>
+
+  <h2>Defaults</h2>
+  <pre><code>defaults:
+  coding_agent: pi                 # v1 runs pi only; claude_code is schema-valid and stubbed
+  model: google/gemini-3.6-flash   # provider/model-id: a bare id can match several providers
+  thinking: medium                 # off | minimal | low | medium | high | xhigh | max
+  harness_engineering: []          # pi extensions loaded into the harness (-e)
+  tools: [read, bash, edit, write, grep, find, ls]
+  protected_files:                 # no agent may edit the machinery that grades it
+    - adws/adw_modules/
+    - adws/adw_sssf_config/
+    - adws/adw_*.py
+  data_dir: adws/adw_data          # runtime home: &#123;data_dir&#125;/sessions/&#123;adw_id&#125;/&#123;agent&#125;/</code></pre>
+
+  <h3>Model naming</h3>
+  <p>
+    Every <code class="hl">model:</code> is written <code class="hl">provider/model-id</code>. The
+    provider half decides which API key pi reads (from <code class="hl">~/.pi/agent/models.json</code>).
+    A bare pattern is ambiguous: the same model can sit under several providers, and
+    <code class="hl">agents.validate()</code> refuses to spawn when it is.
+  </p>
+
+  <h3>protected_files</h3>
+  <p>
+    Off-limits to every agent that does not name them in its own <code class="hl">writes:</code>.
+    <code class="hl">tools</code> alone cannot protect these: <code class="hl">bash</code> runs
+    <code class="hl">git checkout</code>, and <code class="hl">write</code> reaches any path. An
+    agent must not be able to edit the machinery that decides whether its own work passed: enforced <code class="hl">adw_modules/permissions.py</code> after every call.
+  </p>
+
+  <h2>The agent roster</h2>
+  <p>
+    Every agent gets its own model, thinking level, prompts, tools, and harness. That is the
+    <strong>core four</strong> (context, model, prompt, tools) and it is the whole surface you
+    tune. Give the planner a frontier model and the builder a cheap fast one. Give the scout
+    subagents. Give the reviewer no ability to write code at all.
+  </p>
+  <pre><code>agents:
+  - name: planner
+    model: fireworks/accounts/fireworks/models/kimi-k3
+    thinking: high                 # per-agent overrides win over defaults
+    color: "#a78bfa"               # this agent's lane color in the visualizer
+    purpose: Turn a request into a plan the builder can implement without asking questions.
+    prompt_engineering:
+      system: adws/adw_data/prompt_engineering/planner/system.md
+      user: adws/adw_data/prompt_engineering/planner/user.md
+    harness_engineering:
+      - adws/adw_data/harness_engineering/subagents.ts   # this agent can spawn subagents
+    writes:                        # the plan is the only thing it may leave in the repo
+      - adws/specs/
+    tools:                         # full recon + write for plan.md; no edit
+      - read  - grep  - find  - ls  - bash  - write
+      - subagent_create  - subagent_continue  - subagent_list  - subagent_remove</code></pre>
+
+  <h2>tools vs writes: the distinction that matters</h2>
+  <p>
+    <strong><code class="hl">tools:</code> is a capability list. <code class="hl">writes:</code> is
+    the boundary.</strong> They are not the same thing, and the difference matters:
+    <code class="hl">bash</code> runs anything, including <code class="hl">git checkout</code>, and
+    <code class="hl">write</code> reaches any path. So &ldquo;this agent changes nothing&rdquo; is
+    enforced in code, after every call, by comparing the repo before and after. Unauthorized
+    changes are rolled back and the phase fails.
+  </p>
+  <ul>
+    <li><code class="hl">writes: []</code>: read-only with respect to the repo (scout, reviewer)</li>
+    <li>No <code class="hl">writes:</code> key: unrestricted within the repo, except
+      <code class="hl">protected_files</code> (only the builder is this)</li>
+    <li>Every agent can always write its own report: the session runtime is never restricted</li>
+  </ul>
+  <div class="note" data-impeccable-ignore="side-tab">
+    <strong>Extension tools must be named.</strong> If an agent&rsquo;s
+    <code class="hl">harness_engineering</code> extension registers a tool
+    (<code class="hl">subagent_create</code> and friends), that tool must appear in the agent&rsquo;s
+    own <code class="hl">tools:</code> list; otherwise the extension loads and its tool is silently
+    filtered out.
+  </div>
+
+  <h2>The starter roster</h2>
+  <table>
+    <thead>
+      <tr><th>Agent</th><th>Model (starter)</th><th>Color</th><th>Purpose</th><th>writes</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code class="hl">planner</code></td>
+        <td><code class="hl">fireworks/…/kimi-k3</code></td>
+        <td style="color: var(--planner);">#a78bfa</td>
+        <td>Turn a request into an implementable plan</td>
+        <td><code class="hl">adws/specs/</code></td>
+      </tr>
+      <tr>
+        <td><code class="hl">builder</code></td>
+        <td>inherits default</td>
+        <td style="color: var(--builder);">#22d3ee</td>
+        <td>Implement the plan exactly; report every changed file</td>
+        <td>unrestricted (minus protected)</td>
+      </tr>
+      <tr>
+        <td><code class="hl">scout</code></td>
+        <td>inherits default</td>
+        <td style="color: var(--scout);">#fbbf24</td>
+        <td>Find and report where things live; change nothing</td>
+        <td><code class="hl">[]</code></td>
+      </tr>
+      <tr>
+        <td><code class="hl">reviewer</code></td>
+        <td><code class="hl">openai/gpt-5.6-terra</code></td>
+        <td style="color: var(--reviewer);">#fb7185</td>
+        <td>Confirm what was built is what was asked for</td>
+        <td><code class="hl">[]</code></td>
+      </tr>
+      <tr>
+        <td><code class="hl">documenter</code></td>
+        <td><code class="hl">openai/gpt-5.6-luna</code></td>
+        <td style="color: var(--documenter);">#e879f9</td>
+        <td>Write up the change from the diff; document only</td>
+        <td><code class="hl">*.md</code>, <code class="hl">docs/</code></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    There is no <em>tester</em> agent: running a suite is a known command and therefore code (a
+    <code class="hl">kind="code"</code> phase over <code class="hl">quality.py</code>).
+  </p>
+
+  <h2>Where your prompts live</h2>
+  <p>
+    The prompts are yours the moment they land. Edit them in
+    <code class="hl">adws/adw_data/prompt_engineering/&#123;agent&#125;/</code>, never back inside the
+    package: <code class="hl">system.md</code> is identity (who this agent is), <code class="hl">user.md</code>
+    is task shape (the instructions, variables, and the <code class="hl">## Report</code> JSON
+    example that mirrors the envelope type).
+  </p>
+
+  <h2>The first things to customize</h2>
+  <table>
+    <thead>
+      <tr><th>Change</th><th>File</th><th>Why</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Your real commands</td><td><code class="hl">adws/adw_modules/quality.py</code></td><td>The shipped blocks are placeholders that exit 0; until you wire this, your test phase validates nothing</td></tr>
+      <tr><td>Your prompts</td><td><code class="hl">adws/adw_data/prompt_engineering/&#123;agent&#125;/</code></td><td>Where your standards live: what a good plan looks like, what a review has to catch</td></tr>
+      <tr><td>Your roster</td><td><code class="hl">adws/adw_sssf_config/sssf.config.yaml</code></td><td>Models, thinking levels, tools, and what each agent is allowed to write</td></tr>
+      <tr><td>Your chains</td><td><code class="hl">adws/adw_*.py</code></td><td>Copy the closest workflow and edit the phase list (they are 40 to 180 lines on purpose)</td></tr>
+      <tr><td>Your definition of done</td><td><code class="hl">adws/adw_modules/gates.py</code></td><td>A gate is one function. Whatever &ldquo;done&rdquo; means where you work, write it here</td></tr>
+    </tbody>
+  </table>
+  <div class="note" data-impeccable-ignore="side-tab">
+    <strong>One key instead of three?</strong> Delete the per-agent <code class="hl">model:</code>
+    lines and let every agent inherit <code class="hl">defaults.model</code>: the whole roster then
+    runs on one provider. The cheapest way to a first green run.
+  </div>
+</DocsLayout>

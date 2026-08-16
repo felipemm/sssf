@@ -1,0 +1,71 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+
+const description =
+  'A daemon that scans every registered project and recovers what is stuck: deterministic Python, no agents.';
+---
+<DocsLayout
+  title="Healer"
+  description={description}
+  current="/docs/healer"
+  prev={{ href: '/docs/sandbox', label: 'Sandboxed runs' }}
+  next={{ href: '/docs/ticketing', label: 'Ticketing' }}
+>
+  <p>
+    <span class="cmd">sssf heal</span> is a self-healing monitor: a daemon that scans every
+    registered project and recovers what is stuck. It is deterministic Python, no agents, and it
+    never touches anything healthy.
+  </p>
+
+  <h2>What it diagnoses</h2>
+  <table>
+    <thead>
+      <tr><th>Condition</th><th>Recovery</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Dead sandbox</strong>: container or worktree gone while the session is <code class="hl">running</code></td>
+        <td>Finalize the run as failed.</td>
+      </tr>
+      <tr>
+        <td><strong>Torn terminal state</strong>: a monitor crashed before teardown, leaving a running session with no sandbox</td>
+        <td>Sync the per-run db forward, tear the sandbox down.</td>
+      </tr>
+      <tr>
+        <td><strong>Hung agent</strong>: no progress for a long interval (default: 10 minutes with no new events)</td>
+        <td><code class="hl">sssf run restart</code> the session, with a restart budget of <code class="hl">MAX_RESTARTS=3</code> per run. Exhausted budget → finalize as failed.</td>
+      </tr>
+      <tr>
+        <td><strong>Spawn-failed ticket</strong>: a ticket stuck in <code class="hl">starting</code></td>
+        <td>Return it to the backlog and clean up the sandbox.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Commands</h2>
+  <pre><code>sssf heal start     # run the daemon (interval 30s), logs to the heal log
+sssf heal status    # running? pid? recent heal actions?
+sssf heal stop</code></pre>
+  <p>
+    State lives in <code class="hl">~/.sssf/heal-state.json</code>, which tracks per-session restart
+    counts (the budget). The daemon rides along with <span class="cmd">sssf viz start</span> if it
+    is not already running.
+  </p>
+
+  <h2>Why it exists</h2>
+  <p>
+    Sandboxed runs are torn down by a monitor process. Monitors can die, containers can be killed,
+    agents can hang silently (no events, no tokens, an empty <code class="hl">raw_output.jsonl</code>
+    (the trace goes quiet rather than red). The healer is the backstop that turns any of those
+    into a visible, final state in the trace instead of a zombie <code class="hl">running</code>
+    session eating a slot on the kanban forever.
+  </p>
+
+  <h2>Hands-on recovery</h2>
+  <p>
+    If you want to see what is alive before relying on the daemon:
+    <code class="hl">sssf procs &lt;adw_id&gt;</code> lists live processes; a hung run can be killed
+    children-first with <span class="cmd">sssf run stop</span>: a killed run finalizes its own
+    trace to <code class="hl">fail</code>.
+  </p>
+</DocsLayout>

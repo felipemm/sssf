@@ -1,0 +1,104 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+
+const description =
+  'Re-runs reap the previous run. Failures always land in the trace. No-op re-runs are green. WAL sidecars stay untracked.';
+---
+<DocsLayout
+  title="Run semantics"
+  description={description}
+  current="/docs/run-semantics"
+  prev={{ href: '/docs/configuration', label: 'Configuration' }}
+  next={{ href: '/docs/sandbox', label: 'Sandboxed runs' }}
+>
+  <p>
+    The factory runs the same chains over and over. The semantics below are what make the
+    thousandth run look like the first, and they are enforced in code, not promised in prompts.
+  </p>
+
+  <h2>Re-runs reap the previous run</h2>
+  <p>
+    Running an ADW again with the same <code class="hl">--adw-id</code> terminates any processes
+    the previous run left in flight (the pid is verified against the recorded command first, so a
+    recycled pid is spared) and marks its open phases and session <code class="hl">failed</code>.
+    A stalled or killed run never lingers as <code class="hl">running</code> in the trace.
+  </p>
+  <p>
+    Because the session is <em>joined</em> rather than recreated, each agent resumes its existing
+    context window through <code class="hl">agent_map.json</code>: the re-run is a continuation,
+    not a cold start.
+  </p>
+
+  <h2>Failures always land in the trace</h2>
+  <ul>
+    <li><strong>Per-phase exceptions</strong> are recorded by the phase manager: the phase goes
+      <code class="hl">failed</code>, the session is marked, and the run exits non-zero.</li>
+    <li><strong>Anything else</strong>: an uncaught exception anywhere in the ADW process is
+      caught by a failsafe hook that marks the session failed before the process exits.</li>
+    <li><strong>A killed run</strong> finalizes its own trace to <code class="hl">fail</code> when
+      the process ends.</li>
+  </ul>
+  <p>
+    There is no silent failure: if it crashed, the trace says so, and the trace is the single
+    source of truth the visualizer, the terminal commands, and the healer all read.
+  </p>
+
+  <h2>No-op re-runs are green</h2>
+  <p>
+    If <code class="hl">commit_build</code> finds nothing to commit and the builder reported no
+    changes, the work is already implemented and verified: the run succeeds with a note and skips
+    the document chain. The factory distinguishes &ldquo;already done&rdquo; from &ldquo;did
+    nothing&rdquo;:
+  </p>
+  <ul>
+    <li>Builder reports no changed files + suite green + review approved → success, no-op, no doc update.</li>
+    <li>Builder <em>claims</em> changed files that are not in the working tree → hard failure. A
+      claim that never landed is not a no-op; it is a lie the diff gate exists to catch.</li>
+  </ul>
+
+  <h2>WAL sidecars stay untracked</h2>
+  <p>
+    <span class="cmd">sssf init</span> gitignores <code class="hl">sssf.db-wal</code> /
+    <code class="hl">sssf.db-shm</code>. If they ever get committed, agents treat them as clutter
+    and may <code class="hl">git checkout</code> them over the live db, which breaks open reader
+    connections (<code class="hl">SQLITE_IOERR_VNODE</code>) and makes the visualizer go blank.
+    Keep them untracked; the db is rebuilt from the raw files if it is ever lost.
+  </p>
+
+  <h2>Success must be earned: the finish contract</h2>
+  <p>
+    Every phase defaults to <code class="hl">fail</code>; a clean exit flips it, and an agent phase
+    also needs its envelope to parse and every gate green. Then
+    <code class="hl">run.finish(accepted=...)</code> decides the run-level verdict:
+  </p>
+  <ul>
+    <li><code class="hl">accepted=True</code> → exit 0, session <code class="hl">success</code>, green banner.</li>
+    <li><code class="hl">accepted=False</code> → non-zero exit, session <code class="hl">failed</code>, red banner.</li>
+  </ul>
+  <p>
+    Phases passing is not the same as the run being acceptable: a test phase that ran a red suite
+    did its job perfectly. The exit code, the session status, and the banner are decided in one
+    call so they cannot disagree.
+  </p>
+
+  <h2>Run control</h2>
+  <table>
+    <thead>
+      <tr><th>Command</th><th>Semantics</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code class="hl">sssf run stop &lt;adw_id&gt;</code></td><td>Kill a live run: the sandbox is torn down and the run is marked failed.</td></tr>
+      <tr><td><code class="hl">sssf run restart &lt;adw_id&gt;</code></td><td>Re-run a session on its existing branch with the original request as the prompt: the ADW joins and reaps the old state.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Observing from the terminal</h2>
+  <pre><code>sssf sessions        # recent runs: adw_id · name · status · request · tokens · cost
+sssf phases &lt;id&gt;     # the phase waterfall of one run
+sssf tail &lt;id&gt;       # the last 25 events of one run, newest first
+sssf procs &lt;id&gt;      # live processes of one run (adw_id → pid)</code></pre>
+  <p>
+    All four resolve the project db (or take <code class="hl">--project</code>), open it WAL, and
+    render a rich table. Reads never block a running workflow.
+  </p>
+</DocsLayout>

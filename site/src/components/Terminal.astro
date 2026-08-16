@@ -1,0 +1,22 @@
+---
+interface Props {
+  lines: Array<{ kind: 'prompt' | 'cmd' | 'out' | 'ok' | 'dim'; text: string }>;
+  title?: string;
+}
+const { lines, title = 'sssf — live trace' } = Astro.props;
+---
+<div class="terminal" role="img" aria-label={title}>
+  <div class="terminal__bar">
+    <span class="terminal__dot"></span>
+    <span class="terminal__dot"></span>
+    <span class="terminal__dot"></span>
+    <span class="terminal__title">{title}</span>
+  </div>
+  <div class="terminal__body">
+    {
+      lines.map((l) => (
+        <span class={`t-line t-${l.kind}`}>{l.text}</span>
+      ))
+    }
+  </div>
+</div>
