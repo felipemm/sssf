@@ -14,7 +14,7 @@ import type {
 import { Archive, ArchiveRestore, Bot, RotateCw, Square, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
 import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, restartRun, stopRun, useProjects, type Ticket as TicketInfo } from '../lib/api'
 import { axisTicks, fmtCost, fmtDate, payloadOk, ts } from '../lib/format'
-import { modelIcon } from '../lib/models'
+import { modelIcon, modelName } from '../lib/models'
 import { agentColor, hexAlpha, parseAgentStart } from '../lib/events'
 import { navigate, phaseCrumb } from '../lib/router'
 import StatusChip from './StatusChip.vue'
@@ -590,7 +590,7 @@ function selectPhase(p: Phase) {
           </span>
           <span v-if="lane.model" class="lane-meta lane-model" :title="lane.model">
             <img v-if="modelIcon(lane.model)" class="model-icon" :src="modelIcon(lane.model)!" alt="" />
-            {{ lane.model }}
+            {{ modelName(lane.model) }}
           </span>
           <span
             v-if="lane.context"
