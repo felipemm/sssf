@@ -5,27 +5,28 @@ down belongs here as code — it runs in milliseconds, costs nothing, and return
 the same answer every time. Agents are for the parts that need reading and
 deciding.
 
-╔══════════════════════════════════════════════════════════════════════════════╗
-║  REPLACE THE PLACEHOLDER COMMANDS BELOW.                                     ║
-║                                                                              ║
-║  Every block ships as an `echo` that exits 0 and announces it is fake. They   ║
-║  are placeholders on purpose: a stamped repo has no way to guess your test    ║
-║  runner, and a wrong-but-plausible command that silently passes is worse      ║
-║  than one that says so out loud.                                             ║
-║                                                                              ║
-║  For each block you want: swap `_placeholder(...)` for the real argv, e.g.    ║
-║      argv=["bun", "test", "apps/web/server.test.ts"]                         ║
-║      argv=["uv", "run", "pytest", "-q"]                                      ║
-║      argv=["npm", "run", "lint"]                                             ║
-║  Delete the blocks you don't need, and drop them from run_quality()'s list.   ║
-║                                                                              ║
-║  Two rules when you write the real command:                                  ║
-║    1. argv LIST, never a shell string — no quoting bugs, no shell injection.  ║
-║    2. Call binaries by BARE NAME. These blocks inherit the operator's         ║
-║       environment (see utils.operator_env), so `bun`, `uv`, `pytest` resolve  ║
-║       exactly as they do in their terminal. Never hard-code an absolute path  ║
-║       like /Users/you/.bun/bin/bun — that bakes your machine into the trace.  ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+Commands are configured PER PROJECT in `adws/adw_sssf_config/sssf.config.yaml`
+under `quality.checks`. A project that wires nothing runs the honest
+placeholders below — an `echo` that exits 0 and says out loud that it is fake.
+A wrong-but-plausible command that silently passes is worse than one that says
+so, and a stamped repo has no way to guess your test runner.
+
+For each check you want: swap the placeholder argv for the real one, e.g.
+    argv=["bun", "test", "apps/web/server.test.ts"]
+    argv=["uv", "run", "pytest", "-q"]
+    argv=["npm", "run", "lint"]
+Delete the checks you don't need.
+
+Two rules when you write the real command:
+  1. argv LIST, never a shell string — no quoting bugs, no shell injection.
+  2. Call binaries by BARE NAME. These blocks inherit the operator's
+     environment (see utils.operator_env), so `bun`, `uv`, `pytest` resolve
+     exactly as they do in their terminal. Never hard-code an absolute path
+     like /Users/you/.bun/bin/bun — that bakes your machine into the trace.
+
+Every check also records a gate_results row (gate "quality:<name>"), so the
+status dashboard's quality-gate pass rate counts these runs — the tests the
+project actually runs — not just the agents' claim gates.
 """
 
 from __future__ import annotations
@@ -36,8 +37,8 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from .data_types import (EventRecord, QualityCheckResult, QualityCheckSpec, QualityResult,
-                         VerifyOutput)
+from .data_types import (EventRecord, GateReport, QualityCheckResult,
+                         QualityCheckSpec, QualityResult, VerifyOutput)
 from .utils import now_iso, operator_env
 
 # How much of a failing command's output rides back inside the envelope. Enough
@@ -46,10 +47,47 @@ from .utils import now_iso, operator_env
 TAIL_CHARS = 4_000
 
 
+# ── Defaults: the honest placeholders a stamped repo runs until it configures ──
+# A placeholder exits 0 so a run isn't blocked by an unconfigured project, but
+# its output says out loud that the check is fake — a silent false green is the
+# one thing this module must never produce.
+
+_DEFAULT_ARGV: dict[str, list[str]] = {
+    "test": ["echo", "PLACEHOLDER test: wire quality.checks in "
+                        "adws/adw_sssf_config/sssf.config.yaml"],
+    "lint": ["echo", "PLACEHOLDER lint: wire quality.checks in "
+                        "adws/adw_sssf_config/sssf.config.yaml"],
+    "typecheck": ["echo", "PLACEHOLDER typecheck: wire quality.checks in "
+                            "adws/adw_sssf_config/sssf.config.yaml"],
+    "build": ["echo", "PLACEHOLDER build: wire quality.checks in "
+                        "adws/adw_sssf_config/sssf.config.yaml"],
+}
+
+_DEFAULT_OPERATION: dict[str, str] = {
+    "test": "build", "lint": "lint", "typecheck": "typecheck", "build": "build",
+}
+
+
 def _placeholder(name: str) -> list[str]:
-    """A command that does nothing and admits it. Replace every call to this."""
-    return ["echo", f"PLACEHOLDER {name}: edit adws/adw_modules/quality.py and "
-                    f"replace this echo with the real {name} command"]
+    return _DEFAULT_ARGV[name]
+
+
+def _default_spec(name: str) -> QualityCheckSpec:
+    return QualityCheckSpec(
+        name=name, area="backend", operation=_DEFAULT_OPERATION[name],
+        argv=_placeholder(name),
+        timeout_seconds=600 if name == "test" else 300 if name == "build" else 120,
+    )
+
+
+def _specs(run) -> list[QualityCheckSpec]:
+    """Configured checks (in config order), then placeholders for every
+    default name the project did not wire. Configured entries replace their
+    names; nothing else is touched."""
+    configured = getattr(getattr(run, "cfg", None), "quality", None)
+    checks = list(configured.checks) if configured else []
+    seen = {c.name for c in checks}
+    return checks + [_default_spec(n) for n in _DEFAULT_ARGV if n not in seen]
 
 
 def _check_dir(run, name: str) -> Path:
@@ -115,6 +153,14 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
         started_at=started_at,
         ended_at=now_iso(),
     ))
+    # The check is a gate too: pass/fail lands in gate_results so the
+    # dashboard's quality-gate KPI counts the real commands, not just the
+    # agents' claim gates. item=command keeps the evidence in the row.
+    note = f"exit {returncode}, {duration:.1f}s"
+    if not passed:
+        note += f" — see {output_artifact}"
+    run.tracer.gate_row(phase, f"quality:{spec.name}",
+                        GateReport().check(command, passed, note), attempt=1)
     run.console.note(
         f"quality {spec.name}: {'passed' if passed else 'failed'} "
         f"(exit {returncode}, {duration:.1f}s)"
@@ -133,45 +179,32 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
 
 
 # ── Blocks ────────────────────────────────────────────────────────────────────
-# Replace every argv below. See the banner at the top of this file.
+# Each block resolves its command from the project's sssf.config.yaml
+# (quality.checks), falling back to the honest placeholder. Templates call
+# run_tests()/run_quality(); the per-name functions stay for direct use.
+
+def _block(run, name: str) -> QualityCheckResult:
+    for spec in _specs(run):
+        if spec.name == name:
+            return _run(spec, run)
+    return _run(_default_spec(name), run)
+
 
 def test(run) -> QualityCheckResult:
     """Run the project's test suite. The highest-value block to wire up first."""
-    return _run(QualityCheckSpec(
-        name="test",
-        area="backend",
-        operation="build",
-        argv=_placeholder("test"),        # e.g. ["bun", "test"] or ["uv", "run", "pytest", "-q"]
-        timeout_seconds=600,
-    ), run)
+    return _block(run, "test")
 
 
 def lint(run) -> QualityCheckResult:
-    return _run(QualityCheckSpec(
-        name="lint",
-        area="backend",
-        operation="lint",
-        argv=_placeholder("lint"),        # e.g. ["bun", "x", "oxlint@1.36.0", "src"]
-    ), run)
+    return _block(run, "lint")
 
 
 def typecheck(run) -> QualityCheckResult:
-    return _run(QualityCheckSpec(
-        name="typecheck",
-        area="backend",
-        operation="typecheck",
-        argv=_placeholder("typecheck"),   # e.g. ["bun", "x", "tsc", "--noEmit"]
-    ), run)
+    return _block(run, "typecheck")
 
 
 def build(run) -> QualityCheckResult:
-    output_dir = _check_dir(run, "build") / "bundle"
-    return _run(QualityCheckSpec(
-        name="build",
-        area="backend",
-        operation="build",
-        argv=_placeholder("build"),       # e.g. ["bun", "build", "src/index.ts", "--outdir", str(output_dir)]
-    ), run)
+    return _block(run, "build")
 
 
 def run_tests(run) -> QualityResult:
@@ -212,19 +245,14 @@ def as_envelope(result: QualityResult, what: str) -> VerifyOutput:
 
 
 def run_quality(run) -> QualityResult:
-    """Run every block and collect ALL failures — one pass tells you everything.
+    """Run every configured check (plus honest defaults for the rest) and
+    collect ALL failures — one pass tells you everything.
 
     Ordering contract for the caller: a failing block does NOT fail the phase.
     The runner did its job; the CODE is what failed. Hand this result to the
     builder and let the bounded repair loop decide the run's fate.
     """
-    blocks: list[Callable] = [
-        test,
-        lint,
-        typecheck,
-        build,
-    ]
-    checks = [block(run) for block in blocks]
+    checks = [_run(spec, run) for spec in _specs(run)]
     # A failure is the command, its exit code, and what it actually printed —
     # everything a builder needs to repair without opening a log or being told
     # what the error "means" by a parser that guessed.

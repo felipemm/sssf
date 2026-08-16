@@ -36,6 +36,37 @@ observability:
   db: adws/adw_data/sssf.db        # tracer writes here directly; the UI polls it
   poll_ms: 500                     # visualizer live-poll cadence
 
+# Deterministic quality commands — the kind="code" phases. Replace the
+# placeholder argv with the project's real commands (`bun test`, `uv run
+# pytest -q`, `bun x tsc --noEmit`, `npm run build`). Each check runs as a
+# gate: pass/fail lands in gate_results and the status dashboard's quality KPI.
+# - argv is a LIST, never a shell string.
+# - Call binaries by bare name (`bun`, `uv`); they resolve via the operator's
+#   environment, never a hard-coded absolute path.
+# - Delete the checks you don't need.
+quality:
+  checks:
+    - name: test
+      area: backend
+      operation: build
+      argv: ["echo", "PLACEHOLDER test: wire quality.checks in adws/adw_sssf_config/sssf.config.yaml"]
+      timeout_seconds: 600
+    - name: lint
+      area: backend
+      operation: lint
+      argv: ["echo", "PLACEHOLDER lint: wire quality.checks in adws/adw_sssf_config/sssf.config.yaml"]
+      timeout_seconds: 120
+    - name: typecheck
+      area: backend
+      operation: typecheck
+      argv: ["echo", "PLACEHOLDER typecheck: wire quality.checks in adws/adw_sssf_config/sssf.config.yaml"]
+      timeout_seconds: 120
+    - name: build
+      area: backend
+      operation: build
+      argv: ["echo", "PLACEHOLDER build: wire quality.checks in adws/adw_sssf_config/sssf.config.yaml"]
+      timeout_seconds: 300
+
 agents:
   - name: planner
     model: fireworks/accounts/fireworks/models/kimi-k3

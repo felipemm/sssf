@@ -61,9 +61,16 @@ levels, per-agent `tools:` and `writes:`, and `protected_files` in `defaults`.
 ## Your definition of done
 
 Acceptance is per-ADW: pass `accepted=` to `run.finish()` so the exit code, the
-session status, and the banner agree. Custom gates and quality commands are
-**engine-level** — ship them as a project-local module your ADW imports, or as a
-PR to the sssf tool repo (see `contributing.md`).
+session status, and the banner agree.
+
+**Your quality commands** — the deterministic `test`/`lint`/`typecheck`/`build`
+blocks are per-project config: wire the real argv in `quality.checks` in
+`adws/adw_sssf_config/sssf.config.yaml`. Each check runs as a `kind="code"`
+phase and records a `gate_results` row, so the status dashboard's quality KPI
+counts them. A name you don't wire keeps its honest placeholder; delete the
+checks you don't need. Custom *gates* (claim checks on agent envelopes) are
+**engine-level** — ship them as a project-local module your ADW imports, or as
+a PR to the sssf tool repo (see `contributing.md`).
 
 ## Re-runs and no-op runs
 
