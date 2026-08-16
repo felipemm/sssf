@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -110,7 +111,6 @@ def run_sandbox(
         "run", "-d", "--name", name,
         "-v", f"{worktree}:/work",
         "-w", "/work",
-        "-v", f"{data_dir}:/work/adws/adw_data",
         "-v", f"{pi_home}:/opt/pi-agent-host:ro",
     ]
     if git_dir is not None:
@@ -155,12 +155,13 @@ def spawn_sandbox(project_root: Path, adw_id: str, *, cmd: list[str],
     stamp_adw_template(wt)   # deterministic: the installed template, not a stale init stamp
     uid = uid if uid is not None else os.getuid()
     gid = gid if gid is not None else os.getgid()
+    env = {**(env or {}), "SSSF_IN_SANDBOX": "1"}   # tracer uses rollback journal (mount-visible)
     run_sandbox(
         image, container_name(adw_id),
         worktree=wt, data_dir=data_dir, pi_home=pi_home,
         git_dir=project_root / ".git",
         config_dir=Path.home() / ".config",
-        uid=uid, gid=gid, env=env or {}, cmd=cmd,
+        uid=uid, gid=gid, env=env, cmd=cmd,
     )
     return {"worktree": str(wt), "name": container_name(adw_id)}
 
@@ -174,15 +175,61 @@ def teardown_sandbox(project_root: Path, adw_id: str) -> int:
     return 0
 
 
-def monitor_run(project_root: Path, adw_id: str) -> int:
-    """The detached teardown monitor: wait for the run's container to exit
-    (the ADW finished — success or fail), then tear the sandbox down. Spawned
-    by `sssf run`/`ticket run` right after the container starts."""
+def sync_run_db(project_db: Path, per_run_db: Path, adw_id: str) -> None:
+    """Merge a run's per-run db (written by the ADW inside the container, in
+    the worktree) into the project db. The HOST owns the project db — the
+    container never writes it, so no cross-mount WAL issues. DELETE the run's
+    previous rows then INSERT the current ones, per table, so repeated syncs
+    never duplicate."""
+    import sqlite3
+    if not per_run_db.exists():
+        return
+    from sssf.adw_modules.tracer import Tracer
+    tracer = Tracer(str(project_db), str(project_db.parent / "sessions" / adw_id / "events.jsonl"))
+    conn = tracer.conn
+    src = sqlite3.connect(str(per_run_db), isolation_level=None)
     try:
-        _docker("wait", container_name(adw_id), timeout_s=86_400)   # blocks until exit (24h cap)
-    except Exception:
-        pass   # container already gone / wait failed — teardown handles it
-    return teardown_sandbox(project_root, adw_id)
+        for table in ("sessions", "phases", "events", "envelopes",
+                      "gate_results", "processes", "agent_sessions", "tickets"):
+            try:
+                cols = [r[1] for r in src.execute(f"PRAGMA table_info({table})")]
+                if not cols or "adw_id" not in cols:
+                    continue
+                conn.execute(f"DELETE FROM {table} WHERE adw_id=?", (adw_id,))
+                rows = src.execute(f"SELECT * FROM {table} WHERE adw_id=?", (adw_id,)).fetchall()
+                if rows:
+                    q = ",".join("?" * len(cols))
+                    conn.executemany(
+                        f"INSERT INTO {table} ({','.join(cols)}) VALUES ({q})", rows)
+            except sqlite3.Error:
+                continue   # a table missing in one of the dbs — skip
+    finally:
+        src.close()
+
+
+def monitor_run(project_root: Path, adw_id: str) -> int:
+    """The detached monitor: while the run's container is alive, merge the
+    per-run db into the project db (live-ish visibility, ~3s), then a final
+    sync and teardown once the ADW exits (success or fail). Spawned by
+    `sssf run`/`ticket run` right after the container starts."""
+    data_dir, _pi, _env = sandbox_env(project_root)
+    project_db = project_db_path(data_dir)
+    per_run_db = sandbox_dir(project_root, adw_id) / "adws" / "adw_data" / "sssf.db"
+    try:
+        while True:
+            try:
+                r = _docker("ps", "--filter", f"name={container_name(adw_id)}",
+                            "--format", "{{.Status}}", timeout_s=30)
+                if not r.stdout.strip():
+                    break   # container gone — the run is done
+            except Exception:
+                break
+            sync_run_db(project_db, per_run_db, adw_id)
+            time.sleep(3)
+    finally:
+        sync_run_db(project_db, per_run_db, adw_id)   # final merge
+        teardown_sandbox(project_root, adw_id)
+    return 0
 
 
 def spawn_monitor(project_root: Path, adw_id: str) -> None:

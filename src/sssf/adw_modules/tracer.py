@@ -8,6 +8,7 @@ WAL mode so the UI can read while ADW processes write.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -118,7 +119,13 @@ class Tracer:
         self.events_jsonl = Path(events_jsonl)
         ensure_dir(self.events_jsonl.parent)
         self.conn = sqlite3.connect(self.db_path, isolation_level=None)
-        self.conn.execute("PRAGMA journal_mode=WAL;")
+        # WAL normally lets the UI read while ADW processes write. Inside a
+        # sandbox (docker bind mount) the WAL file does not propagate to the
+        # host promptly, so use rollback journal mode there — every commit
+        # rewrites the main file, which the host sees immediately. The
+        # busy_timeout (set below) serializes concurrent sandbox writers.
+        mode = "DELETE" if os.environ.get("SSSF_IN_SANDBOX") else "WAL"
+        self.conn.execute(f"PRAGMA journal_mode={mode};")
         self.conn.execute("PRAGMA synchronous=NORMAL;")
         self.conn.execute("PRAGMA busy_timeout=5000;")
         self.conn.executescript(SCHEMA)

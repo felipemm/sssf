@@ -66,7 +66,7 @@ def test_run_sandbox_flags(fake_docker, tmp_path):
     run = next(c for c in calls if c.startswith("run"))
     assert "--name sssf-abc" in run
     assert f"{tmp_path}/wt:/work" in run
-    assert f"{tmp_path}/data:/work/adws/adw_data" in run
+    assert "adws/adw_data" not in run   # the run writes its OWN db in the worktree
     assert f"{tmp_path}/pi:/opt/pi-agent-host:ro" in run
     assert f"{tmp_path}/proj/.git:{tmp_path}/proj/.git:rw" in run
     assert f"{tmp_path}/.config:/tmp/.config:ro" in run

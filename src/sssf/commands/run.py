@@ -32,8 +32,8 @@ def run(cwd: Path, adw: str, args: list[str], explicit_project: str | None = Non
         print("sssf: no project here (no adws/ directory). Run `sssf init` first.", file=sys.stderr)
         return 1
     name = adw if adw.startswith("adw_") else f"adw_{adw}"
-    adw_file = root / "adws" / f"{name}.py"
-    if not adw_file.exists():
+    adw_file = _adw_file(root, name)
+    if adw_file is None:
         print(f"sssf: no ADW named '{adw}' (looked for adws/{name}.py)", file=sys.stderr)
         return 1
     registry.update_last_run(root)
@@ -41,6 +41,19 @@ def run(cwd: Path, adw: str, args: list[str], explicit_project: str | None = Non
     if no_sandbox or not _sandbox_enabled(root):
         return subprocess.call([sys.executable, str(adw_file), *args], cwd=root)
     return _run_sandboxed(root, adw_file, args)
+
+
+def _adw_file(root: Path, name: str) -> Path | None:
+    """Prefer the INSTALLED template for standard ADWs — a project's committed
+    copy goes stale after an sssf upgrade (e.g. the review-gate removal broke
+    every pre-existing adw_simple_sdlc.py). Custom ADWs (no installed template)
+    fall back to the project's file."""
+    project_file = root / "adws" / f"{name}.py"
+    import sssf
+    installed = Path(sssf.__file__).parent / "templates" / "adws" / f"{name}.py"
+    if installed.exists():
+        return installed
+    return project_file if project_file.exists() else None
 
 
 def _sandbox_enabled(root: Path) -> bool:
