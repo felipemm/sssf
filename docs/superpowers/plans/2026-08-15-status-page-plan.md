@@ -80,7 +80,7 @@ function fixtureDb(path: string): string[] {
   s.run("s3", "adw_simple_sdlc", "r3", "fail", "eng", s3, end(s3, 60), 10000, 0.05, 0);
   s.run("s4", "adw_simple_sdlc", "r4", "running", "eng", s4, null, 0, 0, 0);
 
-  const p = db.prepare(`INSERT INTO phases VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
+  const p = db.prepare(`INSERT INTO phases VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   p.run("s1_01", "s1", 1, "request", "engineer", "eng", "", "success", 0, 0, null, s1, end(s1, 1));
   p.run("s1_02", "s1", 2, "commit_build", "code", "git", "", "fail", 0, 1, "boom", s1, end(s1, 1));
   p.run("s1_03", "s1", 3, "commit_build", "code", "git", "", "success", 1, 0, null, s1, end(s1, 1));
@@ -122,12 +122,12 @@ describe("computeStatus", () => {
     expect(status.totals.failed).toBe(1);
     expect(status.totals.archived).toBe(0);
     expect(status.totals.success_rate).toBeCloseTo(2 / 3, 5);   // 2 of 3 finished
-    expect(status.totals.avg_duration_s).toBeCloseTo(210, 5);   // (300+120)/2, successful only
+    expect(status.totals.avg_duration_s).toBeCloseTo(210, 3);   // (300+120)/2, successful only; precision 3 because julianday float noise is ~µs
     expect(status.totals.total_cost).toBeCloseTo(0.75, 5);
     expect(status.totals.avg_cost_per_run).toBeCloseTo(0.1875, 5); // 0.75/4
     expect(status.totals.total_tokens).toBe(160000);
     expect(status.totals.avg_tokens_per_run).toBe(40000);
-    expect(status.project.last_run).toBe(new Date(Date.now()).toISOString().slice(0, 10)); // today
+    expect(status.project.last_run?.slice(0, 10)).toBe(new Date(Date.now()).toISOString().slice(0, 10)); // today
 
     // quality
     expect(status.quality.gate_pass_rate).toBeCloseTo(0.75, 5);  // 3 of 4 checks ok
@@ -281,7 +281,7 @@ function ticketingEnabled(root: string): boolean {
 export function computeStatus(dbPath: string, root: string, name: string, windowDays: number): StatusResponse {
   const db = new Database(dbPath);
   const empty: StatusResponse = {
-    project: { name, root, ticketing_enabled: ticketingEnabled(root) },
+    project: { name, root, ticketing_enabled: ticketingEnabled(root), last_run: null },
     totals: { runs: 0, active: 0, success: 0, failed: 0, archived: 0, success_rate: 0,
               avg_duration_s: 0, total_cost: 0, avg_cost_per_run: 0,
               total_tokens: 0, avg_tokens_per_run: 0 },
@@ -401,7 +401,7 @@ export function computeStatus(dbPath: string, root: string, name: string, window
             if (s) status = s.status === "success" ? "done" : s.status === "fail" ? "failed" : "running";
           } catch { /* sessions table may not exist yet */ }
         }
-        if (status in counts) (counts as Record<string, number>)[status]++;
+        if (status in counts) (counts as unknown as Record<string, number>)[status]++;
       }
       tickets = counts;
     }
@@ -415,15 +415,14 @@ export function computeStatus(dbPath: string, root: string, name: string, window
       ).get();
       lastRun = row?.started_at ?? null;
       const cutoff = new Date(Date.now() - windowDays * 86400_000).toISOString().slice(0, 10);
-      const rows = db.query<{ day: string; n: number; cost: number; tokens: number; success: number; fail: number }, []>(
+      const rows = db.query<{ day: string; n: number; cost: number; tokens: number; success: number; fail: number }, [string]>(
         `SELECT date(started_at) day, COUNT(*) n,
                 COALESCE(SUM(total_cost),0) cost, COALESCE(SUM(total_tokens),0) tokens,
                 SUM(status='success') success, SUM(status='fail') fail
            FROM sessions
           WHERE started_at IS NOT NULL AND date(started_at) >= ?
           GROUP BY day ORDER BY day ASC`,
-        [cutoff],
-      ).all();
+      ).all(cutoff);
       for (const row of rows) {
         buckets.push({ day: row.day, runs: row.n, cost: Number(row.cost ?? 0),
                        tokens: Number(row.tokens ?? 0),
