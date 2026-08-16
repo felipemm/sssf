@@ -75,7 +75,7 @@ watch(selectedProject, () => {
         <div class="tile"><span class="k">ticketing</span><span class="v">{{ status.project.ticketing_enabled ? 'on' : 'off' }}</span></div>
         <div class="tile">
           <span class="k">active runs</span>
-          <a class="v" :href="hrefFor()">{{ status.totals.active }}</a>
+          <a class="v" :href="hrefFor({})">{{ status.totals.active }}</a>
         </div>
         <div class="tile"><span class="k">success rate</span><span class="v">{{ Math.round(status.totals.success_rate * 100) }}%</span></div>
       </div>
