@@ -51,6 +51,8 @@ export interface SessionSummary extends Session {
   /** Full phase rows, ordered by seq — one dot each. */
   phases: Phase[];
   phase_count: number;
+  /** The originating ticket id ('jira:<key>' | 'internal:<uuid>'), when this run came from a ticket. */
+  ticket_id: string | null;
   /**
    * The session's agents, same shape and merge rules as SessionDetail.agents —
    * so an L1 card can color its per-agent dots without a request per card.

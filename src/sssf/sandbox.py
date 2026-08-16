@@ -248,6 +248,18 @@ def _forward_merge(conn: sqlite3.Connection, src: sqlite3.Connection,
                     conn.execute(
                         f"UPDATE {table} SET {','.join(sets)} WHERE {pk}=? AND ended_at IS NULL",
                         [row[cols.index(c)] for c in cols if c not in (pk, "adw_id")] + [pk_val])
+        # live totals: tokens/cost only accumulate, so a max-merge on every
+        # sync never regresses — a torn mid-run copy carries fewer tokens than
+        # the previous sync, and MAX is safe in both directions. This is what
+        # makes card tokens/costs update in-flight instead of only at teardown.
+        for col in ("total_tokens", "total_cost"):
+            if col in cols:
+                for row in rows:
+                    pk_val = row[cols.index(pk)]
+                    conn.execute(
+                        f"UPDATE {table} SET {col}=MAX(COALESCE({col},0), COALESCE(?,0)) "
+                        f"WHERE {pk}=?",
+                        (row[cols.index(col)], pk_val))
     except sqlite3.Error:
         pass
 

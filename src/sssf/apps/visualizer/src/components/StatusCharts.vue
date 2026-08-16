@@ -14,12 +14,22 @@ const props = defineProps<{ buckets: StatusTrendBucket[] }>()
 const empty = computed(() => props.buckets.length === 0)
 
 const xScale = () => scalePoint<string>().padding(0.3)
-const yLinear = { scale: scaleLinear, nice: true, grid: true }
+// Taller charts + explicit tick config so bars and axis labels never overlap:
+// y labels thinned/spaced, x day labels rotated and collision-thinned.
+const xAxis = {
+  ticks: { spacing: 72 },
+  tickLabels: { rotate: -35, thin: { minGap: 6, priority: 'ends' as const } },
+}
+const yAxis = {
+  ticks: { spacing: 26 },
+  tickLabels: { thin: { minGap: 4 } },
+}
+const yLinear = { scale: scaleLinear, nice: true, grid: true, axis: yAxis }
 
 const runs = computed(() =>
   defineChart({
     marks: [barY(props.buckets, { id: 'runs', x: 'day', y: 'runs', fill: '#c89bff', fillOpacity: 0.85 })],
-    x: { scale: xScale },
+    x: { scale: xScale, axis: xAxis },
     y: yLinear,
     tooltip,
   }),
@@ -31,7 +41,7 @@ const cost = computed(() =>
       areaY(props.buckets, { id: 'cost-area', x: 'day', y: 'cost', fill: '#5ad2dd', fillOpacity: 0.16 }),
       lineY(props.buckets, { id: 'cost', x: 'day', y: 'cost', stroke: '#5ad2dd', strokeWidth: 2 }),
     ],
-    x: { scale: xScale },
+    x: { scale: xScale, axis: xAxis },
     y: yLinear,
     tooltip,
   }),
@@ -48,7 +58,7 @@ const rate = computed(() =>
         strokeWidth: 2,
       }),
     ],
-    x: { scale: xScale },
+    x: { scale: xScale, axis: xAxis },
     y: { ...yLinear, tickFormat: (v: number) => `${Math.round(v * 100)}%` },
     tooltip,
   }),
@@ -57,7 +67,7 @@ const rate = computed(() =>
 const tokens = computed(() =>
   defineChart({
     marks: [barY(props.buckets, { id: 'tokens', x: 'day', y: 'tokens', fill: '#6cb6ff', fillOpacity: 0.85 })],
-    x: { scale: xScale },
+    x: { scale: xScale, axis: xAxis },
     y: yLinear,
     tooltip,
   }),
@@ -68,25 +78,25 @@ const tokens = computed(() =>
   <div class="charts">
     <figure class="chart">
       <figcaption>runs / day</figcaption>
-      <Chart v-if="!empty" :definition="runs" aria-label="runs per day" :aspect-ratio="3.1" />
+      <Chart v-if="!empty" :definition="runs" aria-label="runs per day" :aspect-ratio="2.0" />
       <div v-else class="chart-empty">no runs in window</div>
     </figure>
 
     <figure class="chart">
       <figcaption>cost / day</figcaption>
-      <Chart v-if="!empty" :definition="cost" aria-label="cost per day" :aspect-ratio="3.1" />
+      <Chart v-if="!empty" :definition="cost" aria-label="cost per day" :aspect-ratio="2.0" />
       <div v-else class="chart-empty">no runs in window</div>
     </figure>
 
     <figure class="chart">
       <figcaption>success rate / day</figcaption>
-      <Chart v-if="!empty" :definition="rate" aria-label="success rate per day" :aspect-ratio="3.1" />
+      <Chart v-if="!empty" :definition="rate" aria-label="success rate per day" :aspect-ratio="2.0" />
       <div v-else class="chart-empty">no finished runs in window</div>
     </figure>
 
     <figure class="chart">
       <figcaption>tokens / day</figcaption>
-      <Chart v-if="!empty" :definition="tokens" aria-label="tokens per day" :aspect-ratio="3.1" />
+      <Chart v-if="!empty" :definition="tokens" aria-label="tokens per day" :aspect-ratio="2.0" />
       <div v-else class="chart-empty">no runs in window</div>
     </figure>
   </div>

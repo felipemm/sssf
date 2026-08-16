@@ -356,11 +356,15 @@ async function archive(s: SessionSummary, event: MouseEvent) {
 }
 
 .columns {
+  /* Stages stay side-by-side (never wrap); horizontal scroll when the
+     viewport is too narrow for the column minimums. */
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(280px, 1fr);
   gap: 18px;
   padding: 16px 24px 28px;
   align-items: start;
+  overflow-x: auto;
 }
 
 .col {
