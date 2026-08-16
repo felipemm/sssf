@@ -227,10 +227,10 @@ const rows = computed<TimelineRow[]>(() => {
 
 
 // The timeline shows the ENTIRE agent roster — no truncation. Its height is
-// fixed per card: the axis (28px + 6px margin) plus 40px per agent row, so
-// nothing clips.
+// fixed per card: the axis (28px + 6px margin) plus a compact 26px per agent
+// row, so nothing clips.
 const TL_AXIS_H = 34
-const TL_ROW_H = 40
+const TL_ROW_H = 26
 const visibleRows = computed(() => rows.value)
 const tlHeight = computed(() => TL_AXIS_H + Math.max(1, rows.value.length) * TL_ROW_H)
 </script>
@@ -448,10 +448,12 @@ const tlHeight = computed(() => TL_AXIS_H + Math.max(1, rows.value.length) * TL_
 .card-req {
   flex: none;
   font-size: 12px;
+  line-height: 1.35;
   color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;            /* the request may fill up to two lines */
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .card-user {
   flex: none;
@@ -518,7 +520,7 @@ const tlHeight = computed(() => TL_AXIS_H + Math.max(1, rows.value.length) * TL_
 .tl-row {
   display: flex;
   align-items: center;
-  height: 40px;
+  height: 26px;   /* compact row — the dots still read clearly */
 }
 
 .tl-agent {
