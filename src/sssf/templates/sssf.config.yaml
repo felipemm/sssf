@@ -44,6 +44,8 @@ observability:
 # - Call binaries by bare name (`bun`, `uv`); they resolve via the operator's
 #   environment, never a hard-coded absolute path.
 # - Delete the checks you don't need.
+# - Full cookbook (schema, per-stack commands, budgets, sandbox, verification):
+#   docs/quality-gates.md
 quality:
   checks:
     - name: test
