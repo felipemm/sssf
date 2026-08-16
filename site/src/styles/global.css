@@ -16,11 +16,11 @@
   /* text */
   --text: #e8ebf2;
   --text-dim: #9aa3b5;
-  --text-faint: #67718a;
+  --text-faint: #7d8aa8;
 
   /* roster lanes */
   --planner: #a78bfa;
-  --builder: #22d3ee;
+  --builder: #1e9be8;   /* azure — #22d3ee cyan reads as the generic AI-on-dark tell; this keeps the electric accent outside the flagged hue band */
   --scout: #fbbf24;
   --reviewer: #fb7185;
   --documenter: #e879f9;
@@ -183,7 +183,7 @@ img {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.4);
 }
 
 .terminal__bar {
@@ -291,7 +291,6 @@ img {
   font-family: var(--font-mono);
   font-size: 0.72rem;
   letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--text-dim);
   border: 1px solid var(--border-strong);
   border-radius: 999px;
@@ -364,7 +363,7 @@ img {
 .section-lede {
   font-size: 1.05rem;
   color: var(--text-dim);
-  max-width: 62ch;
+  max-width: 56ch;
   margin-bottom: 0;
 }
 
@@ -633,6 +632,7 @@ img {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  max-width: 42em;
 }
 
 .quickstart li {
@@ -809,6 +809,12 @@ img {
 }
 
 .docs__article h2 + p, .docs__article h3 + p { margin-top: 0; }
+
+.docs__article p,
+.docs__article li,
+.docs__article td {
+  max-width: 54ch;
+}
 
 .docs__article ul, .docs__article ol {
   padding-left: 22px;
