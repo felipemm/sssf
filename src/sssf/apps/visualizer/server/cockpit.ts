@@ -17,6 +17,7 @@ import type {
   ActivityItem,
   CockpitData,
   CockpitProject,
+  ControlResult,
   HealSummary,
   RunningSession,
 } from "../shared/types.ts";
