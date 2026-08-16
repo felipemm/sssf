@@ -150,6 +150,8 @@ def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) ->
             )
         except SandboxError as e:
             conn.close()
+            from sssf.sandbox import abort_sandbox
+            abort_sandbox(root, adw_id)   # remove the stuck container + worktree
             print(f"sssf ticket: sandbox spawn failed: {e}", file=sys.stderr)
             return 1
         spawn_monitor(root, adw_id)

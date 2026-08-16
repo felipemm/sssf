@@ -91,6 +91,8 @@ def _run_sandboxed(root: Path, adw_file: Path, args: list[str], adw_id: str | No
             data_dir=data_dir, pi_home=pi_home, env=env, attach=attach,
         )
     except SandboxError as e:
+        from sssf.sandbox import abort_sandbox
+        abort_sandbox(root, adw_id)   # remove the stuck container + worktree
         print(f"sssf: sandbox spawn failed: {e}", file=sys.stderr)
         return 1
     spawn_monitor(root, adw_id)

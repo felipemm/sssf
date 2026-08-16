@@ -69,7 +69,7 @@ def delete_branch(project_root: Path, adw_id: str) -> None:
     _run_git(project_root, "branch", "-D", f"sssf/{adw_id}")
 
 
-def _docker(*args: str, timeout_s: int = 120) -> subprocess.CompletedProcess[str]:
+def _docker(*args: str, timeout_s: int = 300) -> subprocess.CompletedProcess[str]:
     # Resolve per call (not at import): the fake-docker tests swap PATH after
     # import, and shutil.which at module level would pin the real binary.
     docker = shutil.which("docker") or "docker"
@@ -124,9 +124,16 @@ def run_sandbox(
     for k, v in env.items():
         args += ["-e", f"{k}={v}"]
     args += [image, *cmd]
-    r = _docker(*args)
-    if r.returncode != 0:
-        raise SandboxError(f"docker run failed: {r.stderr.strip()[:500]}")
+    # Docker Desktop can hiccup under concurrent container creation — retry
+    # the run a few times before giving up.
+    last: subprocess.CompletedProcess[str] | None = None
+    for _attempt in range(3):
+        last = _docker(*args)
+        if last.returncode == 0:
+            return
+        time.sleep(2)
+    if last is not None:
+        raise SandboxError(f"docker run failed: {last.stderr.strip()[:500]}")
 
 
 def stop_remove(name: str) -> None:
@@ -167,6 +174,13 @@ def spawn_sandbox(project_root: Path, adw_id: str, *, cmd: list[str],
         uid=uid, gid=gid, env=env, cmd=cmd,
     )
     return {"worktree": str(wt), "name": container_name(adw_id)}
+
+
+def abort_sandbox(project_root: Path, adw_id: str) -> None:
+    """Clean up after a FAILED spawn: remove the (possibly 'Created'-stuck)
+    container and the worktree, keeping the branch. Deterministic."""
+    stop_remove(container_name(adw_id))
+    remove_worktree(sandbox_dir(project_root, adw_id))
 
 
 def teardown_sandbox(project_root: Path, adw_id: str) -> int:
