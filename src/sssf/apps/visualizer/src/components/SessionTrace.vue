@@ -137,6 +137,8 @@ interface Lane {
   model: string | null
   /** Context-window occupancy, or null while unknown (running / old db). */
   context: LaneContext | null
+  /** Actual provider cost for this lane's agent (0 for engineer/code lanes). */
+  cost: number
   metaLines: string[]
   color: string
   kind: PhaseKind
@@ -201,6 +203,7 @@ const lanes = computed<Lane[]>(() => {
       label: session.value?.engineer ?? 'engineer',
       model: null,
       context: null,
+      cost: 0,
       metaLines: ['engineer'],
       color: ENGINEER_COLOR,
       kind: 'engineer' as const,
@@ -213,6 +216,7 @@ const lanes = computed<Lane[]>(() => {
       label: 'code',
       model: null,
       context: null,
+      cost: 0,
       metaLines: ['workspace'],
       color: CODE_COLOR,
       kind: 'code' as const,
@@ -229,6 +233,7 @@ const lanes = computed<Lane[]>(() => {
       // phase detail's agent config section.
       model: info?.model ?? start?.model ?? null,
       context: laneContext(info),
+      cost: agentCosts.value.find((a) => a.agent === owner)?.cost ?? 0,
       metaLines: [],
       color: agentColor(info?.color, start?.color, i),
       kind: 'agent' as const,
@@ -564,7 +569,10 @@ function selectPhase(p: Phase) {
           >
             <span class="ctx-head">
               <span class="ctx-label">Context</span>
-              <span class="ctx-pct">{{ contextLabel(lane.context) }}</span>
+              <span class="ctx-right">
+                <span class="ctx-pct">{{ contextLabel(lane.context) }}</span>
+                <span v-if="lane.cost > 0" class="lane-cost" :title="`actual provider cost for ${lane.label}`">{{ fmtCost(lane.cost) }}</span>
+              </span>
             </span>
             <span class="ctx-bar">
               <span
@@ -872,6 +880,17 @@ function selectPhase(p: Phase) {
   font-family: var(--mono);
   font-size: 14px;
   color: var(--dim);
+}
+.ctx-right {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.lane-cost {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--cyan);
+  font-weight: 600;
 }
 
 .ctx-bar {
