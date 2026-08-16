@@ -86,7 +86,8 @@ def _last_event_minutes(db: Path, adw_id: str) -> float | None:
 def diagnose(session_status: str | None, ticket_status: str | None,
              has_container: bool, has_worktree: bool,
              per_run_db_exists: bool, last_event_min: float | None,
-             ticket_age_min: float | None = None) -> str | None:
+             ticket_age_min: float | None = None,
+             linked_session_status: str | None = None) -> str | None:
     """Return the recovery action for one run, or None when it is healthy."""
     # A running session with neither container nor worktree: the ADW died
     # silently and nothing can be recovered — finalize it.
@@ -102,12 +103,20 @@ def diagnose(session_status: str | None, ticket_status: str | None,
     if session_status == "running" and has_container and last_event_min is not None \
             and last_event_min > NO_PROGRESS_MIN:
         return "restart"
-    # A ticket still 'starting' too long (its spawn never produced a session):
-    # put the ticket back in the backlog and clean up. The age is the time
-    # since the ticket was marked starting (updated_at) — a spawn-failed
-    # ticket has no session, hence no events to measure.
-    if ticket_status == "starting" and ticket_age_min is not None \
-            and ticket_age_min > NO_PROGRESS_MIN:
+    # A ticket still 'starting' too long with NO session at all (its spawn
+    # never produced one): put the ticket back in the backlog and clean up.
+    # The age is the time since the ticket was marked starting (updated_at).
+    # A ticket whose session EXISTS is never this case — a stale updated_at
+    # (run() bumps it at spawn, but older retries may not) must not classify
+    # a live or failed run as a spawn failure.
+    if ticket_status == "starting" and linked_session_status is None \
+            and ticket_age_min is not None and ticket_age_min > NO_PROGRESS_MIN:
+        return "ticket_backlog"
+    # A ticket whose RUN FAILED (its session went terminal-fail): back to the
+    # backlog so it can be retried. History is preserved — the failed run
+    # stays linked (see recover's ticket_backlog branch).
+    if ticket_status is not None and ticket_status != "backlog" \
+            and linked_session_status == "fail":
         return "ticket_backlog"
     return None
 
@@ -155,7 +164,9 @@ def recover(root: Path, adw_id: str, session_status: str | None,
 
     if action == "finalize":
         from sssf.sandbox import stop_run
-        stop_run(root, adw_id, project_db.parent)   # marks session+phases failed
+        stop_run(root, adw_id, project_db.parent,
+                 reason="finalized by the healer: dead run — no container or "
+                        "worktree left, nothing could be recovered")
         return f"{adw_id}: finalized (dead run)"
 
     if action == "sync_teardown":
@@ -172,7 +183,9 @@ def recover(root: Path, adw_id: str, session_status: str | None,
         count = _restart_count(state, adw_id)
         if count >= MAX_RESTARTS:
             from sssf.sandbox import stop_run
-            stop_run(root, adw_id, project_db.parent)
+            stop_run(root, adw_id, project_db.parent,
+                     reason=f"finalized by the healer: restart budget exhausted "
+                            f"({MAX_RESTARTS} attempts)")
             state.setdefault("restarts", {}).pop(adw_id, None)
             return f"{adw_id}: restart budget exhausted — finalized"
         state.setdefault("restarts", {})[adw_id] = count + 1
@@ -184,14 +197,16 @@ def recover(root: Path, adw_id: str, session_status: str | None,
     if action == "ticket_backlog":
         try:
             conn = sqlite3.connect(str(project_db), isolation_level=None, timeout=5)
-            conn.execute("UPDATE tickets SET status='backlog', adw_id=NULL WHERE adw_id=?",
-                         (adw_id,))
+            # History is preserved: the adw_id link stays, so the failed run
+            # remains in the trace and in the ticket's run list.
+            conn.execute("UPDATE tickets SET status='backlog', updated_at=? WHERE adw_id=?",
+                         (datetime.datetime.now(datetime.timezone.utc).isoformat(), adw_id))
             conn.commit()
             conn.close()
         except sqlite3.Error:
             pass
         abort_sandbox(root, adw_id)
-        return f"{adw_id}: spawn failed — ticket back to backlog"
+        return f"{adw_id}: ticket back to backlog (history kept)"
 
     return f"{adw_id}: unknown action {action}"
 
@@ -213,7 +228,9 @@ def heal_once(initial: dict | None = None) -> list[str]:
             rows = conn.execute(
                 "SELECT adw_id, status FROM sessions WHERE status='running'").fetchall()
             tickets = conn.execute(
-                "SELECT adw_id, status, updated_at FROM tickets WHERE status='starting'").fetchall()
+                "SELECT t.adw_id, t.status, t.updated_at, s.status"
+                " FROM tickets t LEFT JOIN sessions s ON s.adw_id = t.adw_id"
+                " WHERE t.status != 'backlog' AND t.adw_id IS NOT NULL").fetchall()
             conn.close()
         except sqlite3.Error:
             continue
@@ -226,12 +243,12 @@ def heal_once(initial: dict | None = None) -> list[str]:
                               _last_event_minutes(project_db, adw_id))
             if action:
                 actions.append(recover(root, adw_id, status, None, action, st))
-        for adw_id, ticket_status, updated_at in tickets:
+        for adw_id, ticket_status, updated_at, linked_status in tickets:
             wt = sandbox_dir(root, adw_id)
             has_ct = _container_exists(adw_id)
             action = diagnose(None, ticket_status, has_ct, wt.exists(), False,
                               _last_event_minutes(project_db, adw_id),
-                              _age_minutes(updated_at))
+                              _age_minutes(updated_at), linked_status)
             if action:
                 actions.append(recover(root, adw_id, None, ticket_status, action, st))
         # orphaned containers/worktrees whose session is gone

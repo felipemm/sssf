@@ -223,6 +223,13 @@ export function fetchGates(adwId: string): Promise<GateResult[]> {
   ) as Promise<GateResult[]>
 }
 
+export interface TicketRun {
+  adw_id: string
+  status: string | null
+  started_at: string | null
+  ended_at: string | null
+}
+
 export interface Ticket {
   id: string
   provider: string
@@ -233,6 +240,7 @@ export interface Ticket {
   prompt_file: string | null
   adw_id: string | null
   source_url: string
+  runs: TicketRun[]
 }
 
 export interface TicketsResponse {
@@ -252,6 +260,12 @@ export async function runTicket(id: string): Promise<{ ok: boolean; adwId?: stri
 
 export async function syncTickets(): Promise<{ ok: boolean; output?: string }> {
   const res = await fetch(`${base()}/tickets/sync`, { method: 'POST' })
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; output?: string }
+  return { ok: data.ok ?? res.ok, output: data.output }
+}
+
+export async function backlogTicket(id: string): Promise<{ ok: boolean; output?: string }> {
+  const res = await fetch(`${base()}/tickets/${encodeURIComponent(id)}/backlog`, { method: 'POST' })
   const data = (await res.json().catch(() => ({}))) as { ok?: boolean; output?: string }
   return { ok: data.ok ?? res.ok, output: data.output }
 }

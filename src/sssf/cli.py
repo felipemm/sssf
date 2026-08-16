@@ -19,6 +19,8 @@ def _dispatch_ticket(a) -> int:
         return ticket.list_tickets(a.project)
     if action == "run":
         return ticket.run(a.ticket_id, a.project, a.no_sandbox)
+    if action == "backlog":
+        return ticket.backlog(a.ticket_id, a.project)
     return 1
 
 
@@ -122,6 +124,9 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--project", default=None)
     p_run.add_argument("--no-sandbox", action="store_true",
                        help="run in the current dir instead of a sandbox container")
+    p_backlog = tsub.add_parser("backlog", help="return a ticket to the backlog (keeps run history)")
+    p_backlog.add_argument("ticket_id")
+    p_backlog.add_argument("--project", default=None)
     p_ticket.set_defaults(func=lambda a: _dispatch_ticket(a))
 
     p_heal = sub.add_parser("heal", help="self-healing monitor daemon (start / stop / status)")
