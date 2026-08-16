@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
-import { Archive, ChevronDown, ChevronRight, RefreshCw, RotateCw, Square } from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { Archive, ChevronDown, ChevronRight, Maximize2, Minimize2, RefreshCw, RotateCw, Square } from 'lucide-vue-next'
 import type { SessionSummary } from '../lib/types'
 import {
   archiveSession,
@@ -89,13 +89,53 @@ async function onSync() {
   void pullTickets()
 }
 
+// ── shrink to fit ──────────────────────────────────────────────────────────
+// 'Shrink to fit' zooms the board out so every stage fits the viewport (no
+// horizontal scroll); off = the normal shape with horizontal scroll. Uses
+// transform: scale (not CSS zoom) so scrollWidth stays the unzoomed content
+// width — no circular measurement. A height-compensated wrapper keeps the
+// layout box in sync with the scaled content.
+let shrinkInitial = false
+try { shrinkInitial = localStorage.getItem('sssf:board-shrink-to-fit') === '1' } catch { /* private mode */ }
+const shrinkFit = ref<boolean>(shrinkInitial)
+const zoom = ref(1)
+const naturalH = ref(0)
+const columnsEl = ref<HTMLElement | null>(null)
+const zoomWrapEl = ref<HTMLElement | null>(null)
+let resizeObs: ResizeObserver | undefined
+
+function computeZoom() {
+  const el = columnsEl.value
+  const wrap = zoomWrapEl.value
+  if (!el || !wrap) return
+  const naturalW = el.scrollWidth
+  const avail = wrap.clientWidth
+  naturalH.value = el.offsetHeight
+  zoom.value = shrinkFit.value && naturalW > 0 ? Math.min(1, avail / naturalW) : 1
+}
+
+function toggleShrinkFit() {
+  shrinkFit.value = !shrinkFit.value
+  try { localStorage.setItem('sssf:board-shrink-to-fit', shrinkFit.value ? '1' : '0') } catch { /* private mode */ }
+  requestAnimationFrame(() => computeZoom())
+}
+
 onMounted(() => {
   void tick()
   void pullTickets()
   timer = setInterval(() => void tick(), 500)
+  resizeObs = new ResizeObserver(() => computeZoom())
+  if (zoomWrapEl.value) resizeObs.observe(zoomWrapEl.value)
+  computeZoom()
 })
 
+onBeforeUnmount(() => resizeObs?.disconnect())
 onUnmounted(() => clearInterval(timer))
+
+// re-measure once the data/ticketing re-renders the column layout
+watch([() => loaded.value, () => columns.value.length], () => {
+  if (shrinkFit.value) void nextTick(() => requestAnimationFrame(() => computeZoom()))
+})
 
 const AGENT_STAGE: Record<string, string> = {
   planner: 'planning',
@@ -220,10 +260,22 @@ async function archive(s: SessionSummary, event: MouseEvent) {
     <div v-if="apiError" class="error-bar">api unreachable — retrying {{ apiError }}</div>
 
     <div v-if="loaded && total" class="board-head dim">
-      {{ total }} runs · grouped by stage — click a card for its trace
+      <span>{{ total }} runs · grouped by stage — click a card for its trace</span>
+      <button
+        class="fit-btn"
+        type="button"
+        :aria-pressed="shrinkFit"
+        :title="shrinkFit ? 'Restore — stages use horizontal scroll' : 'Shrink to fit — zoom out so every stage fits the viewport'"
+        @click="toggleShrinkFit"
+      >
+        <Maximize2 v-if="!shrinkFit" :size="14" :stroke-width="2" />
+        <Minimize2 v-else :size="14" :stroke-width="2" />
+        <span>{{ shrinkFit ? 'fit' : 'shrink' }}</span>
+      </button>
     </div>
 
-    <div class="columns">
+    <div ref="zoomWrapEl" class="board-zoom" :class="{ fit: shrinkFit }" :style="shrinkFit ? { height: `${Math.round(naturalH * zoom)}px` } : undefined">
+    <div ref="columnsEl" class="columns" :style="shrinkFit ? { transform: `scale(${zoom})`, transformOrigin: 'top left' } : undefined">
       <section v-for="col in columns" :key="col.key" class="col">
         <div class="col-head">
           <button
@@ -321,6 +373,7 @@ async function archive(s: SessionSummary, event: MouseEvent) {
         </div>
       </section>
     </div>
+    </div>
 
     <TicketModal
       v-if="activeTicket"
@@ -343,6 +396,37 @@ async function archive(s: SessionSummary, event: MouseEvent) {
 .board-head {
   padding: 16px 24px 0;
   font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.fit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(11, 15, 24, 0.9);
+  color: var(--dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+.fit-btn:hover {
+  color: var(--text);
+  border-color: rgba(200, 155, 255, 0.5);
+}
+.fit-btn[aria-pressed='true'] {
+  color: var(--purple);
+  background: rgba(200, 155, 255, 0.14);
+  border-color: rgba(200, 155, 255, 0.45);
+}
+
+/* shrink-to-fit wrapper: clips the scaled content; the columns inside keep
+   their natural layout so scrollWidth/offsetHeight measure unzoomed. */
+.board-zoom.fit {
+  overflow: hidden;
 }
 
 .error-bar {

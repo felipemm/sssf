@@ -198,9 +198,11 @@ def recover(root: Path, adw_id: str, session_status: str | None,
 
 # ── one pass ───────────────────────────────────────────────────────────────
 
-def heal_once(state: dict | None = None) -> list[str]:
+def heal_once(initial: dict | None = None) -> list[str]:
     """Scan every registered project, recover what is stuck; return the actions."""
-    state = state if state is not None else state()
+    # NB: the working dict is named 'st', never 'state' — 'state' is the
+    # module-level reader; a shadowed name silently kills every pass.
+    st = initial if initial is not None else state()
     actions: list[str] = []
     for name, root in registry_projects():
         project_db = _project_db(root)
@@ -223,7 +225,7 @@ def heal_once(state: dict | None = None) -> list[str]:
             action = diagnose(status, None, has_ct, has_wt, per_run.exists(),
                               _last_event_minutes(project_db, adw_id))
             if action:
-                actions.append(recover(root, adw_id, status, None, action, state))
+                actions.append(recover(root, adw_id, status, None, action, st))
         for adw_id, ticket_status, updated_at in tickets:
             wt = sandbox_dir(root, adw_id)
             has_ct = _container_exists(adw_id)
@@ -231,10 +233,10 @@ def heal_once(state: dict | None = None) -> list[str]:
                               _last_event_minutes(project_db, adw_id),
                               _age_minutes(updated_at))
             if action:
-                actions.append(recover(root, adw_id, None, ticket_status, action, state))
+                actions.append(recover(root, adw_id, None, ticket_status, action, st))
         # orphaned containers/worktrees whose session is gone
         actions.extend(_clean_orphans(root))
-    _save_state(state)
+    _save_state(st)
     return actions
 
 

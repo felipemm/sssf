@@ -145,6 +145,7 @@ def test_recover_records_and_prunes_healed_state(tmp_path, monkeypatch):
     import subprocess
     import sssf.sandbox as sb
     import sssf.healer as h
+    monkeypatch.setattr(h, "STATE_DIR", tmp_path)   # never touch the real state file
     root = tmp_path / "proj"
     root.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
