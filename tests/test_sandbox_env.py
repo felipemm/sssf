@@ -15,6 +15,7 @@ def test_sandbox_env_carries_full_git_identity(tmp_path, monkeypatch):
     commit` fails with 'Committer identity unknown'; without ENGINEER_NAME the
     engineer label degrades."""
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("SNYK_TOKEN", raising=False)   # operator token must not leak into this test
     (tmp_path / ".gitconfig").write_text(
         "[user]\n"
         "\tname = Ada Lovelace\n"
@@ -22,6 +23,7 @@ def test_sandbox_env_carries_full_git_identity(tmp_path, monkeypatch):
     )
     _, _, env = sandbox_env(tmp_path)
     assert env["GIT_AUTHOR_NAME"] == "Ada Lovelace"
+    assert "SNYK_TOKEN" not in env      # not set on the operator machine — not invented
     assert env["GIT_AUTHOR_EMAIL"] == "ada@example.com"
     assert env["GIT_COMMITTER_NAME"] == "Ada Lovelace"
     assert env["GIT_COMMITTER_EMAIL"] == "ada@example.com"
@@ -45,6 +47,17 @@ def test_sandbox_env_reads_repo_local_identity(tmp_path, monkeypatch):
     assert env["GIT_COMMITTER_NAME"] == "Repo Local"
     assert env["GIT_COMMITTER_EMAIL"] == "local@example.com"
     assert env["ENGINEER_NAME"] == "Repo Local"
+
+
+def test_sandbox_env_forwards_snyk_token(tmp_path, monkeypatch):
+    """The security gate's auth: SNYK_TOKEN reaches the container like
+    GENPLAT_TOKEN does."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".gitconfig").write_text(
+        "[user]\n\tname = Ada Lovelace\n\temail = ada@example.com\n")
+    monkeypatch.setenv("SNYK_TOKEN", "tok123")
+    _, _, env = sandbox_env(tmp_path)
+    assert env["SNYK_TOKEN"] == "tok123"
 
 
 def test_sandbox_env_without_identity_sets_nothing(tmp_path, monkeypatch):
