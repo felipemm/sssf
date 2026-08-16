@@ -54,6 +54,11 @@ const tickets = ref<TicketsResponse>({ enabled: false, tickets: [] })
 const activeTicket = ref<Ticket | null>(null)
 const syncing = ref(false)
 
+// The backlog column renders tickets, not sessions — its count and empty
+// state come from here, never from byColumn['backlog'] (which no session ever
+// lands in).
+const backlogTickets = computed(() => tickets.value.tickets.filter((x) => x.status === 'backlog'))
+
 async function pullTickets() {
   if (!selectedProject.value) return      // adhoc mode has no project scope / backlog
   try {
@@ -202,7 +207,7 @@ async function archive(s: SessionSummary, event: MouseEvent) {
             <ChevronDown v-else :size="15" :stroke-width="2" class="chev" />
             <span class="dot" :style="{ background: col.accent }" />
             <span class="col-name">{{ col.label }}</span>
-            <span class="col-count">{{ byColumn[col.key].length }}</span>
+            <span class="col-count">{{ col.key === 'backlog' ? backlogTickets.length : byColumn[col.key].length }}</span>
           </button>
           <button
             v-if="col.key === 'backlog'"
@@ -219,7 +224,7 @@ async function archive(s: SessionSummary, event: MouseEvent) {
         <div v-if="!collapsed[col.key]" class="cards">
           <template v-if="col.key === 'backlog'">
             <TicketCard
-              v-for="t in tickets.tickets.filter((x) => x.status === 'backlog')"
+              v-for="t in backlogTickets"
               :key="t.id"
               :ticket="t"
               @open="activeTicket = $event"
@@ -260,8 +265,8 @@ async function archive(s: SessionSummary, event: MouseEvent) {
             </a>
           </template>
 
-          <div v-if="loaded && !byColumn[col.key].length" class="empty">
-            {{ col.stub ? 'backlog — not wired yet' : 'no runs' }}
+          <div v-if="loaded && (col.key === 'backlog' ? backlogTickets.length === 0 : byColumn[col.key].length === 0)" class="empty">
+            {{ col.stub ? 'no backlog tickets' : 'no runs' }}
           </div>
         </div>
       </section>
