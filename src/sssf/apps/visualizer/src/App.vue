@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Recycle } from 'lucide-vue-next'
 import { useRoute, hrefFor, phaseCrumb, navigate } from './lib/router'
 import { runSweep, setProject } from './lib/api'
@@ -8,22 +8,6 @@ import SessionTrace from './components/SessionTrace.vue'
 import KanbanBoard from './components/KanbanBoard.vue'
 import StatusPage from './components/StatusPage.vue'
 import ProjectPicker from './components/ProjectPicker.vue'
-
-// The trace view sizes itself to the viewport below the topbar. The topbar
-// heights itself naturally, so measure it and publish the px as --topbar-h —
-// the trace's calc stays correct across window resizes and narrow-window wraps.
-const topbarEl = ref<HTMLElement | null>(null)
-let topbarObs: ResizeObserver | undefined
-onMounted(() => {
-  const publish = () => {
-    const h = topbarEl.value?.getBoundingClientRect().height
-    if (h) document.documentElement.style.setProperty('--topbar-h', `${Math.round(h)}px`)
-  }
-  publish()
-  topbarObs = new ResizeObserver(publish)
-  if (topbarEl.value) topbarObs.observe(topbarEl.value)
-})
-onUnmounted(() => topbarObs?.disconnect())
 
 const route = useRoute()
 
@@ -78,7 +62,7 @@ async function onSweep() {
 
 <template>
   <div class="app">
-    <header ref="topbarEl" class="topbar">
+    <header class="topbar">
       <nav class="crumbs">
         <a :href="hrefFor()" class="home" title="board">
           <!-- Inline copy of public/logo.svg (the favicon) so the mark renders

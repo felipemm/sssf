@@ -487,7 +487,7 @@ function selectPhase(p: Phase) {
 </script>
 
 <template>
-  <div class="trace" :class="{ fit: !selectedPhase }">
+  <div class="trace">
     <div v-if="apiError" class="error-bar">api unreachable — retrying {{ apiError }}</div>
 
     <div v-if="session" class="run-strip">
@@ -652,20 +652,6 @@ function selectPhase(p: Phase) {
   display: flex;
   flex-direction: column;
   padding: 0 0 40px;
-}
-
-/* No detail open: the trace fills the viewport below the topbar and the
-   waterfall scrolls internally, so the page itself never scrolls. */
-.trace.fit {
-  height: calc(100dvh - var(--topbar-h, 66px));
-  padding-bottom: 0;
-  overflow: hidden;
-}
-
-.trace.fit .waterfall {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
 }
 
 .strip-archive {
