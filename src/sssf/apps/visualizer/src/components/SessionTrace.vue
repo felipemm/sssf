@@ -13,7 +13,7 @@ import type {
 } from '../lib/types'
 import { Archive, ArchiveRestore, Bot, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
 import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, type Ticket as TicketInfo } from '../lib/api'
-import { axisTicks, fmtDate, payloadOk, ts } from '../lib/format'
+import { axisTicks, fmtCost, fmtDate, fmtTokens, payloadOk, ts } from '../lib/format'
 import { modelIcon, modelName } from '../lib/models'
 import { agentColor, hexAlpha, parseAgentStart } from '../lib/events'
 import { navigate, phaseCrumb } from '../lib/router'
@@ -438,6 +438,35 @@ const queuedByLane = computed(() => {
   return map
 })
 
+// Per-agent cost from the agent_end events (provider billing — the same source
+// as the status dashboard). Complete: the trace loads every event of the session.
+interface AgentEndPayload {
+  cost?: number
+  usage?: { total_tokens?: number }
+}
+const agentCosts = computed(() => {
+  const by = new Map<string, { cost: number; tokens: number }>()
+  for (const e of events.value) {
+    if (e.type !== 'agent_end' || !e.payload_json) continue
+    let p: AgentEndPayload | null = null
+    try {
+      p = JSON.parse(e.payload_json) as AgentEndPayload
+    } catch {
+      continue
+    }
+    if (!p) continue
+    const cost = typeof p.cost === 'number' && Number.isFinite(p.cost) ? p.cost : 0
+    const agent = e.name ?? '?'
+    const cur = by.get(agent) ?? { cost: 0, tokens: 0 }
+    cur.cost += cost
+    cur.tokens += p.usage?.total_tokens ?? 0
+    by.set(agent, cur)
+  }
+  return [...by.entries()]
+    .map(([agent, v]) => ({ agent, cost: v.cost, tokens: v.tokens }))
+    .sort((a, b) => b.cost - a.cost)
+})
+
 const sessionDurationMs = computed(() => {
   const s = session.value
   if (!s) return NaN
@@ -487,6 +516,19 @@ function selectPhase(p: Phase) {
         <StatChip kind="tokens" :value="session.total_tokens" />
         <StatChip kind="read" :value="usage.read" />
         <StatChip kind="written" :value="usage.written" />
+      </span>
+    </div>
+
+    <div v-if="agentCosts.length" class="agent-costs">
+      <span class="ac-label dim">agent cost</span>
+      <span
+        v-for="a in agentCosts"
+        :key="a.agent"
+        class="ac-chip"
+        :title="`${a.agent}: ${fmtTokens(a.tokens)} tokens`"
+      >
+        <span class="ac-name">{{ a.agent }}</span>
+        <span class="ac-cost">{{ fmtCost(a.cost) }}</span>
       </span>
     </div>
 
@@ -658,6 +700,35 @@ function selectPhase(p: Phase) {
   border-color: var(--border);
 }
 
+.agent-costs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 10px 28px 0;
+}
+.ac-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.ac-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 12px;
+}
+.ac-name {
+  color: var(--faint);
+}
+.ac-cost {
+  font-weight: 600;
+  color: var(--cyan);
+}
 .run-strip {
   display: flex;
   align-items: center;
