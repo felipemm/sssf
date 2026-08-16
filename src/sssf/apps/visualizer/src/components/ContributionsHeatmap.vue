@@ -28,7 +28,7 @@ const months = computed(() => {
   cells.value.forEach((c, i) => {
     const m = c.date.slice(0, 7)
     if (m !== prev) {
-      out.push({ label: new Date(`${c.date}T00:00:00Z`).toLocaleString('en', { month: 'short' }), col: i })
+      out.push({ label: new Date(`${c.date}T00:00:00Z`).toLocaleString('en', { month: 'short' }), col: Math.floor(i / 7) })
       prev = m
     }
   })
@@ -48,8 +48,7 @@ const total = computed(() => props.days.reduce((n, d) => n + d.count, 0))
         <span class="hm-more">more</span>
       </span>
     </figcaption>
-    <div class="hm-scroll">
-      <div class="hm-grid-wrap">
+    <div class="hm-grid-wrap">
         <div class="hm-dows">
           <span>Mon</span><span /><span>Wed</span><span /><span>Fri</span><span /><span />
         </div>
@@ -73,13 +72,13 @@ const total = computed(() => props.days.reduce((n, d) => n + d.count, 0))
             />
           </div>
         </div>
-      </div>
     </div>
   </figure>
 </template>
 
 <style scoped>
 .heatmap {
+  --hm-gap: clamp(1px, 0.22vw, 3px);
   margin: 0;
   padding: 14px 16px;
   border: 1px solid var(--border-soft);
@@ -95,38 +94,38 @@ const total = computed(() => props.days.reduce((n, d) => n + d.count, 0))
   margin-bottom: 12px;
 }
 .hm-legend { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
-.hm-scroll { overflow-x: auto; }
-.hm-grid-wrap { display: flex; gap: 8px; min-width: 760px; }
+.hm-grid-wrap { display: flex; gap: 8px; min-width: 0; }
 .hm-dows {
   display: grid;
-  grid-template-rows: repeat(7, 12px);
-  gap: 3px;
+  grid-template-rows: repeat(7, 1fr);
+  gap: var(--hm-gap);
   font-size: 10px;
   color: var(--faint);
   padding-top: 18px;
 }
-.hm-body { flex: 1; }
+.hm-body { flex: 1; min-width: 0; }
 .hm-months {
   display: grid;
-  grid-template-columns: repeat(53, 12px);
-  gap: 3px;
+  grid-template-columns: repeat(53, minmax(0, 1fr));
+  gap: var(--hm-gap);
   height: 16px;
   font-size: 10px;
   color: var(--faint);
 }
-.hm-month { grid-row: 1; white-space: nowrap; }
+.hm-month { grid-row: 1; white-space: nowrap; min-width: 0; overflow: visible; }
 .hm-grid {
   display: grid;
-  grid-template-columns: repeat(53, 12px);
-  grid-template-rows: repeat(7, 12px);
-  gap: 3px;
+  grid-template-columns: repeat(53, minmax(0, 1fr));
+  gap: var(--hm-gap);
 }
 .cell {
-  width: 12px;
-  height: 12px;
+  width: 100%;
+  min-width: 0;
+  aspect-ratio: 1;
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.05);
 }
+.hm-legend .cell { width: 12px; }
 .cell.lvl-1 { background: rgba(74, 222, 128, 0.25); }
 .cell.lvl-2 { background: rgba(74, 222, 128, 0.5); }
 .cell.lvl-3 { background: rgba(74, 222, 128, 0.75); }
