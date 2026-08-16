@@ -324,7 +324,9 @@ function fmtRel(iso: string | null): string {
       </table>
     </section>
 
-    <!-- Running-now strip -->
+    <!-- Running-now + Containers: side by side, both height-capped so many
+         parallel runs never grow the page unboundedly -->
+    <div class="now-row">
     <section v-if="data" class="panel">
       <h3>Running now <span class="count">{{ data.running.length }}</span></h3>
       <div v-if="!data.running.length" class="empty">nothing running across projects</div>
@@ -346,23 +348,6 @@ function fmtRel(iso: string | null): string {
       </div>
     </section>
 
-    <!-- Live cumulative completed-sessions chart (updates with the 8s poll) -->
-    <section v-if="data" class="panel">
-      <h3>Completed sessions <span class="count hint" data-hint="Absolute cumulative count of finished sessions (success + fail, by ended_at, UTC) across all projects — the line carries the true running total and keeps growing. Updates live with the cockpit poll.">{{ chartWindowLabel }} · live</span></h3>
-      <div class="window-switch" role="tablist" aria-label="chart window">
-        <button
-          v-for="w in CHART_WINDOWS"
-          :key="w.key"
-          class="window-btn"
-          :class="{ active: chartWindow === w.key }"
-          role="tab"
-          :aria-selected="chartWindow === w.key"
-          @click="chartWindow = w.key"
-        >{{ w.key }}</button>
-      </div>
-      <CompletedChart :points="chartPoints" />
-    </section>
-
     <!-- Containers (docker ps filtered to sssf) — always visible, even when empty -->
     <section v-if="data" class="panel">
       <h3>Containers <span class="count">{{ data.containers.length }}</span></h3>
@@ -371,7 +356,8 @@ function fmtRel(iso: string | null): string {
         <code>{{ data.kpis.dockerError }}</code>
       </div>
       <div v-else-if="!data.containers.length" class="empty">no sssf containers running</div>
-      <table v-else class="ctable">
+      <div v-else class="ctable-wrap">
+      <table class="ctable">
         <thead>
           <tr>
             <th class="hint" data-hint="sssf-&lt;adwId&gt; — the Docker container running the sandboxed ADW.">container</th>
@@ -415,6 +401,24 @@ function fmtRel(iso: string | null): string {
           </tr>
         </tbody>
       </table>
+      </div>
+    </section>
+    </div>
+
+    <section v-if="data" class="panel">
+      <h3>Completed sessions <span class="count hint" data-hint="Absolute cumulative count of finished sessions (success + fail, by ended_at, UTC) across all projects — the line carries the true running total and keeps growing. Updates live with the cockpit poll.">{{ chartWindowLabel }} · live</span></h3>
+      <div class="window-switch" role="tablist" aria-label="chart window">
+        <button
+          v-for="w in CHART_WINDOWS"
+          :key="w.key"
+          class="window-btn"
+          :class="{ active: chartWindow === w.key }"
+          role="tab"
+          :aria-selected="chartWindow === w.key"
+          @click="chartWindow = w.key"
+        >{{ w.key }}</button>
+      </div>
+      <CompletedChart :points="chartPoints" />
     </section>
 
     <!-- Cross-project contributions heatmap (git commits over the last year) -->
@@ -537,8 +541,50 @@ function fmtRel(iso: string | null): string {
 .empty { color: var(--faint); font-size: 14px; padding: 8px 0; }
 .empty.small { font-size: 12px; }
 
-.lower { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.now-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1100px) { .now-row { grid-template-columns: 1fr; } }
+
+/* height-capped so many parallel runs/containers never grow the page */
+.now-row .runs {
+  max-height: 340px;
+  overflow-y: auto;
+}
+.ctable-wrap {
+  max-height: 340px;
+  overflow-y: auto;
+}
+.ctable-wrap thead th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+
+.lower {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
 @media (max-width: 900px) { .lower { grid-template-columns: 1fr; } }
+/* healer + activity share the same fixed height; content scrolls inside */
+.lower .panel {
+  height: 320px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.lower .panel .log,
+.lower .panel .feed {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
 
 /* projects table */
 .ptable { width: 100%; border-collapse: collapse; font-size: 14px; }
