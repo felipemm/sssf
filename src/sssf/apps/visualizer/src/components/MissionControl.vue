@@ -37,7 +37,7 @@ let noteTimer: ReturnType<typeof setTimeout> | undefined
 
 const pending = ref<Set<string>>(new Set()) // in-flight control keys ("stop:run1", …)
 
-const POLL_MS = 8000
+const POLL_MS = 5000
 
 function flashNote(msg: string) {
   note.value = msg
@@ -283,7 +283,7 @@ function fmtRel(iso: string | null): string {
             <th class="hint" data-hint="Project name in the registry. Click to drill down to its status page (#/p/&lt;name&gt;).">project</th>
             <th class="hint" data-hint="Sessions currently in 'running' status right now.">running</th>
             <th class="hint" data-hint="Sessions started today (UTC). The red N✗ is the count failed today — stopped runs count too, since stop finalizes as 'fail'.">today</th>
-            <th class="hint" data-hint="Tickets in-flight / backlog. In-flight = spawned or with a live session; backlog = waiting to be run. Only populated when ticketing is enabled.">tickets</th>
+            <th class="hint" data-hint="Tickets in-flight / backlog / completed. In-flight = spawned or with a live session; backlog = waiting to be run; completed = done + failed (stage derived from the session). Only populated when ticketing is enabled.">tickets</th>
             <th class="hint" data-hint="sssf-* Docker containers owned by this project (matched by the session's adw_id or a sandbox worktree dir).">ctrs</th>
             <th class="hint" data-hint="Per-run git worktree dirs under ~/.sssf/sandboxes/&lt;project&gt;/ — one per run, cleaned by auto-teardown.">wt</th>
             <th class="hint" data-hint="Sum of sessions.total_cost for sessions started today (UTC).">cost today</th>
@@ -305,7 +305,7 @@ function fmtRel(iso: string | null): string {
                 data-hint="Started today (UTC); red ✗ = failed today (stopped runs count as failed).">
               {{ p.sessionsToday }}<template v-if="p.sessionsFailedToday"> · {{ p.sessionsFailedToday }}✗</template>
             </td>
-            <td class="hint hint-line" data-hint="In-flight / backlog tickets (stage derived from the session).">{{ p.ticketsInFlight }} / {{ p.ticketsBacklog }}</td>
+            <td class="hint hint-line" data-hint="In-flight / backlog / completed tickets (stage derived from the session).">{{ p.ticketsInFlight }} / {{ p.ticketsBacklog }} / {{ p.ticketsDone }}</td>
             <td class="hint hint-line" data-hint="sssf-* Docker containers owned by this project.">{{ p.containers }}</td>
             <td class="hint hint-line" data-hint="Sandbox git worktree dirs for this project.">{{ p.worktrees }}</td>
             <td class="hint hint-line" data-hint="Sessions started today (UTC) — real provider billing.">{{ fmtUsd(p.costTodayUsd) }}</td>
@@ -553,6 +553,7 @@ function fmtRel(iso: string | null): string {
 .now-row .runs {
   max-height: 340px;
   overflow-y: auto;
+  overflow-x: hidden;   /* rows truncate, never scroll sideways */
 }
 .ctable-wrap {
   max-height: 340px;
@@ -608,9 +609,16 @@ function fmtRel(iso: string | null): string {
   padding: 8px 12px; border-radius: 9px;
   background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-soft);
   font-size: 13px;
+  min-width: 0;         /* flex children may shrink below their content */
 }
-.run code { color: var(--text); font-family: var(--mono); }
+.run > * { min-width: 0; }
+.run code {
+  color: var(--text); font-family: var(--mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .run .phase { color: var(--dim); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run .chip { overflow: hidden; text-overflow: ellipsis; }
+.run .age { flex: none; }
 .run .age { color: var(--faint); font-variant-numeric: tabular-nums; }
 .run-actions { display: flex; gap: 6px; }
 

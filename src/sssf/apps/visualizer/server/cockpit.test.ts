@@ -79,6 +79,7 @@ describe("computeCockpit", () => {
     expect(pa.sessionsRunning).toBe(1);
     expect(pa.sessionsToday).toBe(2);
     expect(pa.ticketsBacklog).toBe(1);
+    expect(pa.ticketsDone).toBe(0);
     expect(pa.costTotalUsd).toBeGreaterThan(0);
     expect(pa.containers).toBe(1); // sssf-run1 owned by proj-a
     expect(data.projects.find((p) => p.name === "proj-b")!.containers).toBe(0);
@@ -102,6 +103,7 @@ describe("computeCockpit", () => {
     const pa = data.projects.find((p) => p.name === "proj-a")!;
     expect(pa.ticketsInFlight).toBe(0); // both tickets' sessions are terminal
     expect(pa.ticketsBacklog).toBe(1);  // t1 still backlog
+    expect(pa.ticketsDone).toBe(1);     // t2's session finished success → done
     rmSync(env.root, { recursive: true, force: true });
   });
 

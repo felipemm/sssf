@@ -198,7 +198,7 @@ function projectRow(
   const empty: ProjectRow = {
     name, root,
     sessionsRunning: 0, sessionsToday: 0, sessionsFailedToday: 0,
-    ticketsBacklog: 0, ticketsInFlight: 0,
+    ticketsBacklog: 0, ticketsInFlight: 0, ticketsDone: 0,
     containers: 0, worktrees: 0, costTodayUsd: 0, costTotalUsd: 0,
     lastActivity: deps.registry.list().find((p) => p.name === name)?.lastRun ?? null,
     stale: false, _running: [], _activity: [], _owned: new Set<string>(),
@@ -270,6 +270,7 @@ function projectRow(
         "SELECT status, adw_id FROM tickets").all();
       let backlog = 0;
       let inflight = 0;
+      let done = 0;
       for (const r of rows) {
         let status = r.status;
         if (r.adw_id) {
@@ -282,9 +283,11 @@ function projectRow(
         if (status === "starting") status = "running"; // spawned, run warming up
         if (status === "backlog") backlog++;
         else if (status === "running") inflight++;
+        else done++;   // done + failed = completed
       }
       empty.ticketsBacklog = backlog;
       empty.ticketsInFlight = inflight;
+      empty.ticketsDone = done;
     }
     if (hasTable(db, "sessions")) {
       const ended = db.query<{ ended_at: string | null }, []>(

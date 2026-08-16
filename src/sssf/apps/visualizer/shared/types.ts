@@ -331,6 +331,7 @@ export interface CockpitProject {
   sessionsFailedToday: number
   ticketsBacklog: number
   ticketsInFlight: number
+  ticketsDone: number
   containers: number
   worktrees: number
   costTodayUsd: number
