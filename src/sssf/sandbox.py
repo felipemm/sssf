@@ -110,20 +110,36 @@ def run_sandbox(
     worktree: Path,
     data_dir: Path,
     pi_home: Path,
-    host_port: int,
-    container_port: int,
-    uid: int,
-    gid: int,
-    env: dict[str, str],
-    cmd: list[str],
+    git_dir: Path | None = None,
+    config_dir: Path | None = None,
+    host_port: int = 0,
+    container_port: int = 3000,
+    uid: int = 1000,
+    gid: int = 1000,
+    env: dict[str, str] | None = None,
+    cmd: list[str] | None = None,
 ) -> None:
-    """docker run -d with the worktree + shared data bound, credentials ro."""
+    """docker run -d with the worktree + shared data bound, credentials ro.
+
+    git_dir mounts the repo's .git at its HOST path inside the container: a
+    worktree's `.git` file references that absolute path, so without the mount
+    git inside the container can't resolve the repo (the ADW's commits land in
+    the shared object store — that is the point).
+    """
     args = [
         "run", "-d", "--name", name,
         "-v", f"{worktree}:/work",
         "-w", "/work",
         "-v", f"{data_dir}:/work/adws/adw_data",
-        "-v", f"{pi_home}:/home/agent/.pi/agent:ro",
+        "-v", f"{pi_home}:/opt/pi-agent-host:ro",
+    ]
+    if git_dir is not None:
+        args += ["-v", f"{git_dir}:{git_dir}:rw"]
+    if config_dir is not None:
+        # The provider apiKey shell commands resolve ${HOME}/.config/... — with
+        # HOME=/tmp in the image, mount the host config read-only at /tmp/.config.
+        args += ["-v", f"{config_dir}:/tmp/.config:ro"]
+    args += [
         "-p", f"{host_port}:{container_port}",
         "--user", f"{uid}:{gid}",
     ]
@@ -174,6 +190,8 @@ def spawn_sandbox(project_root: Path, adw_id: str, *, cmd: list[str],
     run_sandbox(
         image, container_name(adw_id),
         worktree=wt, data_dir=data_dir, pi_home=pi_home,
+        git_dir=project_root / ".git",
+        config_dir=Path.home() / ".config",
         host_port=port, container_port=container_port,
         uid=uid, gid=gid, env=env or {}, cmd=cmd,
     )

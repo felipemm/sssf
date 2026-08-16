@@ -312,3 +312,8 @@ class Tracer:
         row = self.conn.execute(
             "SELECT status FROM run_reviews WHERE adw_id=?", (adw_id,)).fetchone()
         return row[0] if row else None
+
+    def session_pause(self, adw_id: str) -> None:
+        """Mark the run paused while the human review gate waits — the factory
+        finished; the engineer decides. Overwritten by session_finish on exit."""
+        self.conn.execute("UPDATE sessions SET status='paused' WHERE adw_id=?", (adw_id,))

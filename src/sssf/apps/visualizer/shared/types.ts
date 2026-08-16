@@ -7,7 +7,7 @@
  */
 
 /** sessions.status — a run is running until it earns success. */
-export type SessionStatus = "running" | "success" | "fail";
+export type SessionStatus = "running" | "paused" | "success" | "fail";
 
 /** phases.status — queued only for manifest-declared phases not yet entered. */
 export type PhaseStatus = "queued" | "running" | "success" | "fail";

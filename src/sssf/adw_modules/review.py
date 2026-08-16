@@ -50,6 +50,7 @@ def human_review(run, cfg, ph, prompt: str) -> bool:
             ph.log(input=f"dev server did not open port {review.port} — skipping gate")
             return True
         run.tracer.review_pending(run.adw_id, host_port=host_port)
+        run.tracer.session_pause(run.adw_id)   # the factory is done; the engineer decides
         ph.log(input=f"reviewing at http://localhost:{host_port}")
         while True:
             status = run.tracer.review_status(run.adw_id)

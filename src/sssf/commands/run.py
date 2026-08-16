@@ -12,6 +12,15 @@ from sssf.project import find_project
 
 def run(cwd: Path, adw: str, args: list[str], explicit_project: str | None = None,
         no_sandbox: bool = False) -> int:
+    # The run parser takes the prompt as a REMAINDER positional, so options
+    # after it (e.g. `sssf run simple_sdlc "<prompt>" --project X`) land in
+    # args. Pull a trailing --project out when the caller didn't pass one.
+    if explicit_project is None and "--project" in args:
+        i = args.index("--project")
+        if i + 1 < len(args):
+            explicit_project = args[i + 1]
+            args = args[:i] + args[i + 2:]
+
     # `sssf run approve|reject <adw_id>` — the review decision (sandboxed runs).
     if adw in ("approve", "reject"):
         return _decide(cwd, adw, args, explicit_project)

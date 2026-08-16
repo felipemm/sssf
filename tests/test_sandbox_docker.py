@@ -58,7 +58,9 @@ def test_run_sandbox_flags(fake_docker, tmp_path):
     run_sandbox(
         "sssf-runner", "sssf-abc",
         worktree=tmp_path / "wt", data_dir=tmp_path / "data",
-        pi_home=tmp_path / "pi", host_port=3456, container_port=3000,
+        pi_home=tmp_path / "pi", git_dir=tmp_path / "proj" / ".git",
+        config_dir=tmp_path / ".config",
+        host_port=3456, container_port=3000,
         uid=501, gid=20, env={"REVIEW_HOST_PORT": "3456"}, cmd=["python", "adws/adw_simple_sdlc.py"],
     )
     calls = fake_docker.read_text().splitlines()
@@ -66,6 +68,9 @@ def test_run_sandbox_flags(fake_docker, tmp_path):
     assert "--name sssf-abc" in run
     assert f"{tmp_path}/wt:/work" in run
     assert f"{tmp_path}/data:/work/adws/adw_data" in run
+    assert f"{tmp_path}/pi:/opt/pi-agent-host:ro" in run
+    assert f"{tmp_path}/proj/.git:{tmp_path}/proj/.git:rw" in run
+    assert f"{tmp_path}/.config:/tmp/.config:ro" in run
     assert "-p 3456:3000" in run
     assert "--user 501:20" in run
     assert "-e REVIEW_HOST_PORT=3456" in run
