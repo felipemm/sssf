@@ -57,6 +57,22 @@ Three principles:
   `sssf.db-shm` — if they get committed, agents treat them as clutter and
   `git checkout` them over the live db, which breaks open reader connections.
 
+## Sandboxed runs (parallel-safe)
+
+Each run executes in its own sandbox — a git worktree (branch `sssf/<adw_id>`)
+bind-mounted into a `sssf-runner` container — so multiple runs proceed in
+parallel without touching the project tree. The ADW runs its normal stages
+inside the container; when it exits (success or fail) a monitor tears the
+sandbox down automatically (container + worktree). The branch `sssf/<adw_id>`
+survives as the deliverable — the engineer merges it or opens a PR with their
+own tooling.
+
+- `sssf sandbox build` — build/refresh the runner image
+- `sssf sandbox list` — show sandboxes and their branches
+- `sssf sandbox prune [<adw_id>|--all]` — delete a resolved run's branch + leftovers
+- `sssf run stop <adw_id>` — kill a live run (sandbox torn down, run marked failed)
+- `--no-sandbox` — run in the current dir (today's behavior), for debugging
+
 ## Commands
 
 | Command | What it does |

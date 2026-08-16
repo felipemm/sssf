@@ -343,9 +343,18 @@ class ObservabilityConfig(BaseModel):
     poll_ms: int = 500
 
 
+class SandboxConfig(BaseModel):
+    """Per-run isolation. Creation/teardown is deterministic Python — the
+    ADW only runs phases; the CLI owns everything around the container."""
+    enabled: bool = True
+    image: str = "sssf-runner"       # tag auto-appended: sssf-runner:<sssf-version>
+
+
+
 class SSSFConfig(BaseModel):
     defaults: ConfigDefaults = Field(default_factory=ConfigDefaults)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
+    sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     agents: list[AgentConfig] = Field(default_factory=list)
 
 

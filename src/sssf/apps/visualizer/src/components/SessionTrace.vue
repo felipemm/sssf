@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watchEffect } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
 import type {
   AgentSession,
   AgentStartPayload,
@@ -11,8 +11,8 @@ import type {
   Session,
   SessionUsage,
 } from '../lib/types'
-import { Archive, ArchiveRestore, Bot, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
-import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, type Ticket as TicketInfo } from '../lib/api'
+import { Archive, ArchiveRestore, Bot, RotateCw, Square, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
+import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, restartRun, stopRun, useProjects, type Ticket as TicketInfo } from '../lib/api'
 import { axisTicks, fmtCost, fmtDate, payloadOk, ts } from '../lib/format'
 import { modelIcon, modelName } from '../lib/models'
 import { agentColor, hexAlpha, parseAgentStart } from '../lib/events'
@@ -55,8 +55,13 @@ let timer: ReturnType<typeof setInterval> | undefined
 
 const SIDE_TABLE_TYPES = new Set(['gate_pass', 'gate_fail', 'handoff', 'agent_end', 'phase_end', 'error'])
 
+// The trace must not fetch before the project situation resolves — on a hard
+// refresh base() falls back to /api (adhoc) and 404s, flashing the error bar.
+const { projectsLoaded, selectedProject } = useProjects()
+
 async function tick() {
   if (inflight) return
+  if (!projectsLoaded.value || !selectedProject.value) return   // wait for the project
   inflight = true
   try {
     const detail = await fetchSession(props.adwId)
@@ -108,6 +113,9 @@ async function tick() {
 onMounted(() => {
   void tick()
   timer = setInterval(() => void tick(), 500)
+})
+watch(projectsLoaded, () => {
+  if (projectsLoaded.value) void tick()   // the project resolved — fetch for real
 })
 
 onUnmounted(() => {
@@ -472,6 +480,21 @@ const agentCosts = computed(() => {
     .sort((a, b) => b.cost - a.cost)
 })
 
+// Stop a live run (any phase in progress): the server shells `sssf run stop`,
+// which kills the container — the ADW's kill-failsafe marks the run failed.
+async function stop() {
+  await stopRun(props.adwId)
+  void tick()   // reflect the failed status immediately
+}
+
+async function restart() {
+  const res = await restartRun(props.adwId)
+  if (res.ok) {
+    session.value = null   // force a reload; the run restarts in the sandbox
+    void tick()
+  }
+}
+
 const sessionDurationMs = computed(() => {
   const s = session.value
   if (!s) return NaN
@@ -513,6 +536,26 @@ function selectPhase(p: Phase) {
         @click="activeTicket = ticket"
       >
         <Ticket :size="16" :stroke-width="2" />
+      </button>
+      <button
+        v-if="session.status === 'running'"
+        class="strip-archive strip-stop"
+        type="button"
+        title="Stop — kill the sandbox and mark the run failed"
+        aria-label="Stop run"
+        @click="stop"
+      >
+        <Square :size="16" :stroke-width="2" />
+      </button>
+      <button
+        v-if="session.status === 'success' || session.status === 'fail'"
+        class="strip-archive strip-restart"
+        type="button"
+        title="Restart — re-run this session in a fresh sandbox"
+        aria-label="Restart run"
+        @click="restart"
+      >
+        <RotateCw :size="16" :stroke-width="2" />
       </button>
       <span class="dim">started {{ fmtDate(session.started_at) }}</span>
       <span class="run-stats">

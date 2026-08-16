@@ -57,8 +57,12 @@ DOCUMENT_NOTES = ("Read diff_path in full before writing. Document only what the
 
 def main(prompt: str, config: str = "adws/adw_sssf_config/sssf.config.yaml", adw_id: str | None = None) -> int:
     cfg = agents.load_config(config)
-    agents.validate(cfg, REQUIRED_AGENTS)
+    # Create the session BEFORE validating: a validation failure (e.g. pi
+    # --list-models hiccuping under concurrent container boots) then leaves a
+    # visible failed session instead of nothing — the board/trace show what
+    # happened and the run is reconcileable.
     run = session.ensure(cfg, adw_id)
+    agents.validate(cfg, REQUIRED_AGENTS)
     baseline = git_helper.rev("HEAD")     # pinned before this run commits anything
 
     def commit(ph, envelope, *, allow_empty=False) -> bool:

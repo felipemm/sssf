@@ -60,6 +60,7 @@ const ICONS: Record<string, unknown> = {
   animation: spin 1.1s linear infinite;
 }
 
+
 @keyframes spin {
   to {
     transform: rotate(360deg);

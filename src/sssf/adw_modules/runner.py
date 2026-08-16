@@ -31,7 +31,11 @@ class PhaseHandle:
                                           payload=payload))
         self.run.console.note(", ".join(f"{k}: {v}" for k, v in payload.items()))
         if self.phase.params.kind == "engineer" and "input" in payload:
-            self.run.tracer.session_request(self.run.adw_id, str(payload["input"]))
+            # Only the request phase's log carries the incoming ask — later
+            # engineer-kind phases (the human review gate) log their own inputs
+            # and must not clobber the session's request.
+            if self.phase.params.name == "request":
+                self.run.tracer.session_request(self.run.adw_id, str(payload["input"]))
 
     def call(self, call: AgentCall) -> EnvelopeBase:
         if self.phase.params.kind != "agent":

@@ -83,12 +83,25 @@ function notFound(message: string): Response {
 
 /** True when the sqlite file was replaced under an open connection. */
 function isIoError(error: unknown): boolean {
-  return (
+  // SQLITE_IOERR: the file was replaced underneath a cached connection.
+  // SQLITE_ERROR + 'no such table': the cached connection predates the schema
+  // (the ADW created the tables after the server first opened an empty file)
+  // — same fix: drop the cached connections and retry once.
+  if (
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
     typeof (error as { code?: unknown }).code === "string" &&
     (error as { code: string }).code.startsWith("SQLITE_IOERR")
+  ) {
+    return true;
+  }
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string" &&
+    (error as { message: string }).message.includes("no such table")
   );
 }
 
@@ -363,6 +376,28 @@ const server = Bun.serve({
     }),
     "/api/projects/:project/sessions": scoped(sessionsHandler),
     "/api/projects/:project/sessions/:adw_id": scoped(sessionDetailHandler),
+    "/api/projects/:project/sessions/:adw_id/restart": scoped(async (req) => {
+      const name = param(req, "project");
+      const root = projectRoot(name);
+      const adwId = param(req, "adw_id");
+      if (!root) return notFound(`no project ${name}`);
+      const proc = Bun.spawn(["sssf", "run", "restart", adwId, "--project", root],
+        { stdout: "pipe", stderr: "pipe" });
+      const output = await new Response(proc.stdout).text();
+      await proc.exited;
+      return json({ ok: proc.exitCode === 0, output });
+    }),
+    "/api/projects/:project/sessions/:adw_id/stop": scoped(async (req) => {
+      const name = param(req, "project");
+      const root = projectRoot(name);
+      const adwId = param(req, "adw_id");
+      if (!root) return notFound(`no project ${name}`);
+      const proc = Bun.spawn(["sssf", "run", "stop", adwId, "--project", root],
+        { stdout: "pipe", stderr: "pipe" });
+      const output = await new Response(proc.stdout).text();
+      await proc.exited;
+      return json({ ok: proc.exitCode === 0, output });
+    }),
     "/api/projects/:project/sessions/:adw_id/archive": {
       POST: scoped(archiveHandler),
     },

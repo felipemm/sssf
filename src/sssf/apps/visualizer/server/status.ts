@@ -313,6 +313,8 @@ export function computeStatus(dbPath: string, root: string, name: string, window
             if (s) status = s.status === "success" ? "done" : s.status === "fail" ? "failed" : "running";
           } catch { /* sessions table may not exist yet */ }
         }
+        // a 'starting' ticket (spawned, run still warming up) counts as running
+        if (status === "starting") status = "running";
         if (status in counts) (counts as unknown as Record<string, number>)[status]++;
       }
       tickets = counts;

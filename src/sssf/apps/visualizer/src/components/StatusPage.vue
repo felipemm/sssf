@@ -42,6 +42,13 @@ onMounted(() => {
 watch(projectsLoaded, () => {
   if (projectsLoaded.value) void load()
 })
+// On a project switch, clear the old content immediately (a failing fetch
+// must never leave the previous project's data on screen), then reload.
+watch(selectedProject, () => {
+  status.value = null
+  apiError.value = null
+  void load()
+})
 </script>
 
 <template>

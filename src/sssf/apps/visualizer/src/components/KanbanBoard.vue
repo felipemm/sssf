@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
-import { Archive, ChevronDown, ChevronRight, RefreshCw } from 'lucide-vue-next'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { Archive, ChevronDown, ChevronRight, RefreshCw, RotateCw, Square } from 'lucide-vue-next'
 import type { SessionSummary } from '../lib/types'
 import {
   archiveSession,
@@ -10,6 +10,8 @@ import {
   useProjects,
   type Ticket,
   type TicketsResponse,
+  restartRun,
+  stopRun,
 } from '../lib/api'
 import { fmtCost, fmtDate, fmtTokens, ts } from '../lib/format'
 import { hrefFor } from '../lib/router'
@@ -50,6 +52,13 @@ async function tick() {
 
 // ── ticketing backlog ───────────────────────────────────────────────────────
 const { selectedProject, projectsLoaded } = useProjects()
+// A project switch must not show the previous project's cards while the new
+// fetch is in flight (or if it fails) — clear first, then reload.
+watch(selectedProject, () => {
+  sessions.value = []
+  tickets.value = { enabled: false, tickets: [] }
+  void tick()
+})
 const tickets = ref<TicketsResponse>({ enabled: false, tickets: [] })
 const activeTicket = ref<Ticket | null>(null)
 const syncing = ref(false)
@@ -57,7 +66,9 @@ const syncing = ref(false)
 // The backlog column renders tickets, not sessions — its count and empty
 // state come from here, never from byColumn['backlog'] (which no session ever
 // lands in).
-const backlogTickets = computed(() => tickets.value.tickets.filter((x) => x.status === 'backlog'))
+// 'starting' tickets stay in the backlog with a spinner until the run's
+// session appears (the container warm-up) — only then does the card vanish.
+const backlogTickets = computed(() => tickets.value.tickets.filter((x) => x.status === 'backlog' || x.status === 'starting'))
 
 async function pullTickets() {
   if (!selectedProject.value) return      // adhoc mode has no project scope / backlog
@@ -174,6 +185,24 @@ function toggleCollapsed(key: string) {
 
 // Archive from the board: the card is an <a>, so the click must not navigate.
 // The board polls every 500 ms — a failed write just re-syncs on the next tick.
+async function restart(s: SessionSummary, event: MouseEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+  try {
+    await restartRun(s.adw_id)
+  } catch { /* the next poll reconciles */ }
+  void tick()
+}
+
+async function stop(s: SessionSummary, event: MouseEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+  try {
+    await stopRun(s.adw_id)
+  } catch { /* the next poll reconciles */ }
+  void tick()
+}
+
 async function archive(s: SessionSummary, event: MouseEvent) {
   event.preventDefault()
   event.stopPropagation()
@@ -251,6 +280,26 @@ async function archive(s: SessionSummary, event: MouseEvent) {
                     @click="archive(s, $event)"
                   >
                     <Archive :size="15" :stroke-width="2" />
+                  </button>
+                  <button
+                    v-if="s.status === 'running'"
+                    class="card-archive card-second"
+                    type="button"
+                    title="Stop — cancel this run (marked failed, sandbox torn down)"
+                    aria-label="Stop run"
+                    @click="stop(s, $event)"
+                  >
+                    <Square :size="15" :stroke-width="2" />
+                  </button>
+                  <button
+                    v-if="s.status === 'success' || s.status === 'fail'"
+                    class="card-archive card-second"
+                    type="button"
+                    title="Restart — re-run this session in a fresh sandbox"
+                    aria-label="Restart run"
+                    @click="restart(s, $event)"
+                  >
+                    <RotateCw :size="15" :stroke-width="2" />
                   </button>
                 </span>
               </div>
@@ -429,6 +478,10 @@ async function archive(s: SessionSummary, event: MouseEvent) {
 .card-archive:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+/* A second action beside the archive button (stop/restart). */
+.card-second {
+  right: 46px;
 }
 .card-archive:disabled:hover {
   color: var(--faint);
