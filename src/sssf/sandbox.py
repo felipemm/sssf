@@ -185,6 +185,7 @@ def spawn_sandbox(project_root: Path, adw_id: str, *, cmd: list[str],
     """Create the worktree + start the container. Deterministic; returns the
     sandbox record (worktree, name, host_port)."""
     wt = create_worktree(project_root, adw_id)
+    stamp_adw_template(wt)   # deterministic: the installed template, not a stale init stamp
     uid = uid if uid is not None else os.getuid()
     gid = gid if gid is not None else os.getgid()
     run_sandbox(
@@ -204,6 +205,9 @@ def decide_and_teardown(project_root: Path, adw_id: str, status: str,
     phase ends immediately), wait for it to exit, then tear the container +
     worktree down. The branch sssf/<adw_id> survives (prune deletes it once the
     engineer resolved the run)."""
+    # The CLI spells it "approve"/"reject"; the db record + signals use the
+    # past participle. Normalize so approve never falls into the reject branch.
+    status = {"approve": "approved", "reject": "rejected"}.get(status, status)
     from sssf.adw_modules.tracer import Tracer
     db_path = review_db_path(data_dir)
     tracer = Tracer(str(db_path), str(data_dir / "sessions" / adw_id / "events.jsonl"))
@@ -257,3 +261,17 @@ def stop_run(project_root: Path, adw_id: str, data_dir: Path) -> int:
     stop_remove(container_name(adw_id))
     remove_worktree(sandbox_dir(project_root, adw_id))
     return 0
+
+
+def stamp_adw_template(wt: Path) -> None:
+    """Stamp the CURRENT adw_simple_sdlc.py into the worktree. The worktree's
+    copy is the project's committed template (stamped at init, possibly stale
+    after an sssf upgrade) — sandboxed runs must use the installed template so
+    the review stage matches the installed sssf exactly."""
+    import shutil
+    import sssf
+    template = Path(sssf.__file__).parent / "templates" / "adws" / "adw_simple_sdlc.py"
+    if template.exists():
+        dest = wt / "adws" / "adw_simple_sdlc.py"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(template, dest)

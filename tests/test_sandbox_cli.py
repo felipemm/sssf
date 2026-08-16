@@ -40,3 +40,25 @@ def test_teardown_keeps_branch(tmp_path):
     branches = subprocess.run(["git", "branch", "--list", "sssf/abc123"], cwd=root,
                               capture_output=True, text=True).stdout
     assert "sssf/abc123" in branches
+
+
+def test_decide_normalizes_and_signals(tmp_path, monkeypatch, fake_docker):
+    """approve -> db 'approved' + SIGUSR1; reject -> db 'rejected' + SIGUSR2."""
+    root = _make_repo(tmp_path)
+    from sssf.sandbox import create_worktree, decide_and_teardown, review_db_path
+    wt = create_worktree(root, "norm1")
+    (wt / "f.txt").write_text("x\nrun\n")
+    import subprocess as sp
+    sp.run(["git", "-C", str(wt), "config", "user.email", "t@t"], check=True)
+    sp.run(["git", "-C", str(wt), "config", "user.name", "T"], check=True)
+    sp.run(["git", "-C", str(wt), "add", "-A"], check=True)
+    sp.run(["git", "-C", str(wt), "commit", "-qm", "run"], check=True)
+    data = root / "adws" / "adw_data"
+    data.mkdir(parents=True, exist_ok=True)
+    from sssf.adw_modules.tracer import Tracer
+    t = Tracer(str(review_db_path(data)), str(data / "sessions" / "norm1" / "events.jsonl"))
+    t.review_pending("norm1", host_port=3456)
+    decide_and_teardown(root, "norm1", "approve", data)
+    calls = fake_docker.read_text().splitlines()
+    assert any("kill -s USR1 sssf-norm1" in c for c in calls)
+    assert t.review_status("norm1") == "approved"

@@ -14,9 +14,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 # uv (python project runtimes)
 RUN pip install --no-cache-dir uv
 
-# bun (JS/TS app runtimes)
-RUN curl -fsSL https://bun.sh/install | bash
-ENV PATH="/root/.bun/bin:${PATH}"
+# bun (JS/TS app runtimes) — installed via npm so it lands in /usr/local
+# (world-readable; /root would be 700 and unreachable by the runtime uid).
+RUN npm install -g bun
 
 # pi — the coding-agent CLI the ADW shells to for agent calls
 RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
