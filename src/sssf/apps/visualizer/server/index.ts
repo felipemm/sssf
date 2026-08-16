@@ -317,7 +317,7 @@ const server = Bun.serve({
     ),
 
     // Mission Control — cross-project aggregate + controls.
-    "/api/cockpit": safely(() => json(computeCockpit({ registry: projects }))),
+    "/api/cockpit": safely(async () => json(await computeCockpit({ registry: projects }))),
     "/api/cockpit/projects/:project/refresh": {
       POST: safely(async (req) =>
         json(await handleControl("refresh", { project: param(req, "project") },
