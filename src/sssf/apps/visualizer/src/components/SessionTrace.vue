@@ -823,14 +823,16 @@ function selectPhase(p: Phase) {
   font-family: var(--mono);
   font-size: 16px;
   color: var(--dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* the full model id must stay visible — wrap instead of ellipsizing */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .lane-model {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  font-size: 12px;   /* the full model id stays visible without dominating the lane */
 }
 
 .model-icon {
