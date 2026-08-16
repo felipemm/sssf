@@ -167,8 +167,8 @@ def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) ->
             [sys.executable, str(adw_file), f"run prompt {rel_prompt}", "--adw-id", adw_id],
             cwd=root, start_new_session=True,
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    conn.execute("UPDATE tickets SET status='starting', adw_id=?, prompt_file=? WHERE id=?",
-                 (adw_id, str(rel_prompt), tid))
+    conn.execute("UPDATE tickets SET status='starting', adw_id=?, prompt_file=?, updated_at=? WHERE id=?",
+                 (adw_id, str(rel_prompt), _now(), tid))
     # The run's history: every spawn is a row, so a retried ticket accumulates
     # its attempts (the failed run stays linked for the trace and the retry
     # color). tickets.adw_id remains the LATEST run.

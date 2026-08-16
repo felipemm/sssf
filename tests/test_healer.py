@@ -38,6 +38,16 @@ def test_failed_session_ticket_returns_ticket():
     assert diagnose(None, "backlog", True, True, False, 1.0, 1.0, "fail") is None  # already backlog
 
 
+def test_starting_ticket_with_live_session_is_never_spawn_fail():
+    """Regression: a retried ticket carries a STALE updated_at (run() never
+    bumped it), so an old age must not classify a run that HAS a session as a
+    failed spawn — that killed a healthy run (abort_sandbox on a live
+    container). Spawn-fail is only for tickets with NO session at all."""
+    assert diagnose(None, "starting", True, True, False, 1.0, NO_PROGRESS_MIN + 99, "running") is None
+    assert diagnose(None, "starting", True, True, False, 1.0, NO_PROGRESS_MIN + 99, "fail") == "ticket_backlog"
+    assert diagnose(None, "starting", True, True, False, 1.0, NO_PROGRESS_MIN + 99, None) == "ticket_backlog"
+
+
 def test_recover_finalize_marks_failed(tmp_path, monkeypatch):
     """A dead run gets finalized (session + in-flight phases failed)."""
     import subprocess

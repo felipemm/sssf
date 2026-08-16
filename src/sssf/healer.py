@@ -103,12 +103,14 @@ def diagnose(session_status: str | None, ticket_status: str | None,
     if session_status == "running" and has_container and last_event_min is not None \
             and last_event_min > NO_PROGRESS_MIN:
         return "restart"
-    # A ticket still 'starting' too long (its spawn never produced a session):
-    # put the ticket back in the backlog and clean up. The age is the time
-    # since the ticket was marked starting (updated_at) — a spawn-failed
-    # ticket has no session, hence no events to measure.
-    if ticket_status == "starting" and ticket_age_min is not None \
-            and ticket_age_min > NO_PROGRESS_MIN:
+    # A ticket still 'starting' too long with NO session at all (its spawn
+    # never produced one): put the ticket back in the backlog and clean up.
+    # The age is the time since the ticket was marked starting (updated_at).
+    # A ticket whose session EXISTS is never this case — a stale updated_at
+    # (run() bumps it at spawn, but older retries may not) must not classify
+    # a live or failed run as a spawn failure.
+    if ticket_status == "starting" and linked_session_status is None \
+            and ticket_age_min is not None and ticket_age_min > NO_PROGRESS_MIN:
         return "ticket_backlog"
     # A ticket whose RUN FAILED (its session went terminal-fail): back to the
     # backlog so it can be retried. History is preserved — the failed run

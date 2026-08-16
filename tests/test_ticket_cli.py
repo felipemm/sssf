@@ -89,6 +89,27 @@ def test_run_rejects_already_running(tmp_path, monkeypatch, capsys):
     assert "already running" in capsys.readouterr().err
 
 
+def test_run_bumps_updated_at(tmp_path, monkeypatch):
+    """run() marks the spawn time on updated_at — the healer's spawn-fail
+    age check measures from it. A stale timestamp classifies a healthy retry
+    as a failed spawn and kills the live container."""
+    root = _project(tmp_path, monkeypatch, CONFIG)
+    conn = _db(root)
+    conn.execute("INSERT INTO tickets (id, provider, external_id, title, status, updated_at)"
+                 " VALUES ('internal:abc', 'internal', '', 'X', 'backlog', '2026-08-01T00:00:00+00:00')")
+    conn.commit()
+    conn.close()
+    (root / "adws" / "adw_simple_sdlc.py").write_text("print('adw stub')\n")
+    class P:
+        pid = 12345
+    monkeypatch.setattr(ticket.subprocess, "Popen", lambda argv, **kw: P())
+    assert ticket.run("internal:abc", None) == 0
+    conn = _db(root)
+    row = conn.execute("SELECT updated_at FROM tickets WHERE id='internal:abc'").fetchone()
+    conn.close()
+    assert row[0].startswith("2026-08-1")   # today, not the stale August date
+
+
 def test_run_records_run_history(tmp_path, monkeypatch, capsys):
     """Every spawn appends to ticket_runs — a retried ticket accumulates its
     runs; the ticket row's adw_id is the LATEST run."""
