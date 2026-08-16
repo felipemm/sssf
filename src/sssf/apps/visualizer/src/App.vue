@@ -6,15 +6,17 @@ import { runSweep, setProject } from './lib/api'
 import SessionsList from './components/SessionsList.vue'
 import SessionTrace from './components/SessionTrace.vue'
 import KanbanBoard from './components/KanbanBoard.vue'
+import StatusPage from './components/StatusPage.vue'
 import ProjectPicker from './components/ProjectPicker.vue'
 
 const route = useRoute()
 
 // The board is the default landing page: #/ and #/board both show it.
-// #/sessions, #/archived are the other views; anything else is a trace.
+// #/status, #/sessions, #/archived are the other views; anything else is a trace.
 const view = computed(() => {
   const id = route.value.adwId
   if (!id || id === 'board') return 'board'
+  if (id === 'status') return 'status'
   if (id === 'sessions') return 'list'
   if (id === 'archived') return 'archived'
   return 'trace'
@@ -82,6 +84,14 @@ async function onSweep() {
             >board</a
           >
           <a
+            :href="hrefFor('status')"
+            class="tab"
+            :class="{ active: view === 'status' }"
+            role="tab"
+            :aria-selected="view === 'status'"
+            >status</a
+          >
+          <a
             :href="hrefFor('sessions')"
             class="tab"
             :class="{ active: view === 'list' }"
@@ -124,6 +134,7 @@ async function onSweep() {
     </header>
     <main>
       <KanbanBoard v-if="view === 'board'" />
+      <StatusPage v-if="view === 'status'" />
       <SessionsList v-else-if="view === 'list'" />
       <SessionsList v-else-if="view === 'archived'" archived />
       <SessionTrace v-else :key="traceAdwId" :adw-id="traceAdwId" :phase-id="route.phaseId" />
