@@ -6,9 +6,10 @@ Usage:
 
 Phases: engineer(request) -> planner -> builder -> code(test) [-> builder(fix) -> code(test) ... bounded] -> git(commit)
 
-Testing is CODE: the suite's command lives in adw_modules/quality.py, so no
-agent spends a context window rediscovering it. Failures flow back to the
-builder as an envelope, and only an exhausted fix loop fails the run.
+Testing is CODE: every quality gate (tests, typecheck, build, security) lives
+in adw_modules/quality.py, so no agent spends a context window rediscovering
+it. Failures flow back to the builder as an envelope, and only an exhausted
+fix loop fails the run.
 """
 
 import argparse
@@ -48,19 +49,19 @@ def main(prompt: str, config: str = "adws/adw_sssf_config/sssf.config.yaml", adw
     test = None
     for i in range(1, MAX_FIX_LOOPS + 1):
         with run.phase(PhaseParams(name=f"test_{i}", kind="code", owner="quality",
-                                   description="Run the suite — a known command, so code runs "
-                                               "it and no agent has to rediscover it")) as ph:
-            test = quality.run_tests(run)
+                                   description="Run every quality gate — known commands, so code "
+                                               "runs them and no agent has to rediscover them")) as ph:
+            test = quality.run_quality(run)
             record(ph, test)
 
         if test.passed:
             break
 
         with run.phase(PhaseParams(name=f"fix_{i}", kind="agent", owner="builder", retries=1,
-                                   description="Repair what the suite reported, from its "
+                                   description="Repair what the gates reported, from their "
                                                "verbatim output")) as ph:
             previous = ph.call(AgentCall(output_type=BuildOutput, prompt=prompt,
-                                         previous=quality.as_envelope(test, "tests"),
+                                         previous=quality.as_envelope(test, "quality gates"),
                                          gates=[gates.artifacts_exist]))
 
     # Only tested work gets committed — a red suite leaves the tree uncommitted.
