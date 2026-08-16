@@ -25,6 +25,7 @@ const def = computed(() =>
     x: { scale: () => scalePoint<string>().padding(0.1) },
     y: { scale: scaleLinear, nice: true, grid: true },
     tooltip,
+    margin: { left: 46, right: 12, top: 10, bottom: 26 },
   }),
 )
 </script>

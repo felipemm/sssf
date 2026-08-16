@@ -13,6 +13,7 @@ const props = defineProps<{ buckets: StatusTrendBucket[] }>()
 
 const empty = computed(() => props.buckets.length === 0)
 
+const MARGIN = { left: 46, right: 12, top: 10, bottom: 26 } // y labels + rotated x labels get explicit room
 const xScale = () => scalePoint<string>().padding(0.3)
 // Taller charts + explicit tick config so bars and axis labels never overlap:
 // y labels thinned/spaced, x day labels rotated and collision-thinned.
@@ -32,6 +33,7 @@ const runs = computed(() =>
     x: { scale: xScale, axis: xAxis },
     y: yLinear,
     tooltip,
+    margin: MARGIN,
   }),
 )
 
@@ -44,6 +46,7 @@ const cost = computed(() =>
     x: { scale: xScale, axis: xAxis },
     y: yLinear,
     tooltip,
+    margin: MARGIN,
   }),
 )
 
@@ -61,6 +64,7 @@ const rate = computed(() =>
     x: { scale: xScale, axis: xAxis },
     y: { ...yLinear, tickFormat: (v: number) => `${Math.round(v * 100)}%` },
     tooltip,
+    margin: MARGIN,
   }),
 )
 
@@ -70,6 +74,7 @@ const tokens = computed(() =>
     x: { scale: xScale, axis: xAxis },
     y: yLinear,
     tooltip,
+    margin: MARGIN,
   }),
 )
 </script>
