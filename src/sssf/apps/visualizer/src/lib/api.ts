@@ -179,3 +179,64 @@ export async function syncTickets(): Promise<{ ok: boolean; output?: string }> {
   const data = (await res.json().catch(() => ({}))) as { ok?: boolean; output?: string }
   return { ok: data.ok ?? res.ok, output: data.output }
 }
+
+export interface StatusProject {
+  name: string
+  root: string
+  ticketing_enabled: boolean
+  last_run: string | null
+}
+export interface StatusTotals {
+  runs: number
+  active: number
+  success: number
+  failed: number
+  archived: number
+  success_rate: number
+  avg_duration_s: number
+  total_cost: number
+  avg_cost_per_run: number
+  total_tokens: number
+  avg_tokens_per_run: number
+}
+export interface StatusQuality {
+  gate_pass_rate: number
+  hotspot_phase: string | null
+  hotspot_count: number
+  total_retries: number
+  failed_phases: number
+}
+export interface StatusAgent {
+  role: string
+  model: string | null
+  sessions: number
+  context_tokens: number
+}
+export interface StatusTickets {
+  backlog: number
+  running: number
+  done: number
+  failed: number
+}
+export interface StatusTrendBucket {
+  day: string
+  runs: number
+  cost: number
+  tokens: number
+  success: number
+  fail: number
+}
+export interface StatusResponse {
+  project: StatusProject
+  totals: StatusTotals
+  quality: StatusQuality
+  agents: StatusAgent[]
+  tickets: StatusTickets | null
+  trends: { window: number; buckets: StatusTrendBucket[] }
+}
+
+export async function fetchStatus(windowDays = 30): Promise<StatusResponse> {
+  const res = await fetch(`/api/projects/${selectedProject.value}/status?window=${windowDays}`)
+  if (!res.ok) throw new Error(`status ${res.status}`)
+  return (await res.json()) as StatusResponse
+}
