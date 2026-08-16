@@ -268,6 +268,19 @@ export interface GitStats {
 export interface ContributionDay { date: string; count: number }
 ```
 
+> **Correction (post-implementation, commit 4f8196b):** the brief's git-command
+> approach had 5 real bugs the implementer fixed — (1) `--since` date-bounded
+> walks prune at the first out-of-window commit, returning 0 for repos whose
+> HEAD predates the window → fetch ALL committer timestamps once
+> (`git log --format=%ct HEAD`) and filter/count in JS; (2) `--date=short`
+> renders in the machine's local timezone, not UTC → derive UTC dates from
+> epoch seconds; (3) `for-each-ref --count` requires an integer arg (invalid as
+> a bare flag) → count `--format=%(refname)` lines; (4) `git log -1` is the
+> branch tip (topological), not the newest commit by date; (5) `git log
+> --reverse -1` returns HEAD, not the root — first/last commit derived from
+> min/max of the timestamp dump. Interfaces unchanged; the final
+> `server/git.ts`/`git.test.ts` are the source of truth for this task.
+
 - [ ] **Step 1: Write the failing test**
 
 Create `src/sssf/apps/visualizer/server/git.test.ts`:
