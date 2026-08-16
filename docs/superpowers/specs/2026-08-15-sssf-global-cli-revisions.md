@@ -12,6 +12,8 @@
 
 - 2026-08-15 — [status page design](2026-08-15-status-page-design.md): project
   dashboard with KPIs (runs/health, cost/tokens, quality, agents, trends, tickets).
+- 2026-08-15 — [status page design rev 2](2026-08-15-status-page-design.md): cost
+  attribution (actual + token-share per agent/model), git stats, contributions heatmap.
 
 This spec records every change made to the SSSF global CLI **after** the
 original design was implemented (`4ebb094..388288d` in `~/dev/lab/mvp/sssf`),

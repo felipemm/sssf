@@ -35,9 +35,10 @@ Three principles:
 
 ## Visualizer
 
-- **Status dashboard** — per-project KPIs: runs/health, cost & tokens, quality
-  gates, per-agent models, trend charts (7/30/90d), ticket pipeline. Served at
-  `#/status`.
+- **Status dashboard** — per-project KPIs: runs/health, cost & tokens (actual
+  billing + token-share per agent and per model), quality gates, per-agent
+  models, git repo stats + yearly contributions heatmap, trend charts
+  (7/30/90d), ticket pipeline. Served at `#/status`.
 
 ## Run semantics
 
