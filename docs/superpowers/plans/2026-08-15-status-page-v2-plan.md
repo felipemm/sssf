@@ -54,6 +54,14 @@ Add to `fixtureDb` (after the agent_sessions inserts):
   ev.run("e4", "s3", "s3_01", "agent_end", "documenter", '{"cost":0.05,"usage":{"total_tokens":10000}}', 10000);
 ```
 
+Note: the fixture's agent_end events must point at phases whose `owner`
+matches the event agent (real-system invariant: an agent phase is owned by the
+agent that runs it, and `agent_end` fires in the agent's own phase). In the
+existing fixture, `s1_02`/`s1_03` were owned by `git` and `s3_01` by `planner` —
+realign those owners to planner/builder/documenter respectively so the cost
+queries (which key on `phases.owner`) attribute correctly. Only the fixture
+owner values change; nothing else asserts on them.
+
 Note: the `events` DDL must be created BEFORE the inserts — add the `CREATE TABLE IF NOT EXISTS events` line before the `ev` prepare (the block above shows them together; keep that order). The fixture DDL section already creates sessions/phases/agent_sessions/gate_results/tickets — add the events table there instead of inline if cleaner; the inserts stay at the bottom.
 
 Add assertions in the "known dataset" test (after the existing agents assertions):
