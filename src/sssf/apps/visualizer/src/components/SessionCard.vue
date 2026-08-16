@@ -242,7 +242,7 @@ const hiddenRowCount = computed(() =>
       <span class="card-id">{{ session.adw_id }}</span>
       <span v-if="session.ticket_id" class="card-ticket" :title="session.ticket_id">{{ session.ticket_id }}</span>
     </span>
-    <span class="card-adw" :title="session.adw_name ?? ''">{{ session.adw_name ?? '—' }}</span>
+    <span class="card-adw" :title="session.adw_id">{{ session.adw_id }}</span>
     <span class="card-req" :title="session.request ?? ''">{{ session.request }}</span>
 
     <div v-if="rows.length" class="tl">
@@ -430,9 +430,9 @@ const hiddenRowCount = computed(() =>
 .tl {
   display: flex;
   flex-direction: column;
-  margin-top: 2px;
+  margin-top: 16px;   /* the phase dots sit one line below the id/request lines */
   /* Compact fixed region: axis + four tight row slots. */
-  height: 118px;
+  height: 102px;
   flex: none;
   overflow: hidden;
 }
