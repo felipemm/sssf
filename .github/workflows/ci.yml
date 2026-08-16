@@ -32,3 +32,15 @@ jobs:
         # 5000ms default is tight for a cold runner (status.test.ts flaked at
         # 5044ms once) — the tests themselves take tens of ms.
         run: bun test --timeout 15000
+
+  # Branch protection requires a status check named "CI" — GitHub names check
+  # runs after the WORKFLOW when there is one job, but after each JOB when
+  # there are several. This aggregate job (name = the required check) reports
+  # "CI" and gates on both suites, so merges stop being blocked by a check
+  # that never appears.
+  aggregate:
+    name: CI
+    runs-on: ubuntu-latest
+    needs: [python, visualizer]
+    steps:
+      - run: echo "python (pytest) + visualizer (bun test) green"
