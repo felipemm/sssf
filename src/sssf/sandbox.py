@@ -97,8 +97,8 @@ def docker_available() -> bool:
     return r.returncode == 0
 
 
-def build_image(image: str, dockerfile: Path) -> None:
-    r = _docker("build", "-f", str(dockerfile), str(dockerfile.parent))
+def build_image(image: str, dockerfile: Path, context: Path | None = None) -> None:
+    r = _docker("build", "-f", str(dockerfile), str(context or dockerfile.parent))
     if r.returncode != 0:
         raise SandboxError(f"docker build failed: {r.stderr.strip()[:500]}")
 
