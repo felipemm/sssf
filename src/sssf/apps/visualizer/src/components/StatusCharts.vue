@@ -34,6 +34,7 @@ const runs = computed(() =>
     y: yLinear,
     tooltip,
     margin: MARGIN,
+    clip: true,
   }),
 )
 
@@ -47,6 +48,7 @@ const cost = computed(() =>
     y: yLinear,
     tooltip,
     margin: MARGIN,
+    clip: true,
   }),
 )
 
@@ -65,6 +67,7 @@ const rate = computed(() =>
     y: { ...yLinear, tickFormat: (v: number) => `${Math.round(v * 100)}%` },
     tooltip,
     margin: MARGIN,
+    clip: true,
   }),
 )
 
@@ -75,6 +78,7 @@ const tokens = computed(() =>
     y: yLinear,
     tooltip,
     margin: MARGIN,
+    clip: true,
   }),
 )
 </script>

@@ -26,6 +26,7 @@ const def = computed(() =>
     y: { scale: scaleLinear, nice: true, grid: true },
     tooltip,
     margin: { left: 46, right: 12, top: 10, bottom: 26 },
+    clip: true,
   }),
 )
 </script>
