@@ -46,9 +46,29 @@ def create_worktree(project_root: Path, adw_id: str, attach: bool = False) -> Pa
     return wt
 
 
+def _worktree_registered(wt_dir: Path) -> bool:
+    """True while git still registers this worktree (its admin dir exists).
+    A failed `git worktree remove` (e.g. the container still held the mount)
+    leaves the checkout dir behind UNREGISTERED — then it is a plain directory
+    and safe to delete directly."""
+    gitfile = wt_dir / ".git"
+    if not gitfile.is_file():
+        return False
+    try:
+        line = gitfile.read_text().strip()
+        if line.startswith("gitdir:"):
+            admin = Path(line.split(":", 1)[1].strip())
+            return admin.exists()
+    except OSError:
+        pass
+    return True   # unknown — don't delete
+
+
 def remove_worktree(wt_dir: Path) -> None:
     """Idempotent: remove the worktree (force — the run's work is committed on
-    its branch, and teardown must never block on stray files), then prune."""
+    its branch, and teardown must never block on stray files), then prune. If
+    git's removal left the checkout behind (a teardown race), delete the dir
+    directly once it is no longer registered."""
     if not wt_dir.exists():
         return
     r = subprocess.run(
@@ -61,6 +81,9 @@ def remove_worktree(wt_dir: Path) -> None:
                        capture_output=True, text=True, check=False)
         subprocess.run(["git", "-C", str(root), "worktree", "prune"],
                        capture_output=True, text=True, check=False)
+    if wt_dir.exists() and not _worktree_registered(wt_dir):
+        import shutil
+        shutil.rmtree(wt_dir, ignore_errors=True)
 
 
 def delete_branch(project_root: Path, adw_id: str) -> None:

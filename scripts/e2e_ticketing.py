@@ -83,7 +83,7 @@ def main() -> int:
     sbx_dir = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf")) / "sandboxes" / PROJECT.name
     from sssf.sandbox import sync_run_db, project_db_path
     deadline = time.time() + 15 * 60
-    settle_deadline = time.time() + 15
+    settle_deadline = time.time() + 30
     containers = float("inf")
     while time.time() < deadline:
         try:
@@ -115,7 +115,7 @@ def main() -> int:
                             conn.close()
                 break
         else:
-            settle_deadline = time.time() + 15   # a container is still running
+            settle_deadline = time.time() + 30   # a container is still running
         time.sleep(3)
     elapsed = time.time() - t0
 

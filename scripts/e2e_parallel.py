@@ -58,7 +58,7 @@ def main() -> int:
     sbx_dir = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf")) / "sandboxes" / PROJECT.name
     from sssf.sandbox import sync_run_db
     deadline = time.time() + 15 * 60
-    settle_deadline = time.time() + 15
+    settle_deadline = time.time() + 30
     while time.time() < deadline:
         try:
             conn = sqlite3.connect(str(db), isolation_level=None, timeout=10)
@@ -84,7 +84,7 @@ def main() -> int:
                         conn.close()
             break
         if containers > 0:
-            settle_deadline = time.time() + 15
+            settle_deadline = time.time() + 30
         time.sleep(3)
     elapsed = time.time() - t0
 
