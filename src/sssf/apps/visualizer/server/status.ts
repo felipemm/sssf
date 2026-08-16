@@ -334,7 +334,7 @@ export function computeStatus(dbPath: string, root: string, name: string, window
                 COALESCE(SUM(total_cost),0) cost, COALESCE(SUM(total_tokens),0) tokens,
                 SUM(status='success') success, SUM(status='fail') fail
            FROM sessions
-          WHERE started_at IS NOT NULL AND date(started_at) >= ? AND COALESCE(archived,0)=0
+          WHERE started_at IS NOT NULL AND date(started_at) >= ?
           GROUP BY day ORDER BY day ASC`,
       ).all(cutoff);
       for (const row of rows) {
