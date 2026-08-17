@@ -13,7 +13,7 @@
  *     /api/projects lists them; /api/projects/:project/... scopes a route.
  *
  * Adhoc single-db mode (backwards compat):
- *   bun run server/index.ts --db /path/to/repo/adws/adw_data/sssf.db
+ *   bun run server/index.ts --db /path/to/repo/adws/data/sssf.db
  *   SSSF_DB=/path/to/sssf.db PORT=4600 bun run server/index.ts
  *   — the old unscoped /api/sessions routes keep working.
  */

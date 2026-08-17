@@ -53,8 +53,8 @@ describe("sweepDb", () => {
 describe("sweepAll", () => {
   test("sweeps every registered project", () => {
     const dir = mkdtempSync(join(tmpdir(), "sssf-sweep-all-"));
-    const a = join(dir, "a", "adws", "adw_data", "sssf.db");
-    const b = join(dir, "b", "adws", "adw_data", "sssf.db");
+    const a = join(dir, "a", "adws", "data", "sssf.db");
+    const b = join(dir, "b", "adws", "data", "sssf.db");
     for (const p of [a, b]) {
       mkdirSync(dirname(p), { recursive: true });
       makeDb(p);

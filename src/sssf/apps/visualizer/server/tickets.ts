@@ -34,7 +34,7 @@ const TICKET_RUNS_DDL = `CREATE TABLE IF NOT EXISTS ticket_runs (
 
 /** The feature is on when ticketing.yaml exists with an uncommented providers: line. */
 export function isEnabled(root: string): boolean {
-  const path = resolve(root, "adws", "adw_sssf_config", "ticketing.yaml");
+  const path = resolve(root, "adws", "config", "ticketing.yaml");
   if (!existsSync(path)) return false;
   try {
     return readFileSync(path, "utf8")
