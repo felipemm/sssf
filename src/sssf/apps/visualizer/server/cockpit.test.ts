@@ -6,6 +6,11 @@ import { Database } from "bun:sqlite";
 import { ProjectRegistry } from "./registry.ts";
 import { computeCockpit } from "./cockpit.ts";
 
+// Fixture timestamps must live on the CURRENT UTC date: the cockpit cost
+// aggregation buckets "today" with SQLite date(started_at)=date('now'), so a
+// hard-coded date silently zeroes costTodayUsd the day after it was written.
+const TODAY = new Date().toISOString().slice(0, 10);
+
 function fakeDb(dir: string): string {
   const path = join(dir, "adws", "adw_data", "sssf.db");
   mkdirSync(join(dir, "adws", "adw_data"), { recursive: true });
@@ -31,11 +36,11 @@ function makeEnv() {
   mkdirSync(b, { recursive: true });
   fakeDb(b);
   const da = new Database(join(a, "adws", "adw_data", "sssf.db"));
-  da.run(`INSERT INTO sessions VALUES ('run1','running','2026-08-16T10:00:00',NULL,0.5,100,0)`);
-  da.run(`INSERT INTO sessions VALUES ('done1','success','2026-08-16T09:00:00','2026-08-16T09:30:00',1.2,200,0)`);
-  da.run(`INSERT INTO phases VALUES ('ph1','run1','running','2026-08-16T10:00:00')`);
-  da.run(`INSERT INTO events VALUES ('e1','run1','agent_end','2026-08-16T10:05:00')`);
-  da.run(`INSERT INTO tickets VALUES ('internal:t1','backlog',NULL,'2026-08-16T08:00:00')`);
+  da.run(`INSERT INTO sessions VALUES ('run1','running','${TODAY}T10:00:00',NULL,0.5,100,0)`);
+  da.run(`INSERT INTO sessions VALUES ('done1','success','${TODAY}T09:00:00','${TODAY}T09:30:00',1.2,200,0)`);
+  da.run(`INSERT INTO phases VALUES ('ph1','run1','running','${TODAY}T10:00:00')`);
+  da.run(`INSERT INTO events VALUES ('e1','run1','agent_end','${TODAY}T10:05:00')`);
+  da.run(`INSERT INTO tickets VALUES ('internal:t1','backlog',NULL,'${TODAY}T08:00:00')`);
   da.close();
   mkdirSync(join(home, "sandboxes", "proj-a", "run1"), { recursive: true });
   writeFileSync(join(home, "heal-state.json"), '{"restarts": {"run1": 2}}');
@@ -58,7 +63,7 @@ describe("computeCockpit", () => {
     const data = await computeCockpit({
       registry: env.registry,
       sssfHome: env.home,
-      dockerPs: async () => "sssf-run1\tsssf-runner:latest\tUp 2 minutes\t2026-08-16 15:00:00 +0000 UTC\nsssf-orphanx\tsssf-runner:latest\tUp 1 hour\t2026-08-16 14:00:00 +0000 UTC",
+      dockerPs: async () => `sssf-run1\tsssf-runner:latest\tUp 2 minutes\t${TODAY} 15:00:00 +0000 UTC\nsssf-orphanx\tsssf-runner:latest\tUp 1 hour\t${TODAY} 14:00:00 +0000 UTC`,
     });
     expect(data.kpis.dockerOk).toBe(true);
     expect(data.kpis.runningSessions).toBe(1);
@@ -97,7 +102,7 @@ describe("computeCockpit", () => {
     const env = makeEnv();
     const da = new Database(join(env.root, "proj-a", "adws", "adw_data", "sssf.db"));
     // done1's session is success; tie a 'running'-stale ticket to it
-    da.run(`INSERT INTO tickets VALUES ('internal:t2','running','done1','2026-08-16T08:00:00')`);
+    da.run(`INSERT INTO tickets VALUES ('internal:t2','running','done1','${TODAY}T08:00:00')`);
     da.close();
     const data = await computeCockpit({ registry: env.registry, sssfHome: env.home, dockerPs: async () => "" });
     const pa = data.projects.find((p) => p.name === "proj-a")!;
