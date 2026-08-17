@@ -117,12 +117,19 @@ def _migrate_legacy(root: Path) -> None:
         target = modules / chain.name
         if not target.exists():
             chain.rename(target)
-    # rewrite layout literals inside moved chains
+    # rewrite layout literals inside moved chains AND the moved config files
     for chain in modules.glob("adw_*.py"):
         text = chain.read_text()
         for old, new in _LITERAL_REWRITES:
             text = text.replace(old, new)
         chain.write_text(text)
+    for cfg_file in [adws / "config" / "sssf.config.yaml",
+                     adws / "config" / "ticketing.yaml"]:
+        if cfg_file.exists():
+            text = cfg_file.read_text()
+            for old, new in _LITERAL_REWRITES:
+                text = text.replace(old, new)
+            cfg_file.write_text(text)
     # gitignore the backup
     gitignore = root / ".gitignore"
     entry = f"{_BACKUP_PREFIX}*/"

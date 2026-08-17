@@ -147,7 +147,8 @@ def test_refresh_migrates_legacy_layout(tmp_path, monkeypatch):
     root.mkdir()
     # Build a v1 project by hand
     (root / "adws" / "adw_sssf_config").mkdir(parents=True)
-    (root / "adws" / "adw_sssf_config" / "sssf.config.yaml").write_text("roster: v1\n")
+    (root / "adws" / "adw_sssf_config" / "sssf.config.yaml").write_text(
+        "roster: v1\nsystem: adws/adw_data/prompt_engineering/scout/system.md\n")
     (root / "adws" / "adw_data").mkdir(parents=True)
     (root / "adws" / "adw_data" / "sssf.db").write_text("db")
     (root / "adws" / "app_docs").mkdir(parents=True)
@@ -157,7 +158,8 @@ def test_refresh_migrates_legacy_layout(tmp_path, monkeypatch):
     monkeypatch.setattr("builtins.input", lambda prompt="": "n")
     assert _run_init(root, monkeypatch, ["--refresh"]) == 0
     # moved to v2
-    assert (root / "adws/config/sssf.config.yaml").read_text() == "roster: v1\n"
+    assert (root / "adws/config/sssf.config.yaml").read_text() == (
+        "roster: v1\nsystem: adws/data/prompt_engineering/scout/system.md\n")
     assert (root / "adws/data/sssf.db").read_text() == "db"
     assert (root / "adws/kb/note.md").read_text() == "note"
     assert (root / "adws/modules/adw_custom.py").exists()
