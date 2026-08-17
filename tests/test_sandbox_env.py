@@ -50,8 +50,7 @@ def test_sandbox_env_reads_repo_local_identity(tmp_path, monkeypatch):
 
 
 def test_sandbox_env_forwards_snyk_token(tmp_path, monkeypatch):
-    """The security gate's auth: SNYK_TOKEN reaches the container like
-    GENPLAT_TOKEN does."""
+    """The security gate's auth: SNYK_TOKEN reaches the container."""
     monkeypatch.setenv("HOME", str(tmp_path))
     (tmp_path / ".gitconfig").write_text(
         "[user]\n\tname = Ada Lovelace\n\temail = ada@example.com\n")
@@ -75,3 +74,17 @@ def subprocess_quiet(argv: list[str]) -> int:
     import subprocess
     return subprocess.run(argv, capture_output=True, text=True,
                           check=False).returncode
+
+
+def test_sandbox_env_forwards_openai_vars(tmp_path, monkeypatch):
+    """The standard OpenAI env vars reach the container — litellm/pi read
+    OPENAI_API_KEY + OPENAI_BASE_URL natively for OpenAI-compatible
+    endpoints (e.g. GenPlat)."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".gitconfig").write_text(
+        "[user]\n\tname = Ada Lovelace\n\temail = ada@example.com\n")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test123")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://genplat.example.com/v1")
+    _, _, env = sandbox_env(tmp_path)
+    assert env["OPENAI_API_KEY"] == "sk-test123"
+    assert env["OPENAI_BASE_URL"] == "https://genplat.example.com/v1"
