@@ -30,6 +30,14 @@ RUN ARCH=$(uname -m); [ "$ARCH" = "x86_64" ] && SUF=linux || SUF=linux-arm64; \
     curl -fsSL "https://static.snyk.io/cli/latest/snyk-$SUF" -o /usr/local/bin/snyk \
     && chmod +x /usr/local/bin/snyk
 
+# impeccable — design quality: CLI for the deterministic gate (detect) and the
+# pi skill the designer agent runs (/impeccable audit|critique|polish|optimize,
+# init, document). npm lands in /usr/local (world-readable for the runtime uid,
+# like bun). The skill is vendored under docker/impeccable-pi/ and copied into
+# the pi home by entrypoint.sh — skills are otherwise excluded from the sandbox.
+RUN npm install -g impeccable@3.6.0
+COPY docker/impeccable-pi /opt/impeccable-pi
+
 # sssf itself (the build context is the sssf repo root)
 COPY pyproject.toml README.md /opt/sssf/
 COPY src/sssf /opt/sssf/src/sssf/

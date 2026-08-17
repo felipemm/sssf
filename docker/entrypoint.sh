@@ -11,4 +11,9 @@ for f in /opt/pi-agent-host/*.json; do
   [ -f "$f" ] && cp "$f" "$HOME/.pi/agent/"
 done
 [ -d /opt/pi-agent-host/settings ] && cp -r /opt/pi-agent-host/settings "$HOME/.pi/agent/"
+
+# impeccable pi skill — vendored in the image; copied into the pi home here
+# because skills are otherwise excluded from the sandbox.
+mkdir -p "$HOME/.pi/agent/skills"
+cp -r /opt/impeccable-pi/skills/impeccable "$HOME/.pi/agent/skills/"
 exec "$@"
