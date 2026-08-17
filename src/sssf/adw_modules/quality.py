@@ -40,6 +40,7 @@ from .data_types import (
     EventRecord,
     GateReport,
     QualityCheckResult,
+    QualityOperation,
     QualityCheckSpec,
     QualityResult,
     VerifyOutput,
@@ -67,7 +68,7 @@ _DEFAULT_ARGV: dict[str, list[str]] = {
     "build": ["echo", "PLACEHOLDER build: wire quality.checks in adws/config/sssf.config.yaml"],
 }
 
-_DEFAULT_OPERATION: dict[str, str] = {
+_DEFAULT_OPERATION: dict[str, QualityOperation] = {
     "test": "build",
     "lint": "lint",
     "typecheck": "typecheck",
@@ -145,12 +146,14 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
                 timeout=spec.timeout_seconds,
             )
             returncode = completed.returncode
-            stdout = completed.stdout
-            stderr = completed.stderr
+            # text=True guarantees str; str() keeps mypy happy on the
+            # bytes|str union typeshed reports.
+            stdout = str(completed.stdout or "")
+            stderr = str(completed.stderr or "")
         except subprocess.TimeoutExpired as error:
             returncode = 124
-            stdout = error.stdout or ""
-            stderr = (error.stderr or "") + f"\nTimed out after {spec.timeout_seconds}s."
+            stdout = str(error.stdout or "")
+            stderr = str(error.stderr or "") + f"\nTimed out after {spec.timeout_seconds}s."
         except OSError as error:
             # A missing binary lands here as exit 127 with the real message — no
             # pre-flight probe needed, and none wanted.

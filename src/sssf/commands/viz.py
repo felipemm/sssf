@@ -22,7 +22,7 @@ from pathlib import Path
 
 from sssf.commands import misc
 
-APP_DIR = Path(resources.files("sssf") / "apps" / "visualizer")
+APP_DIR = Path(str(resources.files("sssf") / "apps" / "visualizer"))
 STATE_DIR = Path.home() / ".sssf"
 
 

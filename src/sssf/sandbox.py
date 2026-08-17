@@ -169,9 +169,9 @@ def run_sandbox(
         # HOME=/tmp in the image, mount the host config read-only at /tmp/.config.
         args += ["-v", f"{config_dir}:/tmp/.config:ro"]
     args += ["--user", f"{uid}:{gid}"]
-    for k, v in env.items():
+    for k, v in (env or {}).items():
         args += ["-e", f"{k}={v}"]
-    args += [image, *cmd]
+    args += [image, *(cmd or [])]
     # Docker Desktop can hiccup under concurrent container creation — retry
     # the run a few times before giving up.
     last: subprocess.CompletedProcess[str] | None = None
