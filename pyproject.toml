@@ -9,7 +9,7 @@ dependencies = ["pydantic>=2", "python-dotenv", "pyyaml", "rich"]
 sssf = "sssf.cli:main"
 
 [dependency-groups]
-dev = ["pytest"]
+dev = ["pytest", "ruff", "mypy", "pre-commit"]
 
 [build-system]
 requires = ["hatchling"]
@@ -36,3 +36,21 @@ exclude = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+  "B008",   # function call in default arg (pydantic Field factories are idiomatic)
+  "E501",   # line length is enforced by ruff-format, not lint
+]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true
