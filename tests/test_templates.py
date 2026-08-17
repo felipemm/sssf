@@ -35,7 +35,7 @@ def test_starter_config_validates(tmp_path, monkeypatch):
     shutil.copy(TEMPLATES / "sssf.config.yaml", cfg_dir / "sssf.config.yaml")
     monkeypatch.chdir(tmp_path)
     cfg = agents.load_config(cfg_dir / "sssf.config.yaml")
-    agents.validate(cfg, ["planner", "builder", "reviewer", "scout", "documenter"])
+    agents.validate(cfg, ["planner", "builder", "reviewer", "scout", "documenter", "designer"])
 
 
 def test_artifact_folders_live_under_adws():
@@ -75,3 +75,19 @@ def test_document_chain_ends_in_commit():
     text = (TEMPLATES / "adws" / "adw_document.py").read_text()
     assert "commit_docs" in text
     assert "git_helper.commit_all" in text
+
+
+def test_template_ships_default_checks():
+    cfg = (TEMPLATES / "sssf.config.yaml").read_text()
+    assert '- name: design' in cfg
+    assert '"impeccable", "detect", "site/dist"' in cfg
+    assert '- name: snyk' in cfg
+    assert '"snyk", "test"' in cfg
+    # runners stay honest placeholders — never defaulted
+    assert "PLACEHOLDER test" in cfg
+
+
+def test_designer_prompt_files_exist():
+    for label in ("system", "user"):
+        path = TEMPLATES / "prompt_engineering" / "designer" / f"{label}.md"
+        assert path.is_file(), f"designer {label} prompt missing"

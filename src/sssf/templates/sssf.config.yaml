@@ -69,6 +69,19 @@ quality:
       operation: build
       argv: ["echo", "PLACEHOLDER build: wire quality.checks in adws/adw_sssf_config/sssf.config.yaml"]
       timeout_seconds: 300
+    # Shipped configured by default: the runner image provides both binaries
+    # (snyk since PR #13, impeccable via the design-quality change). Projects
+    # without a design surface or snyk setup remove the entry.
+    - name: design
+      area: frontend
+      operation: lint
+      argv: ["impeccable", "detect", "site/dist"]
+      timeout_seconds: 300
+    - name: snyk
+      area: backend
+      operation: security
+      argv: ["snyk", "test"]
+      timeout_seconds: 300
 
 agents:
   - name: planner
@@ -153,6 +166,23 @@ agents:
       - find
       - ls
       - bash
+      - write
+
+  - name: designer
+    color: "#f59e0b"
+    purpose: Run the impeccable design pass (audit, critique, polish, optimize) on the project's design surface and apply the fixes it reports.
+    prompt_engineering:
+      system: adws/adw_data/prompt_engineering/designer/system.md
+      user: adws/adw_data/prompt_engineering/designer/user.md
+    writes:
+      - site/                     # the design surface; adjust in project configs
+    tools:
+      - read
+      - grep
+      - find
+      - ls
+      - bash
+      - edit
       - write
 
   - name: documenter
