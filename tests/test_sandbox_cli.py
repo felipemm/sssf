@@ -21,7 +21,9 @@ def _make_repo(tmp_path) -> Path:
 
 def test_spawn_sandbox_creates_worktree_and_records_port(tmp_path, monkeypatch, fake_docker):
     root = _make_repo(tmp_path)
+    import sssf.sandbox as sandbox
     from sssf.sandbox import sandbox_dir, spawn_sandbox
+    monkeypatch.setattr(sandbox, "_engine_fingerprint", lambda: "FPFIXED")
     # the orchestration helper under test: spawn_sandbox creates the worktree
     record = spawn_sandbox(root, "abc123", cmd=["true"], image="sssf-runner",
                            data_dir=root / "adws" / "adw_data", pi_home=tmp_path / "pi")

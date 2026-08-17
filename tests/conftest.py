@@ -20,6 +20,8 @@ def fake_docker(tmp_path, monkeypatch):
         "    f.write(' '.join(sys.argv[1:]) + '\\n')\n"
         "if ' info' in ' '.join(sys.argv):\n"
         "    print('Server Version: 29.1.3')\n"
+        "elif ' --entrypoint cat ' in ' '.join(sys.argv):\n"
+        "    print('FPFIXED')\n"
         "elif ' wait ' in ' '.join(sys.argv):\n"
         "    print('0')\n"
         "elif ' rm ' in ' '.join(sys.argv):\n"

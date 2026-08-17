@@ -43,6 +43,13 @@ COPY pyproject.toml README.md /opt/sssf/
 COPY src/sssf /opt/sssf/src/sssf/
 RUN pip install --no-cache-dir /opt/sssf
 
+# Staleness marker: fingerprint of the engine source at build time. The CLI
+# recomputes it against its own package and refuses to spawn on mismatch
+# (issue #21) — engine changes silently broke every sandboxed run until the
+# image was rebuilt.
+RUN find /opt/sssf/src/sssf -type f ! -path "*__pycache__*" ! -name "*.pyc" \
+    | sort | xargs sha256sum | sha256sum | awk '{print $1}' > /opt/sssf-fingerprint
+
 # Entrypoint: git trust + a writable copy of the pi config (see entrypoint.sh)
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

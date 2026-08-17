@@ -177,6 +177,53 @@ def project_db_path(data_dir: Path) -> Path:
     return data_dir / "sssf.db"
 
 
+_FINGERPRINT_PATH = "/opt/sssf-fingerprint"
+_fingerprint_cache: dict[str, str | None] = {}
+
+
+def _engine_fingerprint() -> str:
+    """Fingerprint of the LOCAL sssf engine source — the CLI side of the
+    staleness check. The runner image bakes the same fingerprint at build time
+    (docker/sssf-runner.Dockerfile); a mismatch means the image predates local
+    engine changes and every sandboxed run would die cryptically."""
+    import hashlib
+    root = Path(sssf.__file__).resolve().parent
+    digest = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*")
+                       if p.is_file() and "__pycache__" not in p.parts
+                       and p.suffix != ".pyc"):
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def image_engine_fingerprint(image: str) -> str | None:
+    """The fingerprint baked into the image at build time; None when the image
+    is missing or unreadable (docker failure, no marker file)."""
+    if image in _fingerprint_cache:
+        return _fingerprint_cache[image]
+    r = _docker("run", "--rm", "--entrypoint", "cat", image, _FINGERPRINT_PATH)
+    value = (r.stdout.strip() if r.returncode == 0 else "") or None
+    _fingerprint_cache[image] = value
+    return value
+
+
+def ensure_image_current(image: str) -> None:
+    """Refuse to spawn on a stale/missing runner image — the failure mode where
+    the image's baked engine predates local changes and every sandboxed run
+    dies instantly with an ImportError that auto-teardown erases (issue #21)."""
+    want = _engine_fingerprint()
+    have = image_engine_fingerprint(image)
+    if have is None:
+        raise SandboxError(
+            f"runner image '{image}' is missing or unreadable — "
+            f"run `sssf sandbox build` to build it")
+    if have != want:
+        raise SandboxError(
+            f"runner image '{image}' is stale (image fingerprint {have[:12]} "
+            f"≠ CLI {want[:12]}) — run `sssf sandbox build` to rebuild it")
+
+
 def spawn_sandbox(project_root: Path, adw_id: str, *, cmd: list[str],
                   image: str, data_dir: Path, pi_home: Path,
                   env: dict[str, str] | None = None,
@@ -187,6 +234,7 @@ def spawn_sandbox(project_root: Path, adw_id: str, *, cmd: list[str],
     sandbox record (worktree, name). attach=True reuses the run's existing
     branch (a restart). `worktree` supplies an ALREADY-created worktree (the
     ticket path creates one first to write the prompt) — never create twice."""
+    ensure_image_current(image)
     wt = worktree or create_worktree(project_root, adw_id, attach=attach)
     stamp_adw_template(wt)   # deterministic: the installed template, not a stale init stamp
     uid = uid if uid is not None else os.getuid()
