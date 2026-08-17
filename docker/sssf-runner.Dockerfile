@@ -49,6 +49,7 @@ RUN pip install --no-cache-dir /opt/sssf
 # image was rebuilt.
 RUN find /opt/sssf/src/sssf -type f \
     ! -path "*node_modules*" ! -path "*__pycache__*" ! -path "*/.venv/*" ! -path "*/.git/*" \
+    ! -path "*visualizer*" \
     ! -name "*.pyc" ! -type l \
     | sort | xargs sha256sum | awk '{print $1}' | sha256sum | awk '{print $1}' > /opt/sssf-fingerprint
 
