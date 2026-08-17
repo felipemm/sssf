@@ -1,8 +1,6 @@
 from importlib import resources
 from pathlib import Path
 
-from sssf import adw_modules
-
 
 def test_skill_exists_and_ships():
     skill = Path(resources.files("sssf") / "SKILL.md")
@@ -14,6 +12,8 @@ def test_skill_exists_and_ships():
 
 def test_agents_points_at_package_skill():
     import inspect
+
     from sssf.adw_modules import agents
+
     src = inspect.getsource(agents)
     assert "SKILL.md" in src

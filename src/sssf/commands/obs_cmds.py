@@ -1,4 +1,5 @@
 """sssf sessions / phases / tail / procs — the justfile recipes as commands."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -8,13 +9,20 @@ from rich.table import Table
 
 from sssf import obs
 
-SESSIONS_SQL = ("select adw_id, adw_name, status, substr(request,1,50), total_tokens, "
-                "round(total_cost,4) from sessions order by started_at desc limit ?;")
-PHASES_SQL = "select seq, name, kind, owner, status, attempt from phases where adw_id=? order by seq;"
-TAIL_SQL = ("select rowid, type, name, started_at from events "
-            "where adw_id=? order by rowid desc limit 25;")
-PROCS_SQL = ("select kind, name, pid, command, started_at from processes "
-             "where adw_id=? and ended_at is null order by id;")
+SESSIONS_SQL = (
+    "select adw_id, adw_name, status, substr(request,1,50), total_tokens, "
+    "round(total_cost,4) from sessions order by started_at desc limit ?;"
+)
+PHASES_SQL = (
+    "select seq, name, kind, owner, status, attempt from phases where adw_id=? order by seq;"
+)
+TAIL_SQL = (
+    "select rowid, type, name, started_at from events where adw_id=? order by rowid desc limit 25;"
+)
+PROCS_SQL = (
+    "select kind, name, pid, command, started_at from processes "
+    "where adw_id=? and ended_at is null order by id;"
+)
 
 console = Console()
 

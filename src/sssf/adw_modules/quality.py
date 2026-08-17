@@ -35,10 +35,15 @@ import shlex
 import subprocess
 import time
 from pathlib import Path
-from typing import Callable
 
-from .data_types import (EventRecord, GateReport, QualityCheckResult,
-                         QualityCheckSpec, QualityResult, VerifyOutput)
+from .data_types import (
+    EventRecord,
+    GateReport,
+    QualityCheckResult,
+    QualityCheckSpec,
+    QualityResult,
+    VerifyOutput,
+)
 from .utils import now_iso, operator_env
 
 # How much of a failing command's output rides back inside the envelope. Enough
@@ -53,18 +58,20 @@ TAIL_CHARS = 4_000
 # one thing this module must never produce.
 
 _DEFAULT_ARGV: dict[str, list[str]] = {
-    "test": ["echo", "PLACEHOLDER test: wire quality.checks in "
-                        "adws/config/sssf.config.yaml"],
-    "lint": ["echo", "PLACEHOLDER lint: wire quality.checks in "
-                        "adws/config/sssf.config.yaml"],
-    "typecheck": ["echo", "PLACEHOLDER typecheck: wire quality.checks in "
-                            "adws/config/sssf.config.yaml"],
-    "build": ["echo", "PLACEHOLDER build: wire quality.checks in "
-                        "adws/config/sssf.config.yaml"],
+    "test": ["echo", "PLACEHOLDER test: wire quality.checks in adws/config/sssf.config.yaml"],
+    "lint": ["echo", "PLACEHOLDER lint: wire quality.checks in adws/config/sssf.config.yaml"],
+    "typecheck": [
+        "echo",
+        "PLACEHOLDER typecheck: wire quality.checks in adws/config/sssf.config.yaml",
+    ],
+    "build": ["echo", "PLACEHOLDER build: wire quality.checks in adws/config/sssf.config.yaml"],
 }
 
 _DEFAULT_OPERATION: dict[str, str] = {
-    "test": "build", "lint": "lint", "typecheck": "typecheck", "build": "build",
+    "test": "build",
+    "lint": "lint",
+    "typecheck": "typecheck",
+    "build": "build",
 }
 
 
@@ -74,7 +81,9 @@ def _placeholder(name: str) -> list[str]:
 
 def _default_spec(name: str) -> QualityCheckSpec:
     return QualityCheckSpec(
-        name=name, area="backend", operation=_DEFAULT_OPERATION[name],
+        name=name,
+        area="backend",
+        operation=_DEFAULT_OPERATION[name],
         argv=_placeholder(name),
         timeout_seconds=600 if name == "test" else 300 if name == "build" else 120,
     )
@@ -102,7 +111,7 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
     output_dir = _check_dir(run, spec.name)
     output_artifact = output_dir / "command.log"
     command = shlex.join(spec.argv)
-    env = operator_env()             # the engineer's own shell environment
+    env = operator_env()  # the engineer's own shell environment
 
     run.console.note(f"quality {spec.name}: {command}")
     started_at = now_iso()
@@ -116,9 +125,11 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
     env_error = False
     preflight_error = None
     if spec.requires is not None and not (run.repo_root / spec.requires).exists():
-        preflight_error = (f"quality check '{spec.name}' requires {spec.requires}, "
-                           f"which does not exist here — remove the check or point "
-                           f"its target at the real surface")
+        preflight_error = (
+            f"quality check '{spec.name}' requires {spec.requires}, "
+            f"which does not exist here — remove the check or point "
+            f"its target at the real surface"
+        )
     if preflight_error is not None:
         returncode = 127
         env_error = True
@@ -153,30 +164,33 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
         f"\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}\n"
     )
     passed = returncode == 0
-    run.tracer.event(EventRecord(
-        adw_id=run.adw_id,
-        phase_id=phase.phase_id,
-        type="tool_call",
-        name=f"quality:{spec.name}",
-        payload={
-            "area": spec.area,
-            "operation": spec.operation,
-            "command": command,
-            "returncode": returncode,
-            "passed": passed,
-            "output_artifact": str(output_artifact),
-        },
-        started_at=started_at,
-        ended_at=now_iso(),
-    ))
+    run.tracer.event(
+        EventRecord(
+            adw_id=run.adw_id,
+            phase_id=phase.phase_id,
+            type="tool_call",
+            name=f"quality:{spec.name}",
+            payload={
+                "area": spec.area,
+                "operation": spec.operation,
+                "command": command,
+                "returncode": returncode,
+                "passed": passed,
+                "output_artifact": str(output_artifact),
+            },
+            started_at=started_at,
+            ended_at=now_iso(),
+        )
+    )
     # The check is a gate too: pass/fail lands in gate_results so the
     # dashboard's quality-gate KPI counts the real commands, not just the
     # agents' claim gates. item=command keeps the evidence in the row.
     note = f"exit {returncode}, {duration:.1f}s"
     if not passed:
         note += f" — see {output_artifact}"
-    run.tracer.gate_row(phase, f"quality:{spec.name}",
-                        GateReport().check(command, passed, note), attempt=1)
+    run.tracer.gate_row(
+        phase, f"quality:{spec.name}", GateReport().check(command, passed, note), attempt=1
+    )
     run.console.note(
         f"quality {spec.name}: {'passed' if passed else 'failed'} "
         f"(exit {returncode}, {duration:.1f}s)"
@@ -199,6 +213,7 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
 # Each block resolves its command from the project's sssf.config.yaml
 # (quality.checks), falling back to the honest placeholder. Templates call
 # run_tests()/run_quality(); the per-name functions stay for direct use.
+
 
 def _block(run, name: str) -> QualityCheckResult:
     for spec in _specs(run):
@@ -233,11 +248,17 @@ def run_tests(run) -> QualityResult:
     still reaches the builder through `as_envelope` below.
     """
     check = test(run)
-    failures = ([] if check.passed else
-                [f"{check.name}: `{check.command}` exited {check.returncode}\n"
-                 f"{check.output_tail}".rstrip()])
-    return QualityResult(passed=check.passed, checks=[check], failures=failures,
-                         artifacts=[check.output_artifact])
+    failures = (
+        []
+        if check.passed
+        else [
+            f"{check.name}: `{check.command}` exited {check.returncode}\n"
+            f"{check.output_tail}".rstrip()
+        ]
+    )
+    return QualityResult(
+        passed=check.passed, checks=[check], failures=failures, artifacts=[check.output_artifact]
+    )
 
 
 def as_envelope(result: QualityResult, what: str) -> VerifyOutput:
@@ -250,12 +271,18 @@ def as_envelope(result: QualityResult, what: str) -> VerifyOutput:
     """
     return VerifyOutput(
         status="success" if result.passed else "fail",
-        summary=(f"{what}: all {len(result.checks)} check(s) passed" if result.passed
-                 else f"{what}: {len(result.failures)} of {len(result.checks)} check(s) failed"),
+        summary=(
+            f"{what}: all {len(result.checks)} check(s) passed"
+            if result.passed
+            else f"{what}: {len(result.failures)} of {len(result.checks)} check(s) failed"
+        ),
         artifacts=result.artifacts,
-        notes_for_next_agent=("" if result.passed else
-                              "Fix every failure below. The output is verbatim from the "
-                              "command — trust it over any summary."),
+        notes_for_next_agent=(
+            ""
+            if result.passed
+            else "Fix every failure below. The output is verbatim from the "
+            "command — trust it over any summary."
+        ),
         passed=result.passed,
         failures=result.failures,
     )
@@ -287,7 +314,8 @@ def run_quality(run) -> QualityResult:
     # what the error "means" by a parser that guessed.
     failures = [
         f"{check.name}: `{check.command}` exited {check.returncode}\n{check.output_tail}".rstrip()
-        for check in checks if not check.passed
+        for check in checks
+        if not check.passed
     ]
     return QualityResult(
         passed=not failures,

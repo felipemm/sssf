@@ -23,8 +23,7 @@ def create_branch(name: str) -> str:
 
 
 def is_repo() -> bool:
-    result = subprocess.run(["git", "rev-parse", "--git-dir"],
-                            capture_output=True, text=True)
+    result = subprocess.run(["git", "rev-parse", "--git-dir"], capture_output=True, text=True)
     return result.returncode == 0
 
 
@@ -50,7 +49,8 @@ def commit_all(message: str, allow_empty: bool = False) -> str | None:
     if not is_repo():
         raise RuntimeError(
             "not a git repository — a commit phase needs one. Run `git init` in the "
-            "repo root (and make a first commit) before running an ADW that commits.")
+            "repo root (and make a first commit) before running an ADW that commits."
+        )
     _git("add", "-A")
     if not _git("status", "--porcelain"):
         if allow_empty:
@@ -67,10 +67,14 @@ def changed_files() -> list[str]:
 
 # ── diff plumbing (composed into a ChangeSet by documentation.py) ────────────
 
+
 def ref_exists(ref: str) -> bool:
     """True when `ref` resolves to a commit. Never raises — this is a question."""
-    result = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
-                            capture_output=True, text=True)
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+        capture_output=True,
+        text=True,
+    )
     return result.returncode == 0
 
 

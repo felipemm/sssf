@@ -12,20 +12,19 @@ import json
 import os
 import subprocess
 import time
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
-from typing import Callable, Optional
 
 from .data_types import PiRequest, PiResult
 from .utils import now_iso, operator_env
 
 PI_PATH = os.environ.get("PI_PATH", "pi")
-MODELS_JSON = os.environ.get("PI_MODELS_PATH",
-                             str(Path.home() / ".pi" / "agent" / "models.json"))
+MODELS_JSON = os.environ.get("PI_MODELS_PATH", str(Path.home() / ".pi" / "agent" / "models.json"))
 
-RESULT_SNIPPET_CHARS = 20_000   # tool output rides along whole; clip only guards pathological cases
-ARG_VALUE_CHARS = 20_000        # args too — the UI scrolls, it must not be handed cut-off data
-LABEL_CHARS = 80                # "bash: <command>" shown as the event name
+RESULT_SNIPPET_CHARS = 20_000  # tool output rides along whole; clip only guards pathological cases
+ARG_VALUE_CHARS = 20_000  # args too — the UI scrolls, it must not be handed cut-off data
+LABEL_CHARS = 80  # "bash: <command>" shown as the event name
 
 # The arg that identifies a call at a glance, in the order tools tend to use.
 PRIMARY_ARGS = ("command", "path", "file_path", "pattern", "query", "url")
@@ -45,8 +44,12 @@ def _pi_catalog() -> list[tuple[str, str, int]]:
     """Read pi's merged catalog, including built-in providers and custom models."""
     try:
         result = subprocess.run(
-            [PI_PATH, "--list-models"], capture_output=True, text=True,
-            timeout=30, env=operator_env(), check=False,
+            [PI_PATH, "--list-models"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=operator_env(),
+            check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
         return []
@@ -76,17 +79,21 @@ def resolve_model(pattern: str) -> tuple[str, str]:
         provider, model_id = pattern.split("/", 1)
         if (provider, model_id) in catalog:
             return provider, model_id
-    matches = [(provider, model_id) for provider, model_id in catalog
-               if pattern == model_id or pattern in model_id]
-    exact = [match for match in matches
-             if match[1] == pattern or match[1].endswith("/" + pattern)]
+    matches = [
+        (provider, model_id)
+        for provider, model_id in catalog
+        if pattern == model_id or pattern in model_id
+    ]
+    exact = [match for match in matches if match[1] == pattern or match[1].endswith("/" + pattern)]
     if len(exact) == 1:
         return exact[0]
     if len(matches) == 1:
         return matches[0]
     if not matches:
-        raise ValueError(f"model pattern {pattern!r} not found in pi --list-models — "
-                         "authenticate/register it or fix the config")
+        raise ValueError(
+            f"model pattern {pattern!r} not found in pi --list-models — "
+            "authenticate/register it or fix the config"
+        )
     raise ValueError(f"model pattern {pattern!r} is ambiguous: {matches}")
 
 
@@ -101,8 +108,7 @@ def _context_tokens(usage: dict) -> int:
     total = usage.get("totalTokens") or 0
     if total:
         return int(total)
-    return int(sum(usage.get(part) or 0
-                   for part in ("input", "output", "cacheRead", "cacheWrite")))
+    return int(sum(usage.get(part) or 0 for part in ("input", "output", "cacheRead", "cacheWrite")))
 
 
 def context_window(provider: str, model_id: str) -> int:
@@ -120,8 +126,11 @@ def context_window(provider: str, model_id: str) -> int:
 def _text_of(container: dict) -> str:
     """Join the text blocks of anything pi shapes as {content: [...]} — a
     message or a tool result."""
-    return "".join(part.get("text", "") for part in container.get("content", []) or []
-                   if isinstance(part, dict) and part.get("type") == "text")
+    return "".join(
+        part.get("text", "")
+        for part in container.get("content", []) or []
+        if isinstance(part, dict) and part.get("type") == "text"
+    )
 
 
 def _clip(text: str, limit: int) -> str:
@@ -130,8 +139,10 @@ def _clip(text: str, limit: int) -> str:
 
 def _label(tool: str, args: dict) -> str:
     """One-line human name for a tool call: `bash: ls -la src`."""
-    value = next((args[key] for key in PRIMARY_ARGS
-                  if isinstance(args.get(key), str) and args[key].strip()), "")
+    value = next(
+        (args[key] for key in PRIMARY_ARGS if isinstance(args.get(key), str) and args[key].strip()),
+        "",
+    )
     if not value:
         value = next((v for v in args.values() if isinstance(v, str) and v.strip()), "")
     value = " ".join(str(value).split())
@@ -154,18 +165,16 @@ class ToolCallTracker:
     def __init__(self) -> None:
         self._open: dict[str, dict] = {}
 
-    def observe(self, event: dict) -> Optional[dict]:
+    def observe(self, event: dict) -> dict | None:
         """Returns the record for a finished tool call, else None."""
         etype = event.get("type", "")
         if etype == "message_end":
             for block in event.get("message", {}).get("content", []) or []:
                 if isinstance(block, dict) and block.get("type") == "toolCall":
-                    self._announce(block.get("id"), block.get("name"),
-                                   block.get("arguments"))
+                    self._announce(block.get("id"), block.get("name"), block.get("arguments"))
             return None
         if etype == "tool_execution_start":
-            self._announce(event.get("toolCallId"), event.get("toolName"),
-                           event.get("args"))
+            self._announce(event.get("toolCallId"), event.get("toolName"), event.get("args"))
             return None
         if etype != "tool_execution_end":
             return None
@@ -177,8 +186,10 @@ class ToolCallTracker:
         record = {
             "tool": tool,
             "tool_call_id": call_id,
-            "args": {key: _clip(value, ARG_VALUE_CHARS) if isinstance(value, str) else value
-                     for key, value in args.items()},
+            "args": {
+                key: _clip(value, ARG_VALUE_CHARS) if isinstance(value, str) else value
+                for key, value in args.items()
+            },
             "ok": not event.get("isError", False),
             "label": _label(tool, args),
         }
@@ -200,14 +211,17 @@ class ToolCallTracker:
         self._open[str(call_id)] = {
             "tool": tool or known.get("tool", ""),
             "args": args or known.get("args", {}),
-            "started_at": known.get("started_at") or now_iso(),   # wall clock, for the row
-            "clock": known.get("clock") or time.monotonic(),      # monotonic, for duration
+            "started_at": known.get("started_at") or now_iso(),  # wall clock, for the row
+            "clock": known.get("clock") or time.monotonic(),  # monotonic, for duration
         }
 
 
-def run(request: PiRequest, on_event: Optional[Callable[[dict], None]] = None,
-        on_spawn: Optional[Callable[[int], None]] = None,
-        on_exit: Optional[Callable[[int], None]] = None) -> PiResult:
+def run(
+    request: PiRequest,
+    on_event: Callable[[dict], None] | None = None,
+    on_spawn: Callable[[int], None] | None = None,
+    on_exit: Callable[[int], None] | None = None,
+) -> PiResult:
     """Run one non-interactive pi turn.
 
     `on_spawn(pid)` and `on_exit(pid)` bracket the child process so the caller
@@ -216,12 +230,22 @@ def run(request: PiRequest, on_event: Optional[Callable[[dict], None]] = None,
     """
     provider, model_id = resolve_model(request.model)
     cmd = [
-        PI_PATH, "-p", "--mode", "json",
-        "--provider", provider, "--model", model_id,
-        "--thinking", request.thinking,
-        "--session-id", request.session_id,
-        "--session-dir", request.session_dir,
-        "--system-prompt", request.system_prompt,
+        PI_PATH,
+        "-p",
+        "--mode",
+        "json",
+        "--provider",
+        provider,
+        "--model",
+        model_id,
+        "--thinking",
+        request.thinking,
+        "--session-id",
+        request.session_id,
+        "--session-dir",
+        request.session_dir,
+        "--system-prompt",
+        request.system_prompt,
     ]
     if request.skill_path:
         cmd += ["--skill", request.skill_path]
@@ -234,25 +258,32 @@ def run(request: PiRequest, on_event: Optional[Callable[[dict], None]] = None,
     raw_path = Path(request.raw_output_path)
     raw_path.parent.mkdir(parents=True, exist_ok=True)
 
-    result = PiResult(session_id=request.session_id,
-                      context_window=context_window(provider, model_id))
+    result = PiResult(
+        session_id=request.session_id, context_window=context_window(provider, model_id)
+    )
     # stdin is DEVNULL, deliberately. The prompt travels in argv, so the child
     # never needs stdin — but inheriting the parent's means pi sees a non-TTY
     # and can sit forever waiting for piped input that will never arrive or
     # EOF. That failure is silent and total: no request goes out, no bytes come
     # back, and the ADW blocks on a read loop with nothing to read. Observed as
     # a run that sat idle at 0% CPU with an empty raw_output.jsonl.
-    process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               text=True, bufsize=1, cwd=request.cwd,
-                               env=operator_env())
+    process = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+        cwd=request.cwd,
+        env=operator_env(),
+    )
     if on_spawn:
         on_spawn(process.pid)
     with raw_path.open("a") as raw:
         assert process.stdout is not None
         for line in process.stdout:
             raw.write(line)
-            raw.flush()                      # events land on disk as they happen
+            raw.flush()  # events land on disk as they happen
             line = line.strip()
             if not line:
                 continue
@@ -265,7 +296,7 @@ def run(request: PiRequest, on_event: Optional[Callable[[dict], None]] = None,
                 if message.get("role") == "assistant":
                     text = _text_of(message)
                     if text:
-                        result.text = text   # last assistant message wins
+                        result.text = text  # last assistant message wins
                     usage = message.get("usage", {}) or {}
                     turn = _context_tokens(usage)
                     result.tokens += turn

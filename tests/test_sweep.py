@@ -1,6 +1,5 @@
-import json
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sssf import registry
@@ -12,21 +11,22 @@ def _make_db(path: Path) -> None:
     conn = sqlite3.connect(path)
     conn.executescript(
         "CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT,"
-        " archived INTEGER DEFAULT 0, request TEXT);")
-    old = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat(timespec="milliseconds")
-    recent = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="milliseconds")
+        " archived INTEGER DEFAULT 0, request TEXT);"
+    )
+    old = (datetime.now(UTC) - timedelta(days=40)).isoformat(timespec="milliseconds")
+    recent = (datetime.now(UTC) - timedelta(days=1)).isoformat(timespec="milliseconds")
     conn.execute(
         "INSERT INTO sessions (adw_id, status, ended_at, archived) VALUES"
         " ('old-success', 'success', ?, 0), ('old-fail', 'fail', ?, 0),"
         " ('recent', 'success', ?, 0), ('running', 'running', NULL, 0)",
-        (old, old, recent))
+        (old, old, recent),
+    )
     conn.commit()
     conn.close()
 
 
 def _register(tmp_path: Path, monkeypatch, root: Path | None = None) -> None:
-    monkeypatch.setattr(registry, "registry_path",
-                        lambda: tmp_path / ".sssf" / "projects.json")
+    monkeypatch.setattr(registry, "registry_path", lambda: tmp_path / ".sssf" / "projects.json")
     if root is not None:
         registry.register_project(root, root / "adws" / "data" / "sssf.db", "0.1.0")
 

@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from sssf import registry
 from sssf.commands import misc
 

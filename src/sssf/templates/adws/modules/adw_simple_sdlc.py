@@ -1,5 +1,5 @@
-from pathlib import Path
 #!/usr/bin/env -S uv run
+
 """ADW Simple SDLC — plan, build, test, review, document, committing as it goes.
 
 Usage:
@@ -41,23 +41,33 @@ pinned before the first commit phase and printed in the request phase.
 
 import argparse
 import sys
+from pathlib import Path
 
 from sssf.adw_modules import agents, changes, gates, git_helper, quality, session, utils
-from sssf.adw_modules.data_types import (AgentCall, BuildOutput, ChangeCapture,
-                                    DocumentOutput, PhaseParams, PlanOutput,
-                                    ReviewOutput)
+from sssf.adw_modules.data_types import (
+    AgentCall,
+    BuildOutput,
+    ChangeCapture,
+    DocumentOutput,
+    PhaseParams,
+    PlanOutput,
+    ReviewOutput,
+)
 
 REQUIRED_AGENTS = ["planner", "builder", "reviewer", "documenter"]
 MAX_FIX_LOOPS = 3
 MAX_REVISION_LOOPS = 2
 
-DOCUMENT_NOTES = ("Read diff_path in full before writing. Document only what the "
-                  "diff shows, then copy the write-up into adws/kb/ as your task "
-                  "describes.")
+DOCUMENT_NOTES = (
+    "Read diff_path in full before writing. Document only what the "
+    "diff shows, then copy the write-up into adws/kb/ as your task "
+    "describes."
+)
 
 
 def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> int:
     from sssf.adw_modules import paths
+
     cfg = agents.load_config(config or str(paths.config_file(Path.cwd())))
     # Create the session BEFORE validating: a validation failure (e.g. pi
     # --list-models hiccuping under concurrent container boots) then leaves a
@@ -65,7 +75,7 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
     # happened and the run is reconcileable.
     run = session.ensure(cfg, adw_id)
     agents.validate(cfg, REQUIRED_AGENTS)
-    baseline = git_helper.rev("HEAD")     # pinned before this run commits anything
+    baseline = git_helper.rev("HEAD")  # pinned before this run commits anything
 
     def commit(ph, envelope, *, allow_empty=False) -> bool:
         """Commit what the preceding phase produced, in that agent's own words.
@@ -80,34 +90,75 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
     def record(ph, result) -> None:
         """Log a deterministic block's verdict — the same shape every ADW uses."""
         passed = sum(1 for check in result.checks if check.passed)
-        ph.log(passed=result.passed, checks=f"{passed}/{len(result.checks)}",
-               artifacts=", ".join(result.artifacts))
+        ph.log(
+            passed=result.passed,
+            checks=f"{passed}/{len(result.checks)}",
+            artifacts=", ".join(result.artifacts),
+        )
 
-    with run.phase(PhaseParams(name="request", kind="engineer", owner=run.engineer,
-                               description="Capture the incoming ask")) as ph:
+    with run.phase(
+        PhaseParams(
+            name="request",
+            kind="engineer",
+            owner=run.engineer,
+            description="Capture the incoming ask",
+        )
+    ) as ph:
         ph.log(input=prompt, baseline=git_helper.short_sha(baseline))
 
-    with run.phase(PhaseParams(name="plan", kind="agent", owner="planner",
-                               description="Turn the request into an implementable plan")) as ph:
-        plan = ph.call(AgentCall(output_type=PlanOutput, prompt=prompt,
-                                 gates=[gates.artifacts_exist, gates.files_non_empty]))
+    with run.phase(
+        PhaseParams(
+            name="plan",
+            kind="agent",
+            owner="planner",
+            description="Turn the request into an implementable plan",
+        )
+    ) as ph:
+        plan = ph.call(
+            AgentCall(
+                output_type=PlanOutput,
+                prompt=prompt,
+                gates=[gates.artifacts_exist, gates.files_non_empty],
+            )
+        )
 
-    with run.phase(PhaseParams(name="commit_plan", kind="code", owner="git",
-                               description="Put the spec on record before any code exists to blur it")) as ph:
+    with run.phase(
+        PhaseParams(
+            name="commit_plan",
+            kind="code",
+            owner="git",
+            description="Put the spec on record before any code exists to blur it",
+        )
+    ) as ph:
         commit(ph, plan)
-    plan_sha = git_helper.rev("HEAD")   # the spec commit — the only commit this run owns so far
+    plan_sha = git_helper.rev("HEAD")  # the spec commit — the only commit this run owns so far
 
-    with run.phase(PhaseParams(name="build", kind="agent", owner="builder",
-                               description="Implement the plan exactly")) as ph:
-        build = ph.call(AgentCall(output_type=BuildOutput, prompt=prompt, previous=plan,
-                                  gates=[gates.diff_matches_claims]))
+    with run.phase(
+        PhaseParams(
+            name="build", kind="agent", owner="builder", description="Implement the plan exactly"
+        )
+    ) as ph:
+        build = ph.call(
+            AgentCall(
+                output_type=BuildOutput,
+                prompt=prompt,
+                previous=plan,
+                gates=[gates.diff_matches_claims],
+            )
+        )
 
     test = None
     env_reason = None
     for i in range(1, MAX_FIX_LOOPS + 1):
-        with run.phase(PhaseParams(name=f"test_{i}", kind="code", owner="quality",
-                                   description="Run every quality gate — known commands, so code "
-                                               "runs them and no agent has to rediscover them")) as ph:
+        with run.phase(
+            PhaseParams(
+                name=f"test_{i}",
+                kind="code",
+                owner="quality",
+                description="Run every quality gate — known commands, so code "
+                "runs them and no agent has to rediscover them",
+            )
+        ) as ph:
             test = quality.run_quality(run)
             record(ph, test)
 
@@ -117,36 +168,78 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
         if env_reason:
             break
 
-        with run.phase(PhaseParams(name=f"fix_{i}", kind="agent", owner="builder", retries=1,
-                                   description="Repair what the gates reported, from their "
-                                               "verbatim output")) as ph:
-            build = ph.call(AgentCall(output_type=BuildOutput, prompt=prompt,
-                                      previous=quality.as_envelope(test, "quality gates"),
-                                      gates=[gates.diff_matches_claims]))
+        with run.phase(
+            PhaseParams(
+                name=f"fix_{i}",
+                kind="agent",
+                owner="builder",
+                retries=1,
+                description="Repair what the gates reported, from their verbatim output",
+            )
+        ) as ph:
+            build = ph.call(
+                AgentCall(
+                    output_type=BuildOutput,
+                    prompt=prompt,
+                    previous=quality.as_envelope(test, "quality gates"),
+                    gates=[gates.diff_matches_claims],
+                )
+            )
 
     review = None
     revised = False
     for i in range(1, MAX_REVISION_LOOPS + 1):
-        with run.phase(PhaseParams(name=f"review_{i}", kind="agent", owner="reviewer",
-                                   description="Confirm the build matches the plan")) as ph:
-            review = ph.call(AgentCall(output_type=ReviewOutput, prompt=prompt, previous=build,
-                                       gates=[gates.artifacts_exist, gates.verdict_consistent]))
+        with run.phase(
+            PhaseParams(
+                name=f"review_{i}",
+                kind="agent",
+                owner="reviewer",
+                description="Confirm the build matches the plan",
+            )
+        ) as ph:
+            review = ph.call(
+                AgentCall(
+                    output_type=ReviewOutput,
+                    prompt=prompt,
+                    previous=build,
+                    gates=[gates.artifacts_exist, gates.verdict_consistent],
+                )
+            )
 
         if review.approved or i == MAX_REVISION_LOOPS:
             break
 
-        with run.phase(PhaseParams(name=f"revise_{i}", kind="agent", owner="builder", retries=1,
-                                   description="Close the reviewer's blocking findings")) as ph:
-            build = ph.call(AgentCall(output_type=BuildOutput, prompt=prompt, previous=review,
-                                      gates=[gates.diff_matches_claims]))
+        with run.phase(
+            PhaseParams(
+                name=f"revise_{i}",
+                kind="agent",
+                owner="builder",
+                retries=1,
+                description="Close the reviewer's blocking findings",
+            )
+        ) as ph:
+            build = ph.call(
+                AgentCall(
+                    output_type=BuildOutput,
+                    prompt=prompt,
+                    previous=review,
+                    gates=[gates.diff_matches_claims],
+                )
+            )
             revised = True
 
     # A revision edited code after the suite last ran, so the green light is
     # stale. Re-run it rather than commit on a result that predates the change.
     if revised and review is not None and review.approved:
-        with run.phase(PhaseParams(name="retest", kind="code", owner="quality",
-                                   description="Re-run the gates — the revision changed code "
-                                               "after the last green result")) as ph:
+        with run.phase(
+            PhaseParams(
+                name="retest",
+                kind="code",
+                owner="quality",
+                description="Re-run the gates — the revision changed code "
+                "after the last green result",
+            )
+        ) as ph:
             test = quality.run_quality(run)
             record(ph, test)
             env_reason = env_reason or quality.env_failure(test)
@@ -154,12 +247,17 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
     # Red tests or a rejected review stop the chain here: the code stays
     # uncommitted and nothing is documented, because there is nothing worth
     # describing yet. The plan commit stands — it is a record of what was asked.
-    verified = (test is not None and test.passed
-                and review is not None and review.approved)
+    verified = test is not None and test.passed and review is not None and review.approved
     if verified:
         no_op = False
-        with run.phase(PhaseParams(name="commit_build", kind="code", owner="git",
-                                   description="Land the code only now: green suite, approved review")) as ph:
+        with run.phase(
+            PhaseParams(
+                name="commit_build",
+                kind="code",
+                owner="git",
+                description="Land the code only now: green suite, approved review",
+            )
+        ) as ph:
             landed = commit(ph, build, allow_empty=True)
             if not landed:
                 # Nothing to commit. Three ways to get here, and only one may
@@ -176,54 +274,96 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
                             f"commits. HEAD moved {plan_sha[:7]} -> {head_now[:7]} "
                             "before commit_build, so code landed before review. The "
                             "builder must never run `git commit`; re-run after fixing "
-                            "its prompt.")
+                            "its prompt."
+                        )
                     raise RuntimeError(
                         "builder reported changed files, but the working tree has "
-                        "no diff — the changes never landed, nothing to commit")
-                ph.log(note="nothing to commit — the plan's work is already "
-                            "implemented and verified (no-op re-run)")
+                        "no diff — the changes never landed, nothing to commit"
+                    )
+                ph.log(
+                    note="nothing to commit — the plan's work is already "
+                    "implemented and verified (no-op re-run)"
+                )
                 no_op = True
 
-        with run.phase(PhaseParams(name="changes", kind="code", owner="git",
-                                   description="Diff the whole run against its pinned baseline, for the documenter")) as ph:
+        with run.phase(
+            PhaseParams(
+                name="changes",
+                kind="code",
+                owner="git",
+                description="Diff the whole run against its pinned baseline, for the documenter",
+            )
+        ) as ph:
             changeset = changes.capture(run, ChangeCapture(base=baseline))
-            ph.log(base=f"{changeset.base.label} @ {changeset.base.commit[:7]}",
-                   reason=changeset.base.reason,
-                   files=len(changeset.files) + len(changeset.untracked),
-                   lines=f"+{changeset.insertions} -{changeset.deletions}",
-                   diff=changeset.diff_path)
+            ph.log(
+                base=f"{changeset.base.label} @ {changeset.base.commit[:7]}",
+                reason=changeset.base.reason,
+                files=len(changeset.files) + len(changeset.untracked),
+                lines=f"+{changeset.insertions} -{changeset.deletions}",
+                diff=changeset.diff_path,
+            )
             if changeset.empty:
                 raise RuntimeError(
                     f"nothing changed since {changeset.base.label} "
-                    f"({changeset.base.reason}) — there is nothing to document.")
+                    f"({changeset.base.reason}) — there is nothing to document."
+                )
 
         # A no-op re-run (work already implemented) still walks the doc chain.
         # If a write-up for this session already exists there is nothing to
         # update — confirm and pass. If it is missing (the earlier run failed
         # before documenting, say), the documenter produces it from the diff.
         if no_op and (run.repo_root / "adws" / "kb").glob(f"{run.adw_id}_*.md"):
-            with run.phase(PhaseParams(name="document", kind="code", owner="git",
-                                       description="Confirm the write-up exists — a no-op re-run ships no updated doc")) as ph:
+            with run.phase(
+                PhaseParams(
+                    name="document",
+                    kind="code",
+                    owner="git",
+                    description="Confirm the write-up exists — a no-op re-run ships no updated doc",
+                )
+            ) as ph:
                 ph.log(note="documentation already exists — success run, no updated doc")
         else:
-            with run.phase(PhaseParams(name="document", kind="agent", owner="documenter", retries=1,
-                                       description="Write up the completed change")) as ph:
-                document = ph.call(AgentCall(output_type=DocumentOutput, prompt=prompt,
-                                             previous=changes.as_envelope(changeset, DOCUMENT_NOTES),
-                                             gates=[gates.artifacts_exist, gates.files_non_empty]))
+            with run.phase(
+                PhaseParams(
+                    name="document",
+                    kind="agent",
+                    owner="documenter",
+                    retries=1,
+                    description="Write up the completed change",
+                )
+            ) as ph:
+                document = ph.call(
+                    AgentCall(
+                        output_type=DocumentOutput,
+                        prompt=prompt,
+                        previous=changes.as_envelope(changeset, DOCUMENT_NOTES),
+                        gates=[gates.artifacts_exist, gates.files_non_empty],
+                    )
+                )
 
-            with run.phase(PhaseParams(name="commit_docs", kind="code", owner="git",
-                                       description="Ship the write-up in its own commit, beside the code it describes")) as ph:
+            with run.phase(
+                PhaseParams(
+                    name="commit_docs",
+                    kind="code",
+                    owner="git",
+                    description="Ship the write-up in its own commit, beside the code it describes",
+                )
+            ) as ph:
                 commit(ph, document)
 
-    return run.finish(accepted=verified,
-                      reason=env_reason or "the suite or the review never came back clean")
+    return run.finish(
+        accepted=verified, reason=env_reason or "the suite or the review never came back clean"
+    )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("prompt", help="inline text or a path to a prompt file")
-    parser.add_argument("--config", default=None, help="path to sssf.config.yaml (default: adws/config/sssf.config.yaml)")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="path to sssf.config.yaml (default: adws/config/sssf.config.yaml)",
+    )
     parser.add_argument("--adw-id", default=None, help="join or pin an existing session")
     args = parser.parse_args()
     sys.exit(main(utils.resolve_prompt(args.prompt), args.config, args.adw_id))

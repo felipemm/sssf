@@ -1,12 +1,11 @@
 import os
 import stat
 import subprocess
-from pathlib import Path
 
 import pytest
 
-from sssf.sandbox import SandboxError, build_image, docker_available, run_sandbox, stop_remove
 import sssf.sandbox as sandbox
+from sssf.sandbox import SandboxError, build_image, docker_available, run_sandbox, stop_remove
 
 
 @pytest.fixture
@@ -68,17 +67,23 @@ def test_build_failure_raises(fake_docker, tmp_path, monkeypatch):
 
 def test_run_sandbox_flags(fake_docker, tmp_path):
     run_sandbox(
-        "sssf-runner", "sssf-abc",
-        worktree=tmp_path / "wt", data_dir=tmp_path / "data",
-        pi_home=tmp_path / "pi", git_dir=tmp_path / "proj" / ".git",
+        "sssf-runner",
+        "sssf-abc",
+        worktree=tmp_path / "wt",
+        data_dir=tmp_path / "data",
+        pi_home=tmp_path / "pi",
+        git_dir=tmp_path / "proj" / ".git",
         config_dir=tmp_path / ".config",
-        uid=501, gid=20, env={"OPENAI_API_KEY": "x", "OPENAI_BASE_URL": "https://genplat.example.com/v1"}, cmd=["python", "adws/modules/adw_simple_sdlc.py"],
+        uid=501,
+        gid=20,
+        env={"OPENAI_API_KEY": "x", "OPENAI_BASE_URL": "https://genplat.example.com/v1"},
+        cmd=["python", "adws/modules/adw_simple_sdlc.py"],
     )
     calls = fake_docker.read_text().splitlines()
     run = next(c for c in calls if c.startswith("run"))
     assert "--name sssf-abc" in run
     assert f"{tmp_path}/wt:/work" in run
-    assert "adws/adw_data" not in run   # the run writes its OWN db in the worktree
+    assert "adws/adw_data" not in run  # the run writes its OWN db in the worktree
     assert f"{tmp_path}/pi:/opt/pi-agent-host:ro" in run
     assert f"{tmp_path}/proj/.git:{tmp_path}/proj/.git:rw" in run
     assert f"{tmp_path}/.config:/tmp/.config:ro" in run
@@ -86,7 +91,6 @@ def test_run_sandbox_flags(fake_docker, tmp_path):
     assert "-e OPENAI_API_KEY=x" in run
     assert "-e OPENAI_BASE_URL=https://genplat.example.com/v1" in run
     assert "-p" not in run
-
 
     stop_remove("sssf-abc")
     stop_remove("sssf-abc")
@@ -96,24 +100,27 @@ def test_ensure_image_current_real_fingerprint(fake_docker, monkeypatch):
     """Exercises the REAL _engine_fingerprint (not a stub) — regression for the
     missing-import bug that made it crash with NameError."""
     from sssf.sandbox import _engine_fingerprint
+
     real = _engine_fingerprint() + "\n"
 
     def fake(*args, **kwargs):
         return subprocess.CompletedProcess(args, 0, stdout=real, stderr="")
+
     monkeypatch.setattr(sandbox, "_docker", fake)
-    sandbox.ensure_image_current("sssf-real")   # no raise — real fingerprint path
+    sandbox.ensure_image_current("sssf-real")  # no raise — real fingerprint path
 
 
 def _fake_docker_stdout(monkeypatch, stdout: str, rc: int = 0):
     def fake(*args, **kwargs):
         return subprocess.CompletedProcess(args, rc, stdout=stdout, stderr="")
+
     monkeypatch.setattr(sandbox, "_docker", fake)
     monkeypatch.setattr(sandbox, "_engine_fingerprint", lambda: "FPWANT")
 
 
 def test_ensure_image_current_matches(fake_docker, monkeypatch):
     _fake_docker_stdout(monkeypatch, "FPWANT\n")
-    sandbox.ensure_image_current("sssf-match")   # no raise
+    sandbox.ensure_image_current("sssf-match")  # no raise
 
 
 def test_ensure_image_current_stale_raises(fake_docker, monkeypatch):

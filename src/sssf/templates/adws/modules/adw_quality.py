@@ -19,20 +19,36 @@ REQUIRED_AGENTS: list[str] = []
 
 def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> int:
     from sssf.adw_modules import paths
+
     cfg = agents.load_config(config or str(paths.config_file(Path.cwd())))
     agents.validate(cfg, REQUIRED_AGENTS)
     run = session.ensure(cfg, adw_id)
 
-    with run.phase(PhaseParams(name="request", kind="engineer", owner=run.engineer,
-                               description="Capture why quality verification was requested")) as ph:
+    with run.phase(
+        PhaseParams(
+            name="request",
+            kind="engineer",
+            owner=run.engineer,
+            description="Capture why quality verification was requested",
+        )
+    ) as ph:
         ph.log(input=prompt)
 
-    with run.phase(PhaseParams(name="quality", kind="code", owner="quality",
-                               description="Run the deterministic quality blocks")) as ph:
+    with run.phase(
+        PhaseParams(
+            name="quality",
+            kind="code",
+            owner="quality",
+            description="Run the deterministic quality blocks",
+        )
+    ) as ph:
         result = quality.run_quality(run)
         passed = sum(1 for check in result.checks if check.passed)
-        ph.log(passed=result.passed, checks=f"{passed}/{len(result.checks)}",
-               artifacts=", ".join(result.artifacts))
+        ph.log(
+            passed=result.passed,
+            checks=f"{passed}/{len(result.checks)}",
+            artifacts=", ".join(result.artifacts),
+        )
         if not result.passed:
             raise RuntimeError("quality failed: " + "; ".join(result.failures))
 
@@ -42,7 +58,11 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("prompt", help="inline text or a path to a prompt file")
-    parser.add_argument("--config", default=None, help="path to sssf.config.yaml (default: adws/config/sssf.config.yaml)")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="path to sssf.config.yaml (default: adws/config/sssf.config.yaml)",
+    )
     parser.add_argument("--adw-id", default=None, help="join or pin an existing session")
     args = parser.parse_args()
     sys.exit(main(utils.resolve_prompt(args.prompt), args.config, args.adw_id))

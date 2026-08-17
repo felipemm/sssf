@@ -1,11 +1,11 @@
 """`sssf sandbox build|list|prune` — deterministic sandbox lifecycle commands."""
+
 from __future__ import annotations
 
 import subprocess
 import sys
 from pathlib import Path
 
-from sssf import registry
 from sssf.project import find_project
 
 
@@ -15,15 +15,18 @@ def _root(explicit: str | None) -> Path | None:
 
 def build(explicit: str | None) -> int:
     from sssf.sandbox import SandboxError, build_image, docker_available
+
     root = _root(explicit)
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
         return 1
     from sssf.adw_modules import paths
+
     paths.warn_if_legacy(root, command="sandbox")
     if not docker_available():
-        print("sssf: docker is not available — install/start Docker Desktop first.",
-              file=sys.stderr)
+        print(
+            "sssf: docker is not available — install/start Docker Desktop first.", file=sys.stderr
+        )
         return 1
     dockerfile = root / ".." / ".." / "docker" / "sssf-runner.Dockerfile"
     # The Dockerfile + build context (the sssf repo root, whose COPY lines the
@@ -40,8 +43,9 @@ def build(explicit: str | None) -> int:
         return 1
     context = sssf_src if (sssf_src / "pyproject.toml").exists() else df.parent
     try:
-        from sssf.adw_modules.agents import load_config
         from sssf.adw_modules import paths
+        from sssf.adw_modules.agents import load_config
+
         cfg = load_config(str(paths.config_file(root)))
         build_image(cfg.sandbox.image, df, context)
     except SandboxError as e:
@@ -56,8 +60,10 @@ def list_(explicit: str | None) -> int:
     if root is None:
         print("sssf: no project here.", file=sys.stderr)
         return 1
-    from sssf.sandbox import container_name, sandbox_dir
     import os
+
+    from sssf.sandbox import container_name
+
     base = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf")) / "sandboxes" / root.name
     rows = []
     if base.is_dir():
@@ -67,9 +73,13 @@ def list_(explicit: str | None) -> int:
             adw_id = wt_dir.name
             branch = subprocess.run(
                 ["git", "-C", str(root), "branch", "--list", f"sssf/{adw_id}"],
-                capture_output=True, text=True).stdout.strip()
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
             status = "sandboxed"
-            rows.append((adw_id, status, branch or f"sssf/{adw_id}", container_name(adw_id), str(wt_dir)))
+            rows.append(
+                (adw_id, status, branch or f"sssf/{adw_id}", container_name(adw_id), str(wt_dir))
+            )
     if not rows:
         print("no sandboxes")
         return 0
@@ -84,8 +94,10 @@ def prune(explicit: str | None, adw_id: str | None, all_: bool) -> int:
     if root is None:
         print("sssf: no project here.", file=sys.stderr)
         return 1
-    from sssf.sandbox import prune_sandbox, sandbox_dir
     import os
+
+    from sssf.sandbox import prune_sandbox
+
     base = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf")) / "sandboxes" / root.name
     if all_:
         if not base.is_dir():

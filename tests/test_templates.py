@@ -15,7 +15,7 @@ def test_thirteen_starter_chains():
         spec = importlib.util.spec_from_file_location(adw.stem, adw)
         mod = importlib.util.module_from_spec(spec)
         sys.modules[adw.stem] = mod
-        spec.loader.exec_module(mod)   # imports sssf.adw_modules — proves engine link
+        spec.loader.exec_module(mod)  # imports sssf.adw_modules — proves engine link
 
 
 def test_no_inline_uv_headers():
@@ -26,8 +26,7 @@ def test_no_inline_uv_headers():
 def test_starter_config_validates(tmp_path, monkeypatch):
     # agents.validate needs prompt files on disk + a resolvable model (R1):
     # replicate the stamped layout in tmp, chdir, and stub the catalog.
-    monkeypatch.setattr(agents.agent_pi, "resolve_model",
-                        lambda pattern: ("openai", "gpt-4o-mini"))
+    monkeypatch.setattr(agents.agent_pi, "resolve_model", lambda pattern: ("openai", "gpt-4o-mini"))
     data = tmp_path / "adws" / "data"
     shutil.copytree(TEMPLATES / "adws" / "data" / "prompt_engineering", data / "prompt_engineering")
     cfg_dir = tmp_path / "adws" / "config"
@@ -41,12 +40,16 @@ def test_starter_config_validates(tmp_path, monkeypatch):
 def test_artifact_folders_live_under_adws():
     """specs/ and kb/ must stay under adws/ in every template — root-level
     artifact folders clutter the project root and drift from the convention."""
-    for path in [*TEMPLATES.rglob("*.md"), *TEMPLATES.rglob("*.py"),
-                 TEMPLATES / "adws" / "config" / "sssf.config.yaml"]:
+    for path in [
+        *TEMPLATES.rglob("*.md"),
+        *TEMPLATES.rglob("*.py"),
+        TEMPLATES / "adws" / "config" / "sssf.config.yaml",
+    ]:
         text = path.read_text()
         for folder in ("specs/", "kb/"):
-            assert (folder not in text or f"adws/{folder}" in text), \
+            assert folder not in text or f"adws/{folder}" in text, (
                 f"{path.relative_to(TEMPLATES)} references bare {folder!r}"
+            )
 
 
 def test_builder_prompt_forbids_committing():
@@ -59,8 +62,14 @@ def test_builder_prompt_forbids_committing():
 
 def test_quality_design_variant_has_impeccable_phases():
     text = (TEMPLATES / "adws" / "modules" / "adw_design_sdlc.py").read_text()
-    for needle in ('name="init"', 'name="design"', 'owner="designer"',
-                   'owner="documenter"', 'name="document"', 'impeccable'):
+    for needle in (
+        'name="init"',
+        'name="design"',
+        'owner="designer"',
+        'owner="documenter"',
+        'name="document"',
+        "impeccable",
+    ):
         assert needle in text, f"variant missing {needle}"
 
 
@@ -92,9 +101,9 @@ def test_document_chain_ends_in_commit():
 
 def test_template_ships_default_checks():
     cfg = (TEMPLATES / "adws" / "config" / "sssf.config.yaml").read_text()
-    assert '- name: design' in cfg
+    assert "- name: design" in cfg
     assert '"impeccable", "detect", "site/dist"' in cfg
-    assert '- name: snyk' in cfg
+    assert "- name: snyk" in cfg
     assert '"snyk", "test"' in cfg
     # runners stay honest placeholders — never defaulted
     assert "PLACEHOLDER test" in cfg
@@ -121,7 +130,12 @@ def test_fix_loop_adws_break_on_env_failure():
     (missing binary / missing target) instead of handing it to the builder —
     no code edit can fix a missing binary, and the loop would burn all
     MAX_FIX_LOOPS iterations on it (issue #16)."""
-    for name in ("adw_simple_sdlc", "adw_build_test", "adw_plan_build_test",
-                 "adw_plan_build_test_quality", "adw_design_sdlc"):
+    for name in (
+        "adw_simple_sdlc",
+        "adw_build_test",
+        "adw_plan_build_test",
+        "adw_plan_build_test_quality",
+        "adw_design_sdlc",
+    ):
         text = (TEMPLATES / "adws" / "modules" / f"{name}.py").read_text()
         assert "quality.env_failure" in text, f"{name} missing env-failure break"

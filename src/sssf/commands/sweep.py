@@ -5,6 +5,7 @@ Review triage on demand, independent of the visualizer: finished sessions
 so the review surface stays current. The viz server runs the same policy on a
 timer (`server/sweep.ts`); this is the CLI form — identical SQL.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -36,6 +37,7 @@ def run(project_root: str | None = None, days: int = 30) -> int:
     if project_root:
         root = Path(project_root).resolve()
         from sssf.adw_modules import paths
+
         paths.warn_if_legacy(root, command="sweep")
         targets = [(root.name, paths.data_dir(root) / "sssf.db")]
     else:

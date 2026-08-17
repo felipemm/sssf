@@ -10,32 +10,45 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sssf.adw_modules.data_types import (Phase, PhaseParams, QualityCheckSpec,
-                                         QualityConfig, SSSFConfig)
 from sssf.adw_modules import quality
+from sssf.adw_modules.data_types import (
+    Phase,
+    PhaseParams,
+    QualityCheckSpec,
+    QualityConfig,
+    SSSFConfig,
+)
 from sssf.adw_modules.tracer import Tracer
 
 
 class _Console:
-    def note(self, *a, **k):  # noqa: D102
+    def note(self, *a, **k):
         pass
 
 
 class _Run:
     """The minimal surface quality.py touches on a real Run."""
 
-    def __init__(self, cfg: SSSFConfig, repo_root: Path, tracer: Tracer,
-                 context_handoff_dir: Path):
+    def __init__(self, cfg: SSSFConfig, repo_root: Path, tracer: Tracer, context_handoff_dir: Path):
         self.cfg = cfg
         self.adw_id = "adw_test"
         self.repo_root = repo_root
         self.tracer = tracer
         self.console = _Console()
         self.context_handoff_dir = context_handoff_dir
-        self.phases = [Phase(
-            phase_id="ph_test_1", adw_id="adw_test", seq=1,
-            params=PhaseParams(name="test_1", kind="code", owner="quality",
-                               description="Run the project's quality commands"))]
+        self.phases = [
+            Phase(
+                phase_id="ph_test_1",
+                adw_id="adw_test",
+                seq=1,
+                params=PhaseParams(
+                    name="test_1",
+                    kind="code",
+                    owner="quality",
+                    description="Run the project's quality commands",
+                ),
+            )
+        ]
 
 
 def _make_run(tmp: Path, checks: list[QualityCheckSpec] | None = None) -> _Run:
@@ -46,10 +59,10 @@ def _make_run(tmp: Path, checks: list[QualityCheckSpec] | None = None) -> _Run:
 
 def _gate_rows(tmp: Path) -> list[tuple]:
     import sqlite3
+
     conn = sqlite3.connect(tmp / "sssf.db")
     try:
-        return conn.execute(
-            "SELECT gate, passed FROM gate_results ORDER BY gate").fetchall()
+        return conn.execute("SELECT gate, passed FROM gate_results ORDER BY gate").fetchall()
     finally:
         conn.close()
 
@@ -70,9 +83,17 @@ def test_unconfigured_runs_honest_placeholders(tmp_path):
 def test_configured_command_replaces_the_placeholder(tmp_path):
     """A project's real command runs instead of the placeholder, and a failing
     command fails the result with its verbatim tail."""
-    run = _make_run(tmp_path, checks=[QualityCheckSpec(
-        name="test", area="backend", operation="build",
-        argv=["python3", "-c", "import sys; sys.exit(3)"])])
+    run = _make_run(
+        tmp_path,
+        checks=[
+            QualityCheckSpec(
+                name="test",
+                area="backend",
+                operation="build",
+                argv=["python3", "-c", "import sys; sys.exit(3)"],
+            )
+        ],
+    )
     result = quality.run_tests(run)
     assert result.passed is False
     assert "exited 3" in result.failures[0]
@@ -85,23 +106,29 @@ def test_configured_command_replaces_the_placeholder(tmp_path):
 def test_missing_names_fall_back_to_defaults(tmp_path):
     """A config that wires only `test` keeps honest placeholders for the
     other blocks — configured entries replace their names, never the rest."""
-    run = _make_run(tmp_path, checks=[QualityCheckSpec(
-        name="test", area="backend", operation="build", argv=["true"])])
+    run = _make_run(
+        tmp_path,
+        checks=[QualityCheckSpec(name="test", area="backend", operation="build", argv=["true"])],
+    )
     specs = quality._specs(run)
     by_name = {s.name: s for s in specs}
     assert by_name["test"].argv == ["true"]
     assert all(n in by_name for n in ("lint", "typecheck", "build"))
-    assert all("PLACEHOLDER" in " ".join(s.argv)
-               for n, s in by_name.items() if n != "test")
+    assert all("PLACEHOLDER" in " ".join(s.argv) for n, s in by_name.items() if n != "test")
 
 
 def test_run_quality_runs_every_configured_check(tmp_path):
     """run_quality() covers all checks (configured + defaults), and every
     check lands a gate row — the dashboard KPI counts real runs."""
-    run = _make_run(tmp_path, checks=[QualityCheckSpec(
-        name="test", area="backend", operation="build", argv=["true"]),
-        QualityCheckSpec(name="typecheck", area="frontend",
-                         operation="typecheck", argv=["false"])])
+    run = _make_run(
+        tmp_path,
+        checks=[
+            QualityCheckSpec(name="test", area="backend", operation="build", argv=["true"]),
+            QualityCheckSpec(
+                name="typecheck", area="frontend", operation="typecheck", argv=["false"]
+            ),
+        ],
+    )
     result = quality.run_quality(run)
     names = [c.name for c in result.checks]
     assert names == ["test", "typecheck", "lint", "build"]
@@ -109,15 +136,21 @@ def test_run_quality_runs_every_configured_check(tmp_path):
     assert result.checks[0].passed and not result.checks[1].passed
 
     rows = dict(_gate_rows(tmp_path))
-    assert rows == {"quality:test": 1, "quality:typecheck": 0,
-                    "quality:lint": 1, "quality:build": 1}
+    assert rows == {
+        "quality:test": 1,
+        "quality:typecheck": 0,
+        "quality:lint": 1,
+        "quality:build": 1,
+    }
 
 
 def test_security_operation_is_accepted(tmp_path):
     """A security scan (e.g. snyk test) is a valid operation — the literal
     covers lint | typecheck | build | security."""
-    run = _make_run(tmp_path, checks=[QualityCheckSpec(
-        name="snyk", area="backend", operation="security", argv=["true"])])
+    run = _make_run(
+        tmp_path,
+        checks=[QualityCheckSpec(name="snyk", area="backend", operation="security", argv=["true"])],
+    )
     result = quality.run_quality(run)
     names = [c.name for c in result.checks]
     assert names == ["snyk", "test", "lint", "typecheck", "build"]
@@ -130,9 +163,18 @@ def test_missing_requires_fails_fast_with_127(tmp_path):
     """A check whose declared target does not exist fails fast with 127 and a
     clear message — a green gate that scanned nothing is forbidden. This is
     what keeps the shipped `design` check honest on projects without a site."""
-    run = _make_run(tmp_path, checks=[QualityCheckSpec(
-        name="design", area="frontend", operation="lint",
-        argv=["impeccable", "detect", "site/dist"], requires="site/dist")])
+    run = _make_run(
+        tmp_path,
+        checks=[
+            QualityCheckSpec(
+                name="design",
+                area="frontend",
+                operation="lint",
+                argv=["impeccable", "detect", "site/dist"],
+                requires="site/dist",
+            )
+        ],
+    )
     result = quality.run_quality(run)
     check = result.checks[0]
     assert check.passed is False
@@ -149,9 +191,18 @@ def test_requires_present_runs_the_command(tmp_path):
     """A present requires target does not change behavior — the command runs."""
     target = tmp_path / "site"
     target.mkdir()
-    run = _make_run(tmp_path, checks=[QualityCheckSpec(
-        name="design", area="frontend", operation="lint",
-        argv=["echo", "scanned"], requires="site")])
+    run = _make_run(
+        tmp_path,
+        checks=[
+            QualityCheckSpec(
+                name="design",
+                area="frontend",
+                operation="lint",
+                argv=["echo", "scanned"],
+                requires="site",
+            )
+        ],
+    )
     result = quality.run_quality(run)
     check = result.checks[0]
     assert check.passed is True
@@ -161,9 +212,17 @@ def test_requires_present_runs_the_command(tmp_path):
 def test_missing_binary_is_env_error(tmp_path):
     """A command whose binary does not exist is an ENVIRONMENT failure (127,
     OSError), not a code failure — the builder must never see it."""
-    run = _make_run(tmp_path, checks=[QualityCheckSpec(
-        name="test", area="backend", operation="build",
-        argv=["definitely-not-a-real-binary-xyz"])])
+    run = _make_run(
+        tmp_path,
+        checks=[
+            QualityCheckSpec(
+                name="test",
+                area="backend",
+                operation="build",
+                argv=["definitely-not-a-real-binary-xyz"],
+            )
+        ],
+    )
     result = quality.run_quality(run)
     check = result.checks[0]
     assert check.returncode == 127
@@ -174,9 +233,17 @@ def test_missing_binary_is_env_error(tmp_path):
 def test_env_failure_none_for_code_failures(tmp_path):
     """A plain non-zero exit is a code failure — env_failure() returns None so
     the builder repair loop runs."""
-    run = _make_run(tmp_path, checks=[QualityCheckSpec(
-        name="test", area="backend", operation="build",
-        argv=["python3", "-c", "import sys; sys.exit(3)"])])
+    run = _make_run(
+        tmp_path,
+        checks=[
+            QualityCheckSpec(
+                name="test",
+                area="backend",
+                operation="build",
+                argv=["python3", "-c", "import sys; sys.exit(3)"],
+            )
+        ],
+    )
     result = quality.run_quality(run)
     assert result.checks[0].env_error is False
     assert quality.env_failure(result) is None

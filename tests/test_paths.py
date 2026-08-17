@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from sssf.adw_modules import paths
@@ -21,12 +19,15 @@ def test_v2_paths(tmp_path, fn, rel):
     assert getattr(paths, fn)(tmp_path) == tmp_path / rel
 
 
-@pytest.mark.parametrize("marker", [
-    "adws/adw_sssf_config/sssf.config.yaml",
-    "adws/adw_data",
-    "adws/app_docs",
-    "adws/adw_simple_sdlc.py",
-])
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "adws/adw_sssf_config/sssf.config.yaml",
+        "adws/adw_data",
+        "adws/app_docs",
+        "adws/adw_simple_sdlc.py",
+    ],
+)
 def test_legacy_detected(tmp_path, marker):
     target = tmp_path / marker
     target.parent.mkdir(parents=True, exist_ok=True)

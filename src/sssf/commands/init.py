@@ -5,6 +5,7 @@ adws/kb. A project still on the v1 layout (adw_sssf_config/adw_data/app_docs,
 chains at adws root) must run `sssf init --refresh` to migrate: it warns,
 backs up adws/, and moves the v1 items to v2 in place.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -13,8 +14,7 @@ import time
 from importlib import resources
 from pathlib import Path
 
-from sssf import __version__
-from sssf import registry
+from sssf import __version__, registry
 from sssf.adw_modules import paths
 
 AGENTS_BLOCK = """
@@ -50,8 +50,15 @@ _LITERAL_REWRITES = (  # applied to moved chain files
 )
 
 
-def _copy_tree(src, dest: Path, *, force: bool = False, confirm: bool = False,
-               auto: bool = False, label: str = "") -> list[str]:
+def _copy_tree(
+    src,
+    dest: Path,
+    *,
+    force: bool = False,
+    confirm: bool = False,
+    auto: bool = False,
+    label: str = "",
+) -> list[str]:
     """Copy a template tree into dest.
 
     Existing files are skipped unless forced; with ``confirm`` the user is asked
@@ -70,7 +77,7 @@ def _copy_tree(src, dest: Path, *, force: bool = False, confirm: bool = False,
         try:
             answer = input(f"overwrite {prefix}{rel}? [y/N/a] ").strip().lower()
         except EOFError:
-            return False            # non-interactive: skip, never clobber
+            return False  # non-interactive: skip, never clobber
         if answer in ("a", "all"):
             state["all"] = True
             return True
@@ -123,8 +130,7 @@ def _migrate_legacy(root: Path) -> None:
         for old, new in _LITERAL_REWRITES:
             text = text.replace(old, new)
         chain.write_text(text)
-    for cfg_file in [adws / "config" / "sssf.config.yaml",
-                     adws / "config" / "ticketing.yaml"]:
+    for cfg_file in [adws / "config" / "sssf.config.yaml", adws / "config" / "ticketing.yaml"]:
         if cfg_file.exists():
             text = cfg_file.read_text()
             for old, new in _LITERAL_REWRITES:
@@ -141,22 +147,25 @@ def _migrate_legacy(root: Path) -> None:
         gitignore.write_text(entry + "\n")
 
 
-def run(root: Path, *, refresh: bool = False, force: bool = False,
-        auto: bool = False) -> int:
+def run(root: Path, *, refresh: bool = False, force: bool = False, auto: bool = False) -> int:
     templates = resources.files("sssf.templates")
     root.mkdir(parents=True, exist_ok=True)
 
     if refresh and paths.is_legacy_layout(root):
-        print(f"sssf: legacy adws layout detected in {root} — migrating to v2 "
-              "(backup of adws/ first, then move).", file=sys.stderr)
+        print(
+            f"sssf: legacy adws layout detected in {root} — migrating to v2 "
+            "(backup of adws/ first, then move).",
+            file=sys.stderr,
+        )
         backup = _backup_adws(root)
         if backup is not None:
             print(f"sssf: backed up adws/ -> {backup.relative_to(root)}", file=sys.stderr)
         _migrate_legacy(root)
 
     # Stamp the whole v2 tree (templates/adws mirrors the stamped layout)
-    _copy_tree(templates / "adws", root / "adws", force=force, confirm=refresh,
-               auto=auto, label="adws")
+    _copy_tree(
+        templates / "adws", root / "adws", force=force, confirm=refresh, auto=auto, label="adws"
+    )
 
     env_dest = root / ".env.sample"
     if not env_dest.exists() or force:
@@ -179,6 +188,5 @@ def run(root: Path, *, refresh: bool = False, force: bool = False,
     else:
         gitignore.write_text("\n".join(GITIGNORE_ENTRIES) + "\n")
 
-    registry.register_project(root, paths.data_dir(root) / "sssf.db",
-                              __version__, added=True)
+    registry.register_project(root, paths.data_dir(root) / "sssf.db", __version__, added=True)
     return 0

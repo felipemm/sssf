@@ -1,4 +1,3 @@
-import os
 import subprocess
 
 import pytest
@@ -50,40 +49,45 @@ def test_create_remove_branch_survives(repo, tmp_path):
     subprocess.run(["git", "add", "-A"], cwd=wt, check=True)
     subprocess.run(["git", "commit", "-qm", "run"], cwd=wt, check=True)
     # the main checkout is untouched
-    main_log = subprocess.run(["git", "log", "--oneline", "-1"], cwd=repo, capture_output=True, text=True).stdout
+    main_log = subprocess.run(
+        ["git", "log", "--oneline", "-1"], cwd=repo, capture_output=True, text=True
+    ).stdout
     assert "run" not in main_log
     # remove the worktree — branch survives as a ref
     remove_worktree(wt)
     assert not wt.exists()
-    branches = subprocess.run(["git", "branch", "--list", "sssf/abc123"], cwd=repo,
-                              capture_output=True, text=True).stdout
+    branches = subprocess.run(
+        ["git", "branch", "--list", "sssf/abc123"], cwd=repo, capture_output=True, text=True
+    ).stdout
     assert "sssf/abc123" in branches
     # cwd still on main
-    cur = subprocess.run(["git", "branch", "--show-current"], cwd=repo,
-                         capture_output=True, text=True).stdout.strip()
+    cur = subprocess.run(
+        ["git", "branch", "--show-current"], cwd=repo, capture_output=True, text=True
+    ).stdout.strip()
     assert cur == "main"
 
 
 def test_remove_is_idempotent(repo, tmp_path):
     wt = create_worktree(repo, "def456")
     remove_worktree(wt)
-    remove_worktree(wt)   # already gone — no error
+    remove_worktree(wt)  # already gone — no error
 
 
 def test_delete_branch_idempotent(repo, tmp_path):
     wt = create_worktree(repo, "ghi789")
-    remove_worktree(wt)   # frees the branch — git refuses -D on a checked-out branch
+    remove_worktree(wt)  # frees the branch — git refuses -D on a checked-out branch
     delete_branch(repo, "ghi789")
-    delete_branch(repo, "ghi789")   # not found — no error
-    branches = subprocess.run(["git", "branch", "--list", "sssf/ghi789"], cwd=repo,
-                              capture_output=True, text=True).stdout
+    delete_branch(repo, "ghi789")  # not found — no error
+    branches = subprocess.run(
+        ["git", "branch", "--list", "sssf/ghi789"], cwd=repo, capture_output=True, text=True
+    ).stdout
     assert branches.strip() == ""
 
 
 def test_create_duplicate_raises(repo, tmp_path):
     create_worktree(repo, "dup1")
     with pytest.raises(SandboxError):
-        create_worktree(repo, "dup1")   # branch already checked out
+        create_worktree(repo, "dup1")  # branch already checked out
 
 
 def test_sync_merges_live_totals_monotonically(tmp_path):
@@ -91,20 +95,25 @@ def test_sync_merges_live_totals_monotonically(tmp_path):
     only grow, and a torn copy (fewer tokens than the last sync) never
     regresses the project db."""
     import sqlite3
+
     from sssf.sandbox import sync_run_db
 
     conn = sqlite3.connect(str(tmp_path / "proj.db"))
-    conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, "
-                 "started_at TEXT, ended_at TEXT, total_tokens INTEGER DEFAULT 0, "
-                 "total_cost REAL DEFAULT 0)")
+    conn.execute(
+        "CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, "
+        "started_at TEXT, ended_at TEXT, total_tokens INTEGER DEFAULT 0, "
+        "total_cost REAL DEFAULT 0)"
+    )
     conn.commit()
     per = tmp_path / "per-run" / "adws" / "adw_data"
     per.mkdir(parents=True)
     per_db = per / "sssf.db"
     src = sqlite3.connect(str(per_db))
-    src.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, "
-                "started_at TEXT, ended_at TEXT, total_tokens INTEGER DEFAULT 0, "
-                "total_cost REAL DEFAULT 0)")
+    src.execute(
+        "CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, "
+        "started_at TEXT, ended_at TEXT, total_tokens INTEGER DEFAULT 0, "
+        "total_cost REAL DEFAULT 0)"
+    )
     src.execute("INSERT INTO sessions VALUES ('r1','running','2026-08-16T10:00:00',NULL,100,1.5)")
     src.commit()
 

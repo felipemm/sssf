@@ -1,4 +1,3 @@
-import sqlite3
 from pathlib import Path
 
 from sssf.adw_modules import tracer as tracer_mod
