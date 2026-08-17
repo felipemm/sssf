@@ -1,0 +1,47 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+
+const description =
+  'Impeccable in sssf: the deterministic detect gate, the agentic design pass, and how to opt in.';
+---
+<DocsLayout
+  title="Design quality"
+  description={description}
+  current="/docs/design-quality"
+  prev={{ href: '/docs/sandbox', label: 'Sandboxed runs' }}
+  next={{ href: '/docs/quality-checks', label: 'Quality checks' }}
+>
+  <p>
+    Design quality is enforced twice: a deterministic gate (<code>impeccable detect</code>, 59
+    rules, no LLM) and an agentic pass (a <code>designer</code> agent running the impeccable
+    skill). The agent proposes, the gate disposes.
+  </p>
+
+  <h2>The deterministic gate</h2>
+  <p>
+    <code>impeccable detect site/dist</code> ships configured by default as the
+    <code>design</code> quality check. It exits 0 on a clean scan and 2 on hard anti-patterns —
+    so the gate is pass/fail exactly like every other check. One advisory is a known false
+    positive: the em-dash saturation rule counts <code>--</code> in CLI flags (e.g.
+    <code>--adw-id</code>); it is advisory-only and never fails the gate.
+  </p>
+
+  <h2>The agentic pass</h2>
+  <p>
+    <code>adws/adw_plan_build_test_quality_design.py</code> adds three phases to the standard
+    build-test chain: <code>init</code> (documenter runs <code>/impeccable init</code> →
+    PRODUCT.md), <code>design</code> (designer runs audit → critique → polish → optimize on
+    <code>site/</code>), and <code>document</code> (documenter runs <code>/impeccable document</code>
+    → DESIGN.md). The deterministic gates — including <code>design</code> — verify the agent's
+    work before anything commits.
+  </p>
+
+  <h2>Opting in</h2>
+  <ul>
+    <li>Run the variant ADW instead of the standard one.</li>
+    <li>Point <code>design</code>'s argv at your real surface (default <code>site/dist</code>).</li>
+    <li>Rebuild the runner image after any Dockerfile change — stale images keep failing the
+        gates with exit 127.</li>
+    <li>Full field reference: <a href="/docs/quality-checks">Quality checks</a>.</li>
+  </ul>
+</DocsLayout>

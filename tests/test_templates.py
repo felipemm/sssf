@@ -8,9 +8,9 @@ from sssf.adw_modules import agents
 TEMPLATES = Path(__file__).resolve().parents[1] / "src" / "sssf" / "templates"
 
 
-def test_twelve_starter_chains():
+def test_thirteen_starter_chains():
     adws = sorted((TEMPLATES / "adws").glob("adw_*.py"))
-    assert len(adws) == 12
+    assert len(adws) == 13
     for adw in adws:
         spec = importlib.util.spec_from_file_location(adw.stem, adw)
         mod = importlib.util.module_from_spec(spec)
@@ -35,7 +35,7 @@ def test_starter_config_validates(tmp_path, monkeypatch):
     shutil.copy(TEMPLATES / "sssf.config.yaml", cfg_dir / "sssf.config.yaml")
     monkeypatch.chdir(tmp_path)
     cfg = agents.load_config(cfg_dir / "sssf.config.yaml")
-    agents.validate(cfg, ["planner", "builder", "reviewer", "scout", "documenter"])
+    agents.validate(cfg, ["planner", "builder", "reviewer", "scout", "documenter", "designer"])
 
 
 def test_artifact_folders_live_under_adws():
@@ -57,6 +57,13 @@ def test_builder_prompt_forbids_committing():
     assert "you never commit" in text.lower() and "git commit" in text
 
 
+def test_quality_design_variant_has_impeccable_phases():
+    text = (TEMPLATES / "adws" / "adw_plan_build_test_quality_design.py").read_text()
+    for needle in ('name="init"', 'name="design"', 'owner="designer"',
+                   'owner="documenter"', 'name="document"', 'impeccable'):
+        assert needle in text, f"variant missing {needle}"
+
+
 def test_noop_rerun_walks_the_doc_chain():
     """A no-op re-run must not silently skip documentation: it confirms an
     existing write-up (success run, no updated doc) or produces the missing one.
@@ -75,3 +82,19 @@ def test_document_chain_ends_in_commit():
     text = (TEMPLATES / "adws" / "adw_document.py").read_text()
     assert "commit_docs" in text
     assert "git_helper.commit_all" in text
+
+
+def test_template_ships_default_checks():
+    cfg = (TEMPLATES / "sssf.config.yaml").read_text()
+    assert '- name: design' in cfg
+    assert '"impeccable", "detect", "site/dist"' in cfg
+    assert '- name: snyk' in cfg
+    assert '"snyk", "test"' in cfg
+    # runners stay honest placeholders — never defaulted
+    assert "PLACEHOLDER test" in cfg
+
+
+def test_designer_prompt_files_exist():
+    for label in ("system", "user"):
+        path = TEMPLATES / "prompt_engineering" / "designer" / f"{label}.md"
+        assert path.is_file(), f"designer {label} prompt missing"

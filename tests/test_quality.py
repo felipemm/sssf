@@ -124,3 +124,33 @@ def test_security_operation_is_accepted(tmp_path):
     assert result.checks[0].operation == "security"
     assert result.checks[0].passed
     assert dict(_gate_rows(tmp_path))["quality:snyk"] == 1
+
+
+def test_missing_requires_fails_fast_with_127(tmp_path):
+    """A check whose declared target does not exist fails fast with 127 and a
+    clear message — a green gate that scanned nothing is forbidden. This is
+    what keeps the shipped `design` check honest on projects without a site."""
+    run = _make_run(tmp_path, checks=[QualityCheckSpec(
+        name="design", area="frontend", operation="lint",
+        argv=["impeccable", "detect", "site/dist"], requires="site/dist")])
+    result = quality.run_quality(run)
+    check = result.checks[0]
+    assert check.passed is False
+    assert check.returncode == 127
+    assert "requires site/dist" in check.output_tail
+
+    rows = _gate_rows(tmp_path)
+    assert ("quality:design", 0) in rows
+
+
+def test_requires_present_runs_the_command(tmp_path):
+    """A present requires target does not change behavior — the command runs."""
+    target = tmp_path / "site"
+    target.mkdir()
+    run = _make_run(tmp_path, checks=[QualityCheckSpec(
+        name="design", area="frontend", operation="lint",
+        argv=["echo", "scanned"], requires="site")])
+    result = quality.run_quality(run)
+    check = result.checks[0]
+    assert check.passed is True
+    assert check.returncode == 0

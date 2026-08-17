@@ -1,0 +1,63 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+
+const description =
+  'Every option in quality.checks: fields, argv rules, placeholders, shipped defaults, and wiring examples.';
+---
+<DocsLayout
+  title="Quality checks"
+  description={description}
+  current="/docs/quality-checks"
+  prev={{ href: '/docs/design-quality', label: 'Design quality' }}
+  next={{ href: '/docs/visualizer', label: 'Visualizer' }}
+>
+  <p>
+    <code class="hl">quality.checks</code> turns deterministic commands into gates: known
+    invocations that run as code, cost nothing, and return the same answer every time. Agents
+    are for the parts that need reading and deciding — the commands themselves belong here.
+  </p>
+
+  <h2>The fields</h2>
+  <pre><code>- name: test              # string, unique; used as gate:quality:&lt;name&gt;
+  area: backend             # frontend | backend | security | data
+  operation: build          # build | lint | typecheck | test | security
+  argv: ["bun", "test"]     # LIST — never a shell string, never npx
+  timeout_seconds: 600      # per-run cap; on expiry the check exits 124
+  requires: site/dist       # optional: fail fast (127) if this path is missing</code></pre>
+  <ul>
+    <li><code>name</code> — unique check id; recorded as <code>gate:quality:&lt;name&gt;</code> in gate_results.</li>
+    <li><code>area</code> / <code>operation</code> — classification; <code>security</code> is the snyk lane.</li>
+    <li><code>argv</code> — the command as a LIST (no quoting bugs, no shell injection). Call
+        binaries by BARE NAME: the check inherits the operator's shell env (and the sandbox
+        image provides <code>impeccable</code>, <code>snyk</code>, <code>bun</code>, <code>uv</code>,
+        <code>node</code>). Never an absolute path — that bakes one machine into the trace.</li>
+    <li><code>timeout_seconds</code> — tests ~600, builds ~300, lint/typecheck/design ~120–300.</li>
+    <li><code>requires</code> — optional path (relative to repo root) the check's target must
+        exist at. Missing target = fail fast with exit 127 and a clear message — a check
+        whose target is absent must never silently pass. This is what keeps the shipped
+        <code>design</code> check honest on projects without a site.</li>
+  </ul>
+
+  <h2>Shipped by default</h2>
+  <pre><code>- name: design     # impeccable detect site/dist — the 59-rule design gate
+- name: snyk       # snyk test — security; needs SNYK_TOKEN (forwarded into the sandbox)</code></pre>
+  <p>Both ship configured because the runner image provides the binaries. Projects without a
+     design surface remove <code>design</code>; projects without snyk setup remove <code>snyk</code>.</p>
+
+  <h2>Placeholders</h2>
+  <p>Unwired defaults run an honest <code>echo PLACEHOLDER ...</code> that exits 0 — it never
+     silently passes, it says out loud that it is fake. A wrong-but-plausible command that
+     silently passes is worse than one that says so.</p>
+
+  <h2>Wiring examples</h2>
+  <pre><code>argv: ["bun", "test"]            # bun projects
+argv: ["uv", "run", "pytest", "-q"]   # python (uv)
+argv: ["npm", "run", "lint"]          # node projects
+argv: ["impeccable", "detect", "site/dist"]   # design surface (adjust the target)</code></pre>
+
+  <h2>Where the result goes</h2>
+  <p>A check writes its log to the session's <code>context_handoff/quality/&lt;seq&gt;_&lt;name&gt;/command.log</code>,
+     records a <code>gate:quality:&lt;name&gt;</code> row (the dashboard's quality-gate KPI), and a failure
+     rides back to the builder inside the envelope — verbatim output, no parser between the
+     failure and the fix.</p>
+</DocsLayout>

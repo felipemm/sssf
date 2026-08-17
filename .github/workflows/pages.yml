@@ -31,6 +31,8 @@ jobs:
         run: npm ci
       - name: Build the static site
         run: npm run build
+      - name: Impeccable design check
+        run: npx --yes impeccable detect dist
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
