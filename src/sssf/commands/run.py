@@ -61,10 +61,15 @@ def _adw_file(root: Path, name: str) -> Path | None:
 
 def _sandbox_enabled(root: Path) -> bool:
     try:
+        from sssf.adw_modules import paths
         from sssf.adw_modules.agents import load_config
         cfg = load_config(str(paths.config_file(root)))
         return cfg.sandbox.enabled
-    except Exception:
+    except Exception as error:
+        # Never silently degrade to a local run — a missing config or a bug
+        # here must be visible, not swallowed into an unsandboxed run.
+        print(f"sssf: sandbox decision failed ({error}) — running unsandboxed",
+              file=sys.stderr)
         return False
 
 
@@ -82,6 +87,7 @@ def _run_sandboxed(root: Path, adw_file: Path, args: list[str], adw_id: str | No
               "or use --no-sandbox", file=sys.stderr)
         return 1
     from sssf.adw_modules.agents import load_config
+    from sssf.adw_modules import paths
     cfg = load_config(str(paths.config_file(root)))
 
     adw_id = adw_id or uuid.uuid4().hex[:8]

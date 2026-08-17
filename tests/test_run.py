@@ -56,3 +56,20 @@ def test_run_warns_on_legacy_layout(tmp_path, monkeypatch, capsys):
                         lambda: tmp_path / ".sssf" / "projects.json")
     assert run.run(root, "scout", [], None, no_sandbox=True) != 0
     assert "legacy adws layout" in capsys.readouterr().err
+
+
+def test_sandbox_enabled_defaults_true_on_v2_project(tmp_path):
+    """No sandbox key in the config → sandboxed by default. Regression: the
+    v2 refactor left _sandbox_enabled using paths.config_file without the
+    import — the NameError was swallowed and every run silently went local."""
+    (tmp_path / "adws" / "config").mkdir(parents=True)
+    (tmp_path / "adws" / "config" / "sssf.config.yaml").write_text(
+        "defaults:\n  model: openai/gpt-4o-mini\n")
+    from sssf.commands import run
+    assert run._sandbox_enabled(tmp_path) is True
+
+
+def test_sandbox_enabled_failure_is_loud(tmp_path, capsys):
+    from sssf.commands import run
+    assert run._sandbox_enabled(tmp_path) is False
+    assert "sandbox decision failed" in capsys.readouterr().err
