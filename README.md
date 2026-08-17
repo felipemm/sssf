@@ -28,7 +28,7 @@ Three principles:
   `adws/adw_data/sssf.db` (WAL, so reads never block writers). Watch live in
   `sssf viz` or from the terminal with `sssf sessions / phases / tail / procs`.
 - **Design quality** — deterministic `impeccable detect` gate (shipped configured) + an opt-in
-  agentic design pass (`adw_plan_build_test_quality_design`) — see the site's Design quality docs.
+  agentic design pass (`adw_design_sdlc`) — see the site's Design quality docs.
 - **Customizable** — `sssf init` stamps only the customization surface: your
   chains (`adws/adw_*.py`), your roster (`adws/adw_sssf_config/sssf.config.yaml`),
   your prompts (`adws/adw_data/prompt_engineering/`). The engine is package code

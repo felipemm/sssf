@@ -3,7 +3,7 @@
 impeccable design pass and deterministic quality gates.
 
 Usage:
-    uv run adws/adw_plan_build_test_quality_design.py "<prompt or path/to/prompt.md>" [--config adws/adw_sssf_config/sssf.config.yaml] [--adw-id a1b2c3d4]
+    uv run adws/adw_design_sdlc.py "<prompt or path/to/prompt.md>" [--config adws/adw_sssf_config/sssf.config.yaml] [--adw-id a1b2c3d4]
 
 Phases: engineer(request) -> planner -> builder -> documenter(init) ->
 designer(design) -> [code(verify) -> builder(fix)] bounded -> documenter(document)

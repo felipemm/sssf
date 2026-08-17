@@ -71,7 +71,7 @@ module must never produce.
   honest placeholders — those commands are inherently project-specific and
   cannot be defaulted; only image-provided tools ship pre-wired.
 
-## New ADW variant: `adw_plan_build_test_quality_design.py`
+## New ADW variant: `adw_design_sdlc.py`
 
 A new opt-in template, modeled on the existing `adw_plan_build_test_quality.py`.
 Existing ADWs are untouched; projects opt in by choosing the ADW.

@@ -58,7 +58,7 @@ def test_builder_prompt_forbids_committing():
 
 
 def test_quality_design_variant_has_impeccable_phases():
-    text = (TEMPLATES / "adws" / "adw_plan_build_test_quality_design.py").read_text()
+    text = (TEMPLATES / "adws" / "adw_design_sdlc.py").read_text()
     for needle in ('name="init"', 'name="design"', 'owner="designer"',
                    'owner="documenter"', 'name="document"', 'impeccable'):
         assert needle in text, f"variant missing {needle}"
