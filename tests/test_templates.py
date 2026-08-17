@@ -8,9 +8,9 @@ from sssf.adw_modules import agents
 TEMPLATES = Path(__file__).resolve().parents[1] / "src" / "sssf" / "templates"
 
 
-def test_twelve_starter_chains():
+def test_thirteen_starter_chains():
     adws = sorted((TEMPLATES / "adws").glob("adw_*.py"))
-    assert len(adws) == 12
+    assert len(adws) == 13
     for adw in adws:
         spec = importlib.util.spec_from_file_location(adw.stem, adw)
         mod = importlib.util.module_from_spec(spec)
@@ -55,6 +55,13 @@ def test_builder_prompt_forbids_committing():
     found a clean tree and the claim-mismatch check fired.)"""
     text = (TEMPLATES / "prompt_engineering" / "builder" / "user.md").read_text()
     assert "you never commit" in text.lower() and "git commit" in text
+
+
+def test_quality_design_variant_has_impeccable_phases():
+    text = (TEMPLATES / "adws" / "adw_plan_build_test_quality_design.py").read_text()
+    for needle in ('name="init"', 'name="design"', 'owner="designer"',
+                   'owner="documenter"', 'name="document"', 'impeccable'):
+        assert needle in text, f"variant missing {needle}"
 
 
 def test_noop_rerun_walks_the_doc_chain():
