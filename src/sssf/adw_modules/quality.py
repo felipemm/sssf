@@ -113,6 +113,7 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
     # fast (127, like a missing binary) so a check whose target does not exist
     # can never silently pass — a green gate that scanned nothing is the one
     # thing this module must never produce.
+    env_error = False
     preflight_error = None
     if spec.requires is not None and not (run.repo_root / spec.requires).exists():
         preflight_error = (f"quality check '{spec.name}' requires {spec.requires}, "
@@ -120,6 +121,7 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
                            f"its target at the real surface")
     if preflight_error is not None:
         returncode = 127
+        env_error = True
         stderr = preflight_error
     else:
         try:
@@ -142,6 +144,7 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
             # A missing binary lands here as exit 127 with the real message — no
             # pre-flight probe needed, and none wanted.
             returncode = 127
+            env_error = True
             stderr = str(error)
 
     duration = time.monotonic() - clock
@@ -185,6 +188,7 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
         command=command,
         returncode=returncode,
         passed=passed,
+        env_error=env_error,
         duration_seconds=duration,
         output_artifact=str(output_artifact),
         output_tail=(stdout + stderr)[-TAIL_CHARS:],
@@ -255,6 +259,18 @@ def as_envelope(result: QualityResult, what: str) -> VerifyOutput:
         passed=result.passed,
         failures=result.failures,
     )
+
+
+def env_failure(result: QualityResult) -> str | None:
+    """The first environment failure (missing binary, missing requires target),
+    or None when the result is fixable by code. An env failure must never be
+    handed to the builder — no code edit can fix a missing binary, and burning
+    the fix loop on it wastes agent calls and hides the real problem."""
+    for check in result.checks:
+        if check.env_error:
+            detail = (check.output_tail or check.command).strip()
+            return f"environment error: quality:{check.name} — {detail[:200]}"
+    return None
 
 
 def run_quality(run) -> QualityResult:

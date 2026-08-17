@@ -49,6 +49,7 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
                                      gates=[gates.artifacts_exist]))
 
     test = None
+    env_reason = None
     for i in range(1, MAX_FIX_LOOPS + 1):
         with run.phase(PhaseParams(name=f"test_{i}", kind="code", owner="quality",
                                    description="Run every quality gate — known commands, so code "
@@ -57,6 +58,9 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
             record(ph, test)
 
         if test.passed:
+            break
+        env_reason = quality.env_failure(test)
+        if env_reason:
             break
 
         with run.phase(PhaseParams(name=f"fix_{i}", kind="agent", owner="builder", retries=1,
@@ -74,7 +78,7 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
             ph.log(sha=git_helper.commit_all(message), message=message)
 
     return run.finish(accepted=test is not None and test.passed,
-                      reason=f"the suite still failed after {MAX_FIX_LOOPS} fix attempt(s)")
+                      reason=env_reason or f"the suite still failed after {MAX_FIX_LOOPS} fix attempt(s)")
 
 
 if __name__ == "__main__":

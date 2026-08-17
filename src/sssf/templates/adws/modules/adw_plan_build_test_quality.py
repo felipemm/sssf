@@ -51,6 +51,7 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
 
     test_result = None
     quality_result = None
+    env_reason = None
     for i in range(1, MAX_FIX_LOOPS + 1):
         with run.phase(PhaseParams(name=f"verify_{i}", kind="code", owner="quality",
                                    description="Lint, typecheck, and build before testing")) as ph:
@@ -64,6 +65,9 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
         if quality_result.passed and test_result.passed:
             break
         if i == MAX_FIX_LOOPS:
+            break
+        env_reason = quality.env_failure(quality_result)
+        if env_reason:
             break
 
         # Whichever block failed becomes the builder's spec — verbatim command
@@ -85,7 +89,7 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
             ph.log(sha=git_helper.commit_all(message), message=message)
 
     return run.finish(accepted=verified,
-                      reason=f"verify/test never came back clean after {MAX_FIX_LOOPS} fix attempt(s)")
+                      reason=env_reason or f"verify/test never came back clean after {MAX_FIX_LOOPS} fix attempt(s)")
 
 
 if __name__ == "__main__":

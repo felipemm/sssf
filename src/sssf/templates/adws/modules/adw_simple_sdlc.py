@@ -103,6 +103,7 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
                                   gates=[gates.diff_matches_claims]))
 
     test = None
+    env_reason = None
     for i in range(1, MAX_FIX_LOOPS + 1):
         with run.phase(PhaseParams(name=f"test_{i}", kind="code", owner="quality",
                                    description="Run every quality gate — known commands, so code "
@@ -111,6 +112,9 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
             record(ph, test)
 
         if test.passed:
+            break
+        env_reason = quality.env_failure(test)
+        if env_reason:
             break
 
         with run.phase(PhaseParams(name=f"fix_{i}", kind="agent", owner="builder", retries=1,
@@ -145,6 +149,7 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
                                                "after the last green result")) as ph:
             test = quality.run_quality(run)
             record(ph, test)
+            env_reason = env_reason or quality.env_failure(test)
 
     # Red tests or a rejected review stop the chain here: the code stays
     # uncommitted and nothing is documented, because there is nothing worth
@@ -212,7 +217,7 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
                 commit(ph, document)
 
     return run.finish(accepted=verified,
-                      reason="the suite or the review never came back clean")
+                      reason=env_reason or "the suite or the review never came back clean")
 
 
 if __name__ == "__main__":

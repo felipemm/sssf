@@ -68,6 +68,7 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
                artifacts=", ".join(result.artifacts))
 
     quality_result = None
+    env_reason = None
     for i in range(1, MAX_FIX_LOOPS + 1):
         with run.phase(PhaseParams(name=f"verify_{i}", kind="code", owner="quality",
                                    description="Run every quality gate — tests, typecheck, build, design, snyk")) as ph:
@@ -77,6 +78,9 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
         if quality_result.passed:
             break
         if i == MAX_FIX_LOOPS:
+            break
+        env_reason = quality.env_failure(quality_result)
+        if env_reason:
             break
 
         with run.phase(PhaseParams(name=f"fix_{i}", kind="agent", owner="builder", retries=1,
@@ -99,7 +103,7 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
             ph.log(sha=git_helper.commit_all(message), message=message)
 
     return run.finish(accepted=verified,
-                      reason=f"quality gates never came back clean after {MAX_FIX_LOOPS} fix attempt(s)")
+                      reason=env_reason or f"quality gates never came back clean after {MAX_FIX_LOOPS} fix attempt(s)")
 
 
 if __name__ == "__main__":
