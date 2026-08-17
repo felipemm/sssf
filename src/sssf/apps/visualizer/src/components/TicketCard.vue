@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { LoaderCircle, Play, RotateCw, Undo2 } from 'lucide-vue-next'
 import { backlogTicket, runTicket } from '../lib/api'
+import { notify } from '../lib/toast'
 import type { Ticket } from '../lib/api'
 
 const props = defineProps<{ ticket: Ticket }>()
@@ -30,10 +31,14 @@ async function run(event: MouseEvent) {
   event.stopPropagation()
   running.value = true
   try {
-    await runTicket(props.ticket.id)
+    const res = await runTicket(props.ticket.id)
+    if (!res.ok) {
+      notify(res.output || 'run failed — see the ticket modal')
+      return
+    }
     emit('ran')
-  } catch {
-    /* the next poll reconciles */
+  } catch (e) {
+    notify(String(e))
   } finally {
     running.value = false
   }
@@ -45,10 +50,14 @@ async function toBacklog(event: MouseEvent) {
   event.stopPropagation()
   moving.value = true
   try {
-    await backlogTicket(props.ticket.id)
+    const res = await backlogTicket(props.ticket.id)
+    if (!res.ok) {
+      notify(res.output || 'move to backlog failed')
+      return
+    }
     emit('backlogged')
-  } catch {
-    /* the next poll reconciles */
+  } catch (e) {
+    notify(String(e))
   } finally {
     moving.value = false
   }
