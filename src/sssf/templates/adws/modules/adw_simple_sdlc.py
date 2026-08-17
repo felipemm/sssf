@@ -51,7 +51,7 @@ MAX_FIX_LOOPS = 3
 MAX_REVISION_LOOPS = 2
 
 DOCUMENT_NOTES = ("Read diff_path in full before writing. Document only what the "
-                  "diff shows, then copy the write-up into adws/app_docs/ as your task "
+                  "diff shows, then copy the write-up into adws/kb/ as your task "
                   "describes.")
 
 
@@ -194,7 +194,7 @@ def main(prompt: str, config: str = "adws/adw_sssf_config/sssf.config.yaml", adw
         # If a write-up for this session already exists there is nothing to
         # update — confirm and pass. If it is missing (the earlier run failed
         # before documenting, say), the documenter produces it from the diff.
-        if no_op and (run.repo_root / "adws" / "app_docs").glob(f"{run.adw_id}_*.md"):
+        if no_op and (run.repo_root / "adws" / "kb").glob(f"{run.adw_id}_*.md"):
             with run.phase(PhaseParams(name="document", kind="code", owner="git",
                                        description="Confirm the write-up exists — a no-op re-run ships no updated doc")) as ph:
                 ph.log(note="documentation already exists — success run, no updated doc")
