@@ -142,6 +142,11 @@ class QualityCheckSpec(BaseModel):
     operation: QualityOperation
     argv: list[str]
     timeout_seconds: int = 120
+    # A path (relative to the repo root) the check's target must exist at. A
+    # missing target is an ENVIRONMENT failure, not a code failure: the check
+    # fails fast with exit 127 and a clear message instead of letting the
+    # command silently scan nothing and pass.
+    requires: str | None = None
 
 
 class QualityCheckResult(BaseModel):

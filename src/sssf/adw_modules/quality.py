@@ -109,27 +109,40 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
     clock = time.monotonic()
     stdout = ""
     stderr = ""
-    try:
-        completed = subprocess.run(
-            spec.argv,
-            cwd=run.repo_root,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=spec.timeout_seconds,
-        )
-        returncode = completed.returncode
-        stdout = completed.stdout
-        stderr = completed.stderr
-    except subprocess.TimeoutExpired as error:
-        returncode = 124
-        stdout = error.stdout or ""
-        stderr = (error.stderr or "") + f"\nTimed out after {spec.timeout_seconds}s."
-    except OSError as error:
-        # A missing binary lands here as exit 127 with the real message — no
-        # pre-flight probe needed, and none wanted.
+    # Missing target is an environment/config error, not a code failure: fail
+    # fast (127, like a missing binary) so a check whose target does not exist
+    # can never silently pass — a green gate that scanned nothing is the one
+    # thing this module must never produce.
+    preflight_error = None
+    if spec.requires is not None and not (run.repo_root / spec.requires).exists():
+        preflight_error = (f"quality check '{spec.name}' requires {spec.requires}, "
+                           f"which does not exist here — remove the check or point "
+                           f"its target at the real surface")
+    if preflight_error is not None:
         returncode = 127
-        stderr = str(error)
+        stderr = preflight_error
+    else:
+        try:
+            completed = subprocess.run(
+                spec.argv,
+                cwd=run.repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=spec.timeout_seconds,
+            )
+            returncode = completed.returncode
+            stdout = completed.stdout
+            stderr = completed.stderr
+        except subprocess.TimeoutExpired as error:
+            returncode = 124
+            stdout = error.stdout or ""
+            stderr = (error.stderr or "") + f"\nTimed out after {spec.timeout_seconds}s."
+        except OSError as error:
+            # A missing binary lands here as exit 127 with the real message — no
+            # pre-flight probe needed, and none wanted.
+            returncode = 127
+            stderr = str(error)
 
     duration = time.monotonic() - clock
     output_artifact.write_text(

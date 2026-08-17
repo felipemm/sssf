@@ -22,7 +22,8 @@ const description =
   area: backend             # frontend | backend | security | data
   operation: build          # build | lint | typecheck | test | security
   argv: ["bun", "test"]     # LIST — never a shell string, never npx
-  timeout_seconds: 600      # per-run cap; on expiry the check exits 124</code></pre>
+  timeout_seconds: 600      # per-run cap; on expiry the check exits 124
+  requires: site/dist       # optional: fail fast (127) if this path is missing</code></pre>
   <ul>
     <li><code>name</code> — unique check id; recorded as <code>gate:quality:&lt;name&gt;</code> in gate_results.</li>
     <li><code>area</code> / <code>operation</code> — classification; <code>security</code> is the snyk lane.</li>
@@ -31,6 +32,10 @@ const description =
         image provides <code>impeccable</code>, <code>snyk</code>, <code>bun</code>, <code>uv</code>,
         <code>node</code>). Never an absolute path — that bakes one machine into the trace.</li>
     <li><code>timeout_seconds</code> — tests ~600, builds ~300, lint/typecheck/design ~120–300.</li>
+    <li><code>requires</code> — optional path (relative to repo root) the check's target must
+        exist at. Missing target = fail fast with exit 127 and a clear message — a check
+        whose target is absent must never silently pass. This is what keeps the shipped
+        <code>design</code> check honest on projects without a site.</li>
   </ul>
 
   <h2>Shipped by default</h2>

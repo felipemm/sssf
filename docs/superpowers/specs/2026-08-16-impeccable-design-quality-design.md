@@ -41,12 +41,20 @@ quality:
       operation: lint
       argv: ["impeccable", "detect", "site/dist"]
       timeout_seconds: 300
+      requires: site/dist    # fail fast (127) when the target is missing
     - name: snyk            # SHIPPED BY DEFAULT — image-provided binary
       area: backend
       operation: security
       argv: ["snyk", "test"]
       timeout_seconds: 300
 ```
+
+`requires` is an engine field added by this change: a check whose declared
+target does not exist fails fast with exit 127 and a clear message instead of
+letting the command silently scan nothing and pass. Impeccable's own `detect`
+exits 0 on a missing/empty target, so without this the shipped `design` check
+would be a silent false-green on projects without a site — the one thing the
+module must never produce.
 
 - **Bare binaries, not `npx`**: the runner image provides `impeccable` and
   `snyk` globally (mirroring the existing snyk pattern). No per-run cold npx
