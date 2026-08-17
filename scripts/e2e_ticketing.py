@@ -8,6 +8,7 @@ linked session to reach a terminal state and reports.
 
 Run: uv run python scripts/e2e_ticketing.py [N]
 """
+
 from __future__ import annotations
 
 import shutil
@@ -39,6 +40,7 @@ def main() -> int:
 
     # config: inkwell's agents, every model -> deepseek-v4-flash-official
     import yaml
+
     raw = yaml.safe_load(INKWELL_CONFIG.read_text()) or {}
     for agent in raw.get("agents", []):
         agent["model"] = MODEL
@@ -56,10 +58,17 @@ def main() -> int:
     # ── create N tickets ───────────────────────────────────────────────────
     ids: list[str] = []
     for i in range(N):
-        r = sh("sssf", "ticket", "add", f"Ticket task {i}: create tkt{i}.txt with content tkt {i}",
-               "--project", str(PROJECT), cwd=PROJECT)
+        r = sh(
+            "sssf",
+            "ticket",
+            "add",
+            f"Ticket task {i}: create tkt{i}.txt with content tkt {i}",
+            "--project",
+            str(PROJECT),
+            cwd=PROJECT,
+        )
         line = r.stdout.strip().splitlines()[-1]
-        ids.append(line.split("(")[1].split(")")[0])   # internal:<uuid>
+        ids.append(line.split("(")[1].split(")")[0])  # internal:<uuid>
     print(f"created {len(ids)} tickets")
 
     # ── launch them ALL at once ────────────────────────────────────────────
@@ -68,7 +77,11 @@ def main() -> int:
     for tid in ids:
         p = subprocess.Popen(
             ["sssf", "ticket", "run", tid, "--project", str(PROJECT)],
-            cwd=str(PROJECT), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            cwd=str(PROJECT),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
         procs.append(p)
     dispatch_s = time.time() - t0
     for p in procs:
@@ -80,8 +93,10 @@ def main() -> int:
     # monitor died, fall back to syncing any leftover per-run dbs ourselves.
     db = PROJECT / "adws/adw_data/sssf.db"
     import os
+
     sbx_dir = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf")) / "sandboxes" / PROJECT.name
-    from sssf.sandbox import sync_run_db, project_db_path
+    from sssf.sandbox import sync_run_db
+
     deadline = time.time() + 15 * 60
     settle_deadline = time.time() + 30
     containers = float("inf")
@@ -94,8 +109,11 @@ def main() -> int:
             conn.close()
         except sqlite3.Error:
             linked = []
-        containers = len(sh("docker", "ps", "-a", "--filter", "name=sssf-",
-                            "--format", "{{.Names}}").stdout.strip().splitlines())
+        containers = len(
+            sh("docker", "ps", "-a", "--filter", "name=sssf-", "--format", "{{.Names}}")
+            .stdout.strip()
+            .splitlines()
+        )
         terminal = [r for r in linked if r[1] in ("success", "fail")]
         if len(terminal) == N and containers == 0:
             break
@@ -115,7 +133,7 @@ def main() -> int:
                             conn.close()
                 break
         else:
-            settle_deadline = time.time() + 30   # a container is still running
+            settle_deadline = time.time() + 30  # a container is still running
         time.sleep(3)
     elapsed = time.time() - t0
 
@@ -123,7 +141,8 @@ def main() -> int:
     conn = sqlite3.connect(str(db), isolation_level=None, timeout=10)
     rows = conn.execute(
         "SELECT t.id, t.adw_id, s.status, s.started_at, s.ended_at"
-        " FROM tickets t LEFT JOIN sessions s ON s.adw_id = t.adw_id ORDER BY t.created_at").fetchall()
+        " FROM tickets t LEFT JOIN sessions s ON s.adw_id = t.adw_id ORDER BY t.created_at"
+    ).fetchall()
     integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
     conn.close()
 
@@ -136,29 +155,44 @@ def main() -> int:
     finished = [r for r in rows if r[3] and r[4]]
     overlap = 0
     for i, a in enumerate(finished):
-        for b in finished[i + 1:]:
+        for b in finished[i + 1 :]:
             if a[3] <= b[4] and b[3] <= a[4]:
                 overlap += 1
 
     branches = sh("git", "branch", "--list", "sssf/*", cwd=PROJECT).stdout.strip().splitlines()
     import os
+
     sbx_dir = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf")) / "sandboxes" / PROJECT.name
     remaining_wt = len(list(sbx_dir.glob("*"))) if sbx_dir.exists() else 0
-    remaining_ct = len(sh("docker", "ps", "-a", "--filter", "name=sssf-",
-                          "--format", "{{.Names}}").stdout.strip().splitlines())
+    remaining_ct = len(
+        sh("docker", "ps", "-a", "--filter", "name=sssf-", "--format", "{{.Names}}")
+        .stdout.strip()
+        .splitlines()
+    )
 
     print("\n=== E2E ticketing report ===")
     print(f"tickets: {len(rows)} · launched all in {dispatch_s:.0f}s · finished in {elapsed:.0f}s")
     print(f"verdicts: success {success} · failed {failed} · pending {pending}")
     print(f"concurrent overlap: {overlap}/{N * (N - 1) // 2} run-pairs")
-    print(f"db integrity: {integrity} · leftover containers: {remaining_ct} · worktrees: {remaining_wt}")
+    print(
+        f"db integrity: {integrity} · leftover containers: {remaining_ct} · worktrees: {remaining_wt}"
+    )
     print(f"surviving branches: {len(branches)}")
     for tid, adw, status, _s, _e in rows:
         print(f"  {tid:<20} {adw or '-':<10} {status or 'unlinked':8}")
-    infra_ok = (integrity == "ok" and pending == 0 and overlap == N * (N - 1) // 2
-                and remaining_ct == 0 and remaining_wt == 0 and len(branches) == N)
-    print("RESULT:", "PASS (infra)" if infra_ok else "FAIL",
-          f"— LLM verdicts: {success}/{N} success · failed-to-start: {failed_to_start}")
+    infra_ok = (
+        integrity == "ok"
+        and pending == 0
+        and overlap == N * (N - 1) // 2
+        and remaining_ct == 0
+        and remaining_wt == 0
+        and len(branches) == N
+    )
+    print(
+        "RESULT:",
+        "PASS (infra)" if infra_ok else "FAIL",
+        f"— LLM verdicts: {success}/{N} success · failed-to-start: {failed_to_start}",
+    )
     return 0 if infra_ok else 1
 
 
