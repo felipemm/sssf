@@ -9,6 +9,7 @@ import KanbanBoard from './components/KanbanBoard.vue'
 import StatusPage from './components/StatusPage.vue'
 import MissionControl from './components/MissionControl.vue'
 import ProjectPicker from './components/ProjectPicker.vue'
+import Toasts from './components/Toasts.vue'
 
 const route = useRoute()
 const { selectedProject } = useProjects()
@@ -199,6 +200,7 @@ async function onSweep() {
         {{ sweepNote }}
       </div>
     </Transition>
+    <Toasts />
   </div>
 </template>
 

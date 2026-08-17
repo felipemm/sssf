@@ -41,7 +41,8 @@ def build(explicit: str | None) -> int:
     context = sssf_src if (sssf_src / "pyproject.toml").exists() else df.parent
     try:
         from sssf.adw_modules.agents import load_config
-        cfg = load_config(str(root / "adws" / "adw_sssf_config" / "sssf.config.yaml"))
+        from sssf.adw_modules import paths
+        cfg = load_config(str(paths.config_file(root)))
         build_image(cfg.sandbox.image, df, context)
     except SandboxError as e:
         print(f"sssf: image build failed: {e}", file=sys.stderr)

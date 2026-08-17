@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { CircleCheck, CircleX, ExternalLink, LoaderCircle, Play, X } from 'lucide-vue-next'
 import { runTicket } from '../lib/api'
+import { notify } from '../lib/toast'
 import type { Ticket, TicketRun } from '../lib/api'
 
 const props = defineProps<{ ticket: Ticket }>()
@@ -21,6 +22,7 @@ async function run() {
     const res = await runTicket(props.ticket.id)
     if (!res.ok) {
       error.value = res.output || 'run failed'
+      notify(res.output || 'run failed')
       return
     }
     emit('ran')
