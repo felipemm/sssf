@@ -350,13 +350,13 @@ class ConfigDefaults(BaseModel):
     # The factory's own code is the default: an agent must not be able to edit
     # the machinery that decides whether its work passed.
     protected_files: list[str] = Field(default_factory=lambda: [
-        "adws/adw_modules/", "adws/adw_sssf_config/", "adws/adw_*.py",
+        "adws/adw_modules/", "adws/config/", "adws/modules/",
     ])
-    data_dir: str = "adws/adw_data"
+    data_dir: str = "adws/data"
 
 
 class ObservabilityConfig(BaseModel):
-    db: str = "adws/adw_data/sssf.db"
+    db: str = "adws/data/sssf.db"
     poll_ms: int = 500
 
 

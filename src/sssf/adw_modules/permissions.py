@@ -78,7 +78,7 @@ def _glob(pattern: str) -> re.Pattern:
     """Translate a pattern, with `*` stopping at a path separator.
 
     fnmatch would let `*` cross `/`, which quietly widens every pattern:
-    `adws/adw_*.py` would match `adws/adw_data/sessions/x/y.py` as well as the
+    `adws/adw_modules/` protects the engine module; `adws/modules/` protects the chains
     ADW scripts it means. `**` is the way to say "cross directories".
     """
     out, i = [], 0

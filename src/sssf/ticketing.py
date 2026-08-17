@@ -19,7 +19,7 @@ from pathlib import Path
 
 import yaml
 
-TICKETING_FILE = "adws/adw_sssf_config/ticketing.yaml"
+TICKETING_FILE = "adws/config/ticketing.yaml"
 LINEAR_API = "https://api.linear.app/graphql"
 
 TICKETS_DDL = """
@@ -189,7 +189,8 @@ def sync_tickets(root: Path, cfg: TicketingConfig) -> list[ProviderSyncResult]:
         load_dotenv(root / ".env")
     except ImportError:
         pass
-    db_path = root / "adws" / "adw_data" / "sssf.db"
+    from sssf.adw_modules import paths
+    db_path = paths.data_dir(root) / "sssf.db"
     results: list[ProviderSyncResult] = []
     for provider in cfg.providers:
         try:
