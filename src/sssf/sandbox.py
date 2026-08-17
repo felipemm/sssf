@@ -187,14 +187,19 @@ def _engine_fingerprint() -> str:
     (docker/sssf-runner.Dockerfile); a mismatch means the image predates local
     engine changes and every sandboxed run would die cryptically."""
     import hashlib
+    import sssf
     root = Path(sssf.__file__).resolve().parent
-    digest = hashlib.sha256()
-    for path in sorted(p for p in root.rglob("*")
-                       if p.is_file() and "__pycache__" not in p.parts
-                       and p.suffix != ".pyc"):
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
+    # Same algorithm as the Dockerfile's marker build: one sha256 per file
+    # (in sorted-path order), then sha256 of the newline-joined hex digests.
+    # Both sides must match byte-for-byte or the guard reports stale forever.
+    _SKIP_DIRS = {"node_modules", ".venv", ".git", "__pycache__"}
+    files = sorted(
+        p for p in root.rglob("*")
+        if p.is_file() and not p.is_symlink()
+        and p.suffix != ".pyc"
+        and not _SKIP_DIRS.intersection(p.parts))
+    digests = [hashlib.sha256(p.read_bytes()).hexdigest() for p in files]
+    return hashlib.sha256(("\n".join(digests) + "\n").encode()).hexdigest()
 
 
 def image_engine_fingerprint(image: str) -> str | None:

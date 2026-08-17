@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from sssf.sandbox import SandboxError, build_image, docker_available, run_sandbox, stop_remove
+import sssf.sandbox as sandbox
 
 
 @pytest.fixture
@@ -89,3 +90,41 @@ def test_run_sandbox_flags(fake_docker, tmp_path):
 
     stop_remove("sssf-abc")
     stop_remove("sssf-abc")
+
+
+def test_ensure_image_current_real_fingerprint(fake_docker, monkeypatch):
+    """Exercises the REAL _engine_fingerprint (not a stub) — regression for the
+    missing-import bug that made it crash with NameError."""
+    from sssf.sandbox import _engine_fingerprint
+    real = _engine_fingerprint() + "\n"
+
+    def fake(*args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, stdout=real, stderr="")
+    monkeypatch.setattr(sandbox, "_docker", fake)
+    sandbox.ensure_image_current("sssf-real")   # no raise — real fingerprint path
+
+
+def _fake_docker_stdout(monkeypatch, stdout: str, rc: int = 0):
+    def fake(*args, **kwargs):
+        return subprocess.CompletedProcess(args, rc, stdout=stdout, stderr="")
+    monkeypatch.setattr(sandbox, "_docker", fake)
+    monkeypatch.setattr(sandbox, "_engine_fingerprint", lambda: "FPWANT")
+
+
+def test_ensure_image_current_matches(fake_docker, monkeypatch):
+    _fake_docker_stdout(monkeypatch, "FPWANT\n")
+    sandbox.ensure_image_current("sssf-match")   # no raise
+
+
+def test_ensure_image_current_stale_raises(fake_docker, monkeypatch):
+    _fake_docker_stdout(monkeypatch, "OLDHASH\n")
+    with pytest.raises(SandboxError, match="stale"):
+        sandbox.ensure_image_current("sssf-stale")
+
+
+def test_ensure_image_current_missing_raises(fake_docker, monkeypatch):
+    """An image without the marker (or docker failure) is refused loudly —
+    never a silent spawn into a stale engine."""
+    _fake_docker_stdout(monkeypatch, "")
+    with pytest.raises(SandboxError, match="missing or unreadable"):
+        sandbox.ensure_image_current("sssf-missing")

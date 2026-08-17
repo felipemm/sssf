@@ -47,8 +47,10 @@ RUN pip install --no-cache-dir /opt/sssf
 # recomputes it against its own package and refuses to spawn on mismatch
 # (issue #21) — engine changes silently broke every sandboxed run until the
 # image was rebuilt.
-RUN find /opt/sssf/src/sssf -type f ! -path "*__pycache__*" ! -name "*.pyc" \
-    | sort | xargs sha256sum | sha256sum | awk '{print $1}' > /opt/sssf-fingerprint
+RUN find /opt/sssf/src/sssf -type f \
+    ! -path "*node_modules*" ! -path "*__pycache__*" ! -path "*/.venv/*" ! -path "*/.git/*" \
+    ! -name "*.pyc" ! -type l \
+    | sort | xargs sha256sum | awk '{print $1}' | sha256sum | awk '{print $1}' > /opt/sssf-fingerprint
 
 # Entrypoint: git trust + a writable copy of the pi config (see entrypoint.sh)
 COPY docker/entrypoint.sh /entrypoint.sh
