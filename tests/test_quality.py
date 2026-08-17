@@ -137,7 +137,9 @@ def test_missing_requires_fails_fast_with_127(tmp_path):
     check = result.checks[0]
     assert check.passed is False
     assert check.returncode == 127
+    assert check.env_error is True
     assert "requires site/dist" in check.output_tail
+    assert "environment error" in quality.env_failure(result)
 
     rows = _gate_rows(tmp_path)
     assert ("quality:design", 0) in rows
@@ -154,3 +156,27 @@ def test_requires_present_runs_the_command(tmp_path):
     check = result.checks[0]
     assert check.passed is True
     assert check.returncode == 0
+
+
+def test_missing_binary_is_env_error(tmp_path):
+    """A command whose binary does not exist is an ENVIRONMENT failure (127,
+    OSError), not a code failure — the builder must never see it."""
+    run = _make_run(tmp_path, checks=[QualityCheckSpec(
+        name="test", area="backend", operation="build",
+        argv=["definitely-not-a-real-binary-xyz"])])
+    result = quality.run_quality(run)
+    check = result.checks[0]
+    assert check.returncode == 127
+    assert check.env_error is True
+    assert "environment error" in quality.env_failure(result)
+
+
+def test_env_failure_none_for_code_failures(tmp_path):
+    """A plain non-zero exit is a code failure — env_failure() returns None so
+    the builder repair loop runs."""
+    run = _make_run(tmp_path, checks=[QualityCheckSpec(
+        name="test", area="backend", operation="build",
+        argv=["python3", "-c", "import sys; sys.exit(3)"])])
+    result = quality.run_quality(run)
+    assert result.checks[0].env_error is False
+    assert quality.env_failure(result) is None

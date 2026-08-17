@@ -114,3 +114,14 @@ def test_adws_resolve_config_at_runtime():
         assert "paths.config_file" in text
         assert "adws/adw_sssf_config" not in text
         assert "adws/app_docs" not in text
+
+
+def test_fix_loop_adws_break_on_env_failure():
+    """Every ADW with a builder fix loop must break on an environment failure
+    (missing binary / missing target) instead of handing it to the builder —
+    no code edit can fix a missing binary, and the loop would burn all
+    MAX_FIX_LOOPS iterations on it (issue #16)."""
+    for name in ("adw_simple_sdlc", "adw_build_test", "adw_plan_build_test",
+                 "adw_plan_build_test_quality", "adw_design_sdlc"):
+        text = (TEMPLATES / "adws" / "modules" / f"{name}.py").read_text()
+        assert "quality.env_failure" in text, f"{name} missing env-failure break"

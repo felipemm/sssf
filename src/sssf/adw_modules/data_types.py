@@ -158,6 +158,7 @@ class QualityCheckResult(BaseModel):
     command: str
     returncode: int
     passed: bool
+    env_error: bool = False    # 127-class: missing binary / missing requires target
     duration_seconds: float
     output_artifact: str
     # The tail of stdout+stderr, verbatim and unparsed. A failure has to travel
