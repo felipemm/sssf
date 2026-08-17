@@ -192,7 +192,9 @@ def _engine_fingerprint() -> str:
     # Same algorithm as the Dockerfile's marker build: one sha256 per file
     # (in sorted-path order), then sha256 of the newline-joined hex digests.
     # Both sides must match byte-for-byte or the guard reports stale forever.
-    _SKIP_DIRS = {"node_modules", ".venv", ".git", "__pycache__"}
+    # The visualizer is host-side UI — the ADW sandbox never runs it, so
+    # frontend-only changes must not stale the runner image.
+    _SKIP_DIRS = {"node_modules", ".venv", ".git", "__pycache__", "visualizer"}
     files = sorted(
         p for p in root.rglob("*")
         if p.is_file() and not p.is_symlink()

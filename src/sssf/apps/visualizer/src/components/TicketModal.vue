@@ -1,9 +1,33 @@
 <script setup lang="ts">
-import { CircleCheck, CircleX, ExternalLink, LoaderCircle, X } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+import { CircleCheck, CircleX, ExternalLink, LoaderCircle, Play, X } from 'lucide-vue-next'
+import { runTicket } from '../lib/api'
 import type { Ticket, TicketRun } from '../lib/api'
 
 const props = defineProps<{ ticket: Ticket }>()
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: []; ran: [] }>()
+
+// Run lives on the card AND here: a backlog ticket is runnable from the modal
+// too. The board refetches on 'ran'; failures surface the CLI's output
+// (including stderr) so a stale-image or env error is visible, not silent.
+const running = ref(false)
+const error = ref('')
+const runnable = computed(() => props.ticket.status === 'backlog')
+
+async function run() {
+  running.value = true
+  error.value = ''
+  try {
+    const res = await runTicket(props.ticket.id)
+    if (!res.ok) {
+      error.value = res.output || 'run failed'
+      return
+    }
+    emit('ran')
+  } finally {
+    running.value = false
+  }
+}
 
 const BADGE: Record<string, string> = { jira: 'J', linear: 'L', internal: '⚙' }
 
@@ -58,6 +82,18 @@ function runStatus(run: TicketRun): { label: string; cls: string } {
       </div>
 
       <footer class="m-foot">
+        <p v-if="error" class="m-error">{{ error }}</p>
+        <button
+          v-if="runnable"
+          class="btn primary"
+          type="button"
+          :disabled="running"
+          @click="run"
+        >
+          <LoaderCircle v-if="running" class="spin" :size="15" />
+          <Play v-else :size="15" />
+          {{ running ? 'Starting…' : 'Run' }}
+        </button>
         <button class="btn" type="button" @click="emit('close')">Close</button>
       </footer>
     </div>
@@ -204,8 +240,26 @@ function runStatus(run: TicketRun): { label: string; cls: string } {
 }
 .m-foot {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 10px;
   margin-top: 18px;
+}
+.m-error {
+  margin: 0 auto 0 0;
+  font-size: 12px;
+  color: #f87171;
+  max-width: 60%;
+  white-space: pre-wrap;
+}
+.btn.primary {
+  border-color: rgba(232, 182, 74, 0.5);
+  background: rgba(232, 182, 74, 0.14);
+  color: #e8b64a;
+}
+.btn.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 .btn {
   display: inline-flex;
