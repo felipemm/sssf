@@ -40,8 +40,8 @@ from .data_types import (
     EventRecord,
     GateReport,
     QualityCheckResult,
-    QualityOperation,
     QualityCheckSpec,
+    QualityOperation,
     QualityResult,
     VerifyOutput,
 )
