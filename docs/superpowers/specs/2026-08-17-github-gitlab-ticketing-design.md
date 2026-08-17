@@ -19,12 +19,16 @@ providers:            # any subset of jira | linear | github | gitlab | internal
 # from the git remote origin unless overridden.
 github:
   labels: []          # optional label filter; repeat entries = OR
+  self_hosted: false  # true for GitHub Enterprise — origin must match custom_url
+  # custom_url: https://github.company.com
   # repo: owner/repo # optional override; default = parsed from origin
   pr:
     auto: false       # RESERVED — auto PR-on-success is deferred (see §6)
 
 gitlab:               # via the glab CLI (glab owns per-host auth + GITLAB_HOST)
   labels: []
+  self_hosted: false  # true for self-hosted GitLab (e.g. git.ifoodcorp.com.br)
+  # custom_url: https://git.ifoodcorp.com.br
   # repo: group/project
   pr:
     auto: false
@@ -44,24 +48,30 @@ gitlab:               # via the glab CLI (glab owns per-host auth + GITLAB_HOST)
 - HTTPS: `https://github.com/owner/repo.git` → host `github.com`, repo `owner/repo`
 - The `ssh://git@host/owner/repo.git` form parses identically; a trailing `.git` is stripped.
 
-Host classification decides which hosted-git provider the origin satisfies:
+**Host matching is per-provider and explicit.** By default each provider matches only its cloud standard URL host; any other origin host must be configured (`self_hosted: true`, optionally pinned with `custom_url:`) or the provider is skipped with a config-issue warning.
 
-| Origin host | Classifies as |
-|---|---|
-| contains `github` (e.g. `github.com`, `github.company.com`) | `github` |
-| `gitlab.com`, contains `gitlab`, or **any other non-empty hostname** (self-hosted forges such as `git.ifoodcorp.com.br`) | `gitlab` |
-| no origin (empty/missing remote) | none — no hosted-git provider applies |
+| Provider config | Origin host must be | Notes |
+|---|---|---|
+| `github` (default) | `github.com` | the cloud standard URL |
+| `github` + `self_hosted: true` + `custom_url:` | the host of `custom_url` | e.g. `github.company.com` |
+| `github` + `self_hosted: true`, no `custom_url` | any host | `custom_url` recommended to pin the instance |
+| `gitlab` (default) | `gitlab.com` | the cloud standard URL |
+| `gitlab` + `self_hosted: true` + `custom_url:` | the host of `custom_url` | e.g. `git.ifoodcorp.com.br` |
+| `gitlab` + `self_hosted: true`, no `custom_url` | any host | `custom_url` recommended |
+| no origin (empty/missing remote) | — | no hosted-git provider applies |
+
+`custom_url` is used **only for origin matching** — sssf never passes it to the CLI. gh/glab keep owning their own host + auth configuration (`gh auth login --hostname …`, `glab auth login --hostname …`, `GITLAB_HOST`).
 
 **Per-provider resolution** inside `sync_tickets`:
 
-1. `repo:` override in the yaml block → use it, no classification needed.
-2. Origin exists and its classification matches the provider → use the parsed repo.
-3. Otherwise the provider is **skipped with a message, never an error**:
-   - `github` configured but origin classifies as gitlab (or none) → "github configured but origin is `<host>` — skipping".
-   - `gitlab` configured but origin is a github host → the mirror message.
+1. `repo:` override in the yaml block → use it, no host matching.
+2. Origin exists and its host is in the provider's expected hosts (table above) → use the parsed repo.
+3. Otherwise the provider is **skipped with a warning message, never an error** — the config-issue warning surface:
+   - Cloud provider, origin is a non-standard host (e.g. `git.ifoodcorp.com.br` with plain `gitlab:`) → "gitlab configured but origin is git.ifoodcorp.com.br — the cloud host is gitlab.com; is this a self-hosted instance? set `self_hosted: true` and `custom_url:` (or add a `repo:` override)".
+   - `self_hosted: true` with `custom_url`, origin host ≠ custom host → "gitlab configured with custom_url <url> but origin is <host> — fix custom_url or add a `repo:` override".
    - No origin at all → "no git remote origin — add a `repo:` override in ticketing.yaml".
 
-Jira, Linear, and internal are unaffected — they are explicit, not origin-keyed. An unknown host (e.g. Bitbucket) classifies as gitlab by the table above; that is the documented, accepted behavior — the yaml `repo:` override is the escape hatch.
+Jira, Linear, and internal are unaffected — they are explicit, not origin-keyed. This strict default replaces the earlier "any unknown host counts as gitlab" rule: a self-hosted origin now requires explicit `self_hosted: true`, which surfaces misconfiguration instead of silently aiming at the wrong forge.
 
 ## 3. Provider adapters — `sssf/ticketing.py`
 
@@ -87,7 +97,7 @@ Sync one provider instead of all. Origin mismatch skips still apply. The viz ref
 
 Creates a **draft** PR/MR from the **current branch** of the project repo (cwd = project root, so `gh pr create` / `glab mr create` act on the working tree's branch):
 
-1. Loads the ticket row; resolves the repo via origin (or yaml `repo:` override) — **if the provider's classification doesn't match the origin, this fails with the same skip message as sync** (a PR cannot be aimed at a forge the repo doesn't live on).
+1. Loads the ticket row; resolves the repo via origin (or yaml `repo:` override) — **if the origin host isn't in the provider's expected hosts (§2), this fails with the same config-issue warning as sync** (a PR cannot be aimed at a forge the repo doesn't live on).
 2. Builds the PR/MR: title = ticket title; body = ticket description + issue link. The bare issue number / IID is the ticket's `external_id` **after the last `#`** (e.g. `owner/repo#12` → `12`) — uniform for both forges, since `external_id` is `<repo>#<number-or-iid>` (§3).
    - github → `Closes #<number>` (same-repo issue auto-close on merge).
    - gitlab → `Closes <issue_url>` (from the ticket's `source_url`; works for same-project and cross-project issues).
@@ -124,11 +134,11 @@ Creates a **draft** PR/MR from the **current branch** of the project repo (cwd =
 
 - **pytest** (`tests/test_ticketing.py`, `tests/test_ticket_cli.py`):
   - origin parsing: SSH, HTTPS, `ssh://` form, trailing `.git`, self-hosted hostname, no origin.
-  - classification + mismatch: github origin + gitlab configured → gitlab skipped with message; `repo:` override bypasses origin.
+  - host matching + warnings: cloud hosts match by default (`github.com` ↔ github, `gitlab.com` ↔ gitlab); a non-standard origin host with a cloud provider → warning naming `self_hosted: true`/`custom_url:`; `self_hosted` + `custom_url` host mismatch → warning; `repo:` override bypasses host matching.
   - adapter parsing with mocked subprocess (same pattern as `fetch_jira`): github `--json` fields, gitlab `web_url`/`iid` mapping, label filter flags present in argv.
   - missing `gh`/`glab` → actionable RuntimeError.
   - `sync --provider` fetches only that provider.
   - `ticket pr`: argv shape for gh vs glab, `--draft`, issue-link line per forge, `--no-comment` skips the comment step, internal ticket has no link line, mismatch → error with `repo:` hint.
   - config: new keys parse, `pr.auto: true` warns, unknown provider still errors.
 - **bun test** (`src/sssf/apps/visualizer/server/tickets.test.ts` + route tests): `providers` in the GET response (external only, internal excluded); sync route passes `?provider=` into the spawned argv.
-- **Field**: a github-origin repo with `gitlab:` configured → sync reports "gitlab … skipping" and still lists github issues; two external providers → refresh shows the picker; `sssf ticket pr <id>` after a `--no-sandbox` run opens a draft PR linking the issue.
+- **Field**: a github-origin repo with cloud `gitlab:` configured → sync warns "gitlab configured but origin is … — is this a self-hosted instance? set `self_hosted: true` and `custom_url:`" and still lists github issues; a self-hosted origin syncs only with `self_hosted: true` (+ `custom_url`); two external providers → refresh shows the picker; `sssf ticket pr <id>` after a `--no-sandbox` run opens a draft PR linking the issue.
