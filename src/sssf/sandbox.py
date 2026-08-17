@@ -173,7 +173,7 @@ def container_name(adw_id: str) -> str:
 
 def project_db_path(data_dir: Path) -> Path:
     """The shared project db (bind-mounted into the container at
-    /work/adws/adw_data/sssf.db)."""
+    /work/adws/data/sssf.db)."""
     return data_dir / "sssf.db"
 
 
@@ -331,7 +331,7 @@ def monitor_run(project_root: Path, adw_id: str) -> int:
     from sssf.adw_modules.tracer import Tracer
     data_dir, _pi, _env = sandbox_env(project_root)
     project_db = project_db_path(data_dir)
-    per_run_db = sandbox_dir(project_root, adw_id) / "adws" / "adw_data" / "sssf.db"
+    per_run_db = sandbox_dir(project_root, adw_id) / "adws" / "data" / "sssf.db"
     tracer = Tracer(str(project_db), str(project_db.parent / "sessions" / adw_id / "events.jsonl"))
     try:
         while True:
@@ -390,7 +390,8 @@ def sandbox_env(project_root: Path) -> tuple[Path, Path, dict[str, str]]:
     """The per-run data dir (shared, bind-mounted rw), the pi home (read-only
     mount), and the env passed to the container: credentials + git identity
     only — never project files."""
-    data_dir = project_root / "adws" / "adw_data"
+    from sssf.adw_modules import paths
+    data_dir = paths.data_dir(project_root)
     pi_home = Path(os.environ.get("PI_HOME", Path.home() / ".pi" / "agent"))
     env: dict[str, str] = {}
     if os.environ.get("GENPLAT_TOKEN"):
@@ -469,6 +470,6 @@ def stamp_adw_template(wt: Path) -> None:
         shutil.copy(adw, dest)
     src_prompts = templates / "prompt_engineering"
     if src_prompts.exists():
-        dest_prompts = wt / "adws" / "adw_data" / "prompt_engineering"
+        dest_prompts = wt / "adws" / "data" / "prompt_engineering"
         shutil.rmtree(dest_prompts, ignore_errors=True)
         shutil.copytree(src_prompts, dest_prompts)
