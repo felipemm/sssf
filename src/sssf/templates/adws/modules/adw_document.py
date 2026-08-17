@@ -2,7 +2,7 @@
 """ADW Document — write up the work that was just done, from the diff.
 
 Usage:
-    uv run adws/adw_document.py "<prompt or path/to/prompt.md>" [--base main] [--config adws/adw_sssf_config/sssf.config.yaml] [--adw-id a1b2c3d4]
+    uv run adws/adw_document.py "<prompt or path/to/prompt.md>" [--base main] [--config adws/config/sssf.config.yaml] [--adw-id a1b2c3d4]
 
 Phases: engineer(request) -> code(changes) -> documenter -> git(commit_docs)
 
@@ -31,8 +31,9 @@ DOCUMENT_NOTES = ("Read diff_path in full before writing. Document only what the
 
 
 def main(prompt: str, base: str = "main",
-         config: str = "adws/adw_sssf_config/sssf.config.yaml", adw_id: str | None = None) -> int:
-    cfg = agents.load_config(config)
+         config: str | None = None, adw_id: str | None = None) -> int:
+    from sssf.adw_modules import paths
+    cfg = agents.load_config(config or str(paths.config_file(Path.cwd())))
     agents.validate(cfg, REQUIRED_AGENTS)
     run = session.ensure(cfg, adw_id)
 
@@ -72,7 +73,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("prompt", help="inline text or a path to a prompt file")
     parser.add_argument("--base", default="main", help="ref the change is measured against")
-    parser.add_argument("--config", default="adws/adw_sssf_config/sssf.config.yaml")
+    parser.add_argument("--config", default=None, help="path to sssf.config.yaml (default: adws/config/sssf.config.yaml)")
     parser.add_argument("--adw-id", default=None, help="join or pin an existing session")
     args = parser.parse_args()
     sys.exit(main(utils.resolve_prompt(args.prompt), args.base, args.config, args.adw_id))

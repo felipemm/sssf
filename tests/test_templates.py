@@ -104,3 +104,13 @@ def test_designer_prompt_files_exist():
     for label in ("system", "user"):
         path = TEMPLATES / "adws" / "data" / "prompt_engineering" / "designer" / f"{label}.md"
         assert path.is_file(), f"designer {label} prompt missing"
+
+
+def test_adws_resolve_config_at_runtime():
+    """--config defaults to None and main() resolves via paths — a chain must
+    never bake a layout literal that the v2 migration rewrites."""
+    for adw in (TEMPLATES / "adws" / "modules").glob("adw_*.py"):
+        text = adw.read_text()
+        assert "paths.config_file" in text
+        assert "adws/adw_sssf_config" not in text
+        assert "adws/app_docs" not in text
