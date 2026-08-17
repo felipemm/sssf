@@ -1,8 +1,8 @@
 # Ticketing integration (optional). Uncomment to enable — the kanban Backlog
 # stage stays hidden until this file configures at least one provider.
 #
-# providers:            # any subset of jira | linear | internal
-#   - internal
+providers:            # any subset of jira | linear | internal
+  - internal
 #   # - jira
 #   # - linear
 #
