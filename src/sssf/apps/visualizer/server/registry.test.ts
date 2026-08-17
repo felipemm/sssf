@@ -7,7 +7,7 @@ import { ProjectRegistry } from "./registry";
 describe("ProjectRegistry", () => {
   test("reads projects.json and lists dbs", () => {
     const dir = mkdtempSync(join(tmpdir(), "sssf-registry-"));
-    const db = join(dir, "adws", "adw_data", "sssf.db");
+    const db = join(dir, "adws", "data", "sssf.db");
     writeFileSync(
       join(dir, "projects.json"),
       JSON.stringify({

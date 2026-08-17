@@ -7,7 +7,7 @@ import { computeStatus } from "./status.ts";
 
 function fakeProject() {
   const root = mkdtempSync(join(tmpdir(), "status-"));
-  const dbDir = join(root, "adws", "adw_data");
+  const dbDir = join(root, "adws", "data");
   mkdirSync(dbDir, { recursive: true });
   const path = join(dbDir, "sssf.db");
   const db = new Database(path);

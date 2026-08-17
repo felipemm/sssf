@@ -12,8 +12,8 @@ import { computeCockpit } from "./cockpit.ts";
 const TODAY = new Date().toISOString().slice(0, 10);
 
 function fakeDb(dir: string): string {
-  const path = join(dir, "adws", "adw_data", "sssf.db");
-  mkdirSync(join(dir, "adws", "adw_data"), { recursive: true });
+  const path = join(dir, "adws", "data", "sssf.db");
+  mkdirSync(join(dir, "adws", "data"), { recursive: true });
   const db = new Database(path);
   db.run(`CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, started_at TEXT,
           ended_at TEXT, total_cost REAL, total_tokens INTEGER, archived INTEGER DEFAULT 0)`);
@@ -35,7 +35,7 @@ function makeEnv() {
   const b = join(root, "proj-b");
   mkdirSync(b, { recursive: true });
   fakeDb(b);
-  const da = new Database(join(a, "adws", "adw_data", "sssf.db"));
+  const da = new Database(join(a, "adws", "data", "sssf.db"));
   da.run(`INSERT INTO sessions VALUES ('run1','running','${TODAY}T10:00:00',NULL,0.5,100,0)`);
   da.run(`INSERT INTO sessions VALUES ('done1','success','${TODAY}T09:00:00','${TODAY}T09:30:00',1.2,200,0)`);
   da.run(`INSERT INTO phases VALUES ('ph1','run1','running','${TODAY}T10:00:00')`);
@@ -49,8 +49,8 @@ function makeEnv() {
     regPath,
     JSON.stringify({
       projects: [
-        { name: "proj-a", root: a, db: join(a, "adws", "adw_data", "sssf.db"), lastRun: null },
-        { name: "proj-b", root: b, db: join(b, "adws", "adw_data", "sssf.db"), lastRun: null },
+        { name: "proj-a", root: a, db: join(a, "adws", "data", "sssf.db"), lastRun: null },
+        { name: "proj-b", root: b, db: join(b, "adws", "data", "sssf.db"), lastRun: null },
       ],
     }),
   );
@@ -100,7 +100,7 @@ describe("computeCockpit", () => {
 
   test("a ticket whose session finished is done, not in-flight (session is first-class)", async () => {
     const env = makeEnv();
-    const da = new Database(join(env.root, "proj-a", "adws", "adw_data", "sssf.db"));
+    const da = new Database(join(env.root, "proj-a", "adws", "data", "sssf.db"));
     // done1's session is success; tie a 'running'-stale ticket to it
     da.run(`INSERT INTO tickets VALUES ('internal:t2','running','done1','${TODAY}T08:00:00')`);
     da.close();
@@ -116,7 +116,7 @@ describe("computeCockpit", () => {
     const env = makeEnv();
     const hour = new Date().toISOString().slice(0, 13); // current UTC hour
     const old = new Date(Date.now() - 100 * 86400_000).toISOString().slice(0, 13); // 100 days ago
-    const da = new Database(join(env.root, "proj-a", "adws", "adw_data", "sssf.db"));
+    const da = new Database(join(env.root, "proj-a", "adws", "data", "sssf.db"));
     da.run(`UPDATE sessions SET ended_at=? WHERE adw_id='done1'`, [`${hour}:00:00`]);
     // a session completed before the 14-day window → the cumulative baseline
     da.run(`INSERT INTO sessions VALUES ('old1','success','2026-01-01T00:00:00',?,0.1,10,0)`, [`${old}:00:00`]);
@@ -141,7 +141,7 @@ describe("computeCockpit", () => {
 
   test("broken db renders zeros + stale, never throws", async () => {
     const env = makeEnv();
-    rmSync(join(env.root, "proj-a", "adws", "adw_data", "sssf.db"));
+    rmSync(join(env.root, "proj-a", "adws", "data", "sssf.db"));
     const data = await computeCockpit({
       registry: env.registry,
       sssfHome: env.home,
@@ -174,7 +174,7 @@ describe("computeCockpit", () => {
   test("empty db (no tables) renders zeros without stale", async () => {
     const env = makeEnv();
     // proj-b's db file is empty (no tables yet — a freshly registered project)
-    const dbPath = join(env.root, "proj-b", "adws", "adw_data", "sssf.db");
+    const dbPath = join(env.root, "proj-b", "adws", "data", "sssf.db");
     const db = new Database(dbPath);
     db.close();
     const data = await computeCockpit({
@@ -315,8 +315,8 @@ describe("computeCockpitContributions", () => {
     const a = join(root, "proj-a"); makeGitRepo(a);
     const b = join(root, "proj-b"); makeGitRepo(b); // both commit today
     writeFileSync(regPath, JSON.stringify({ projects: [
-      { name: "proj-a", root: a, db: join(a, "adws", "adw_data", "sssf.db"), lastRun: null },
-      { name: "proj-b", root: b, db: join(b, "adws", "adw_data", "sssf.db"), lastRun: null },
+      { name: "proj-a", root: a, db: join(a, "adws", "data", "sssf.db"), lastRun: null },
+      { name: "proj-b", root: b, db: join(b, "adws", "data", "sssf.db"), lastRun: null },
     ]}));
     const days = computeCockpitContributions(new ProjectRegistry(regPath));
     expect(days.length).toBe(364);

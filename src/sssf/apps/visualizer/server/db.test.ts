@@ -7,8 +7,8 @@ import { SssfDb } from "./db.ts";
 
 function fakeDb() {
   const root = mkdtempSync(join(tmpdir(), "db-"));
-  mkdirSync(join(root, "adws", "adw_data"), { recursive: true });
-  const path = join(root, "adws", "adw_data", "sssf.db");
+  mkdirSync(join(root, "adws", "data"), { recursive: true });
+  const path = join(root, "adws", "data", "sssf.db");
   const db = new Database(path);
   db.exec("PRAGMA journal_mode = WAL");
   db.run(`CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, adw_name TEXT, request TEXT,

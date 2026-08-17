@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdtempSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { readTickets } from "./tickets";
+import { isEnabled, readTickets } from "./tickets";
 
 function makeDb(path: string): Database {
   const db = new Database(path);
@@ -102,5 +102,30 @@ describe("readTickets", () => {
     db.query("INSERT INTO sessions (adw_id, status) VALUES (?,?)").run("sess_f", "fail");
     db.close();
     expect(readTickets(dbPath)[0]!.status).toBe("failed");
+  });
+});
+
+
+describe("isEnabled", () => {
+  test("v2 project with providers is enabled (regression: v1 path hid the kanban)", () => {
+    const root = mkdtempSync(join(tmpdir(), "tick-"));
+
+    function write(yaml: string) {
+      mkdirSync(join(root, "adws", "config"), { recursive: true });
+      writeFileSync(join(root, "adws", "config", "ticketing.yaml"), yaml);
+    }
+
+    write("providers:\n  - internal\n");
+    expect(isEnabled(root)).toBe(true);
+
+    write("# fully commented\n# providers:\n#   - internal\n");
+    expect(isEnabled(root)).toBe(false);
+
+    // a v1-only layout is not enabled — the v2 config is the contract
+    const v1root = mkdtempSync(join(tmpdir(), "tick-v1-"));
+    mkdirSync(join(v1root, "adws", "adw_sssf_config"), { recursive: true });
+    writeFileSync(join(v1root, "adws", "adw_sssf_config", "ticketing.yaml"),
+                  "providers:\n  - internal\n");
+    expect(isEnabled(v1root)).toBe(false);
   });
 });
