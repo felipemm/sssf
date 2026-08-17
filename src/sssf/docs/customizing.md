@@ -10,23 +10,23 @@ its agents produce, so the repo root stays clean:
 
 ```
 adws/
-├── adw_*.py                  your chains
-├── adw_sssf_config/          sssf.config.yaml (the roster)
-├── adw_data/                 prompts, harness engineering, sessions/, sssf.db
-├── specs/                    plans the planner commits (adws/specs/<adw_id>_<slug>.md)
-├── app_docs/                 write-ups the documenter commits (adws/app_docs/<adw_id>_<slug>.md)
-└── prompts/                  your prompt files, e.g. sssf run <adw> "run prompt adws/prompts/x.md"
+├── modules/                 adw_*.py chains
+├── config/                  sssf.config.yaml, ticketing.yaml
+├── data/                    sssf.db, sessions/, prompt_engineering/, harness_engineering/
+├── prompts/                 your prompt files, e.g. sssf run <adw> "run prompt adws/prompts/x.md"
+├── specs/                   plans the planner commits (adws/specs/<adw_id>_<slug>.md)
+└── kb/                      write-ups the documenter commits (adws/kb/<adw_id>_<slug>.md)
 ```
 
 Three things are yours to shape per project:
 
 ## Your chains
 
-Chains are the `adws/adw_*.py` scripts. Copy the closest starter chain, rename
+Chains are the `adws/modules/adw_*.py` scripts. Copy the closest starter chain, rename
 it, and edit its phase list:
 
 ```python
-# adws/adw_my_flow.py  — Phases: engineer → scout → build
+# adws/modules/adw_my_flow.py  — Phases: engineer → scout → build
 from sssf.adw_modules import run
 from sssf.adw_modules.data_types import AgentCall, EnvelopeBase
 
@@ -48,14 +48,14 @@ all three in the same edit.
 
 ## Your roster
 
-`adws/adw_sssf_config/sssf.config.yaml` declares the agents: models as
+`adws/config/sssf.config.yaml` declares the agents: models as
 `provider/model-id` (any id registered in the coding agent's catalog), thinking
 levels, per-agent `tools:` and `writes:`, and `protected_files` in `defaults`.
 
 - `tools:` is a capability list; `writes:` is the boundary. `protected_files`
-  (default: `adws/adw_modules/`, `adws/adw_sssf_config/`, `adws/adw_*.py`)
+  (default: `adws/adw_modules/`, `adws/config/`, `adws/modules/`)
   keeps agents from editing the machinery that grades them.
-- Prompts live at `adws/adw_data/prompt_engineering/{agent}/system.md` and
+- Prompts live at `adws/data/prompt_engineering/{agent}/system.md` and
   `user.md` — identity in the system prompt, task shape in the user prompt.
 
 ## Your definition of done
@@ -65,7 +65,7 @@ session status, and the banner agree.
 
 **Your quality commands** — the deterministic `test`/`lint`/`typecheck`/`build`
 blocks are per-project config: wire the real argv in `quality.checks` in
-`adws/adw_sssf_config/sssf.config.yaml`. Each check runs as a `kind="code"`
+`adws/config/sssf.config.yaml`. Each check runs as a `kind="code"`
 phase and records a `gate_results` row, so the status dashboard's quality KPI
 counts them. A name you don't wire keeps its honest placeholder; delete the
 checks you don't need. The full cookbook — schema, argv rules, per-stack
@@ -85,6 +85,6 @@ a PR to the sssf tool repo (see `contributing.md`).
   already implemented — the run succeeds with a note and skips documentation.
   If the builder claims changed files that aren't in the working tree, the run
   fails.
-- **Keep `adws/adw_data/sssf.db-wal`/`-shm` untracked.** `sssf init` adds them
+- **Keep `adws/data/sssf.db-wal`/`-shm` untracked.** `sssf init` adds them
   to `.gitignore`; if they are ever committed, agents may git-checkout them
   over the live db and break the visualizer's open connection.

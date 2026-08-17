@@ -47,16 +47,16 @@ sssf init</code></pre>
     current directory and registers the project:
   </p>
   <ul>
-    <li><code class="hl">adws/adw_*.py</code>: your chains (AI Developer Workflows)</li>
-    <li><code class="hl">adws/adw_sssf_config/sssf.config.yaml</code>: your agent roster</li>
-    <li><code class="hl">adws/adw_data/prompt_engineering/</code>: your prompts, per agent</li>
-    <li><code class="hl">adws/adw_data/harness_engineering/</code>: pi extensions</li>
+    <li><code class="hl">adws/modules/adw_*.py</code>: your chains (AI Developer Workflows)</li>
+    <li><code class="hl">adws/config/sssf.config.yaml</code>: your agent roster</li>
+    <li><code class="hl">adws/data/prompt_engineering/</code>: your prompts, per agent</li>
+    <li><code class="hl">adws/data/harness_engineering/</code>: pi extensions</li>
     <li><code class="hl">.env.sample</code>: provider keys template</li>
   </ul>
   <p>
     It also appends an <code class="hl">&lt;!-- sssf --&gt;</code> block to
     <code class="hl">AGENTS.md</code> and adds the runtime state
-    (<code class="hl">adws/adw_data/sessions/</code>, <code class="hl">sssf.db</code> and its WAL
+    (<code class="hl">adws/data/sessions/</code>, <code class="hl">sssf.db</code> and its WAL
     sidecars) to <code class="hl">.gitignore</code>.
   </p>
 
@@ -65,7 +65,7 @@ sssf init</code></pre>
   <p>
     <span class="cmd">scout</span> is the read-only recon chain: it changes nothing. A green run
     proves the whole path end to end: config validated, session minted, agent ran, envelope
-    parsed, events landed in <code class="hl">adws/adw_data/sssf.db</code>. Fix it here before
+    parsed, events landed in <code class="hl">adws/data/sssf.db</code>. Fix it here before
     composing anything larger, because every multi-agent chain rides this exact path.
   </p>
   <p>

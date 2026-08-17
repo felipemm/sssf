@@ -28,7 +28,7 @@ const description =
 from sssf.adw_modules.data_types import AgentCall, PhaseParams, PlanOutput, BuildOutput
 
 REQUIRED_AGENTS = ["planner", "builder", "reviewer"]   # names, never models
-cfg = agents.load_config("adws/adw_sssf_config/sssf.config.yaml")
+cfg = agents.load_config("adws/config/sssf.config.yaml")
 agents.validate(cfg, REQUIRED_AGENTS)                  # fails before anything spawns
 run = session.ensure(cfg, adw_id)                      # pin-or-create the session
 

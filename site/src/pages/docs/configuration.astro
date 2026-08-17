@@ -12,7 +12,7 @@ const description =
   next={{ href: '/docs/run-semantics', label: 'Run semantics' }}
 >
   <p>
-    <code class="hl">adws/adw_sssf_config/sssf.config.yaml</code> answers one question per entry:
+    <code class="hl">adws/config/sssf.config.yaml</code> answers one question per entry:
     <em>who is this agent</em>. One agent, one prompt, one purpose. Everything the factory is (the
     roster) lives in this one file.
   </p>
@@ -34,9 +34,9 @@ const description =
   tools: [read, bash, edit, write, grep, find, ls]
   protected_files:                 # no agent may edit the machinery that grades it
     - adws/adw_modules/
-    - adws/adw_sssf_config/
-    - adws/adw_*.py
-  data_dir: adws/adw_data          # runtime home: &#123;data_dir&#125;/sessions/&#123;adw_id&#125;/&#123;agent&#125;/</code></pre>
+    - adws/config/
+    - adws/modules/adw_*.py
+  data_dir: adws/data          # runtime home: &#123;data_dir&#125;/sessions/&#123;adw_id&#125;/&#123;agent&#125;/</code></pre>
 
   <h3>Model naming</h3>
   <p>
@@ -68,10 +68,10 @@ const description =
     color: "#a78bfa"               # this agent's lane color in the visualizer
     purpose: Turn a request into a plan the builder can implement without asking questions.
     prompt_engineering:
-      system: adws/adw_data/prompt_engineering/planner/system.md
-      user: adws/adw_data/prompt_engineering/planner/user.md
+      system: adws/data/prompt_engineering/planner/system.md
+      user: adws/data/prompt_engineering/planner/user.md
     harness_engineering:
-      - adws/adw_data/harness_engineering/subagents.ts   # this agent can spawn subagents
+      - adws/data/harness_engineering/subagents.ts   # this agent can spawn subagents
     writes:                        # the plan is the only thing it may leave in the repo
       - adws/specs/
     tools:                         # full recon + write for plan.md; no edit
@@ -152,7 +152,7 @@ const description =
   <h2>Where your prompts live</h2>
   <p>
     The prompts are yours the moment they land. Edit them in
-    <code class="hl">adws/adw_data/prompt_engineering/&#123;agent&#125;/</code>, never back inside the
+    <code class="hl">adws/data/prompt_engineering/&#123;agent&#125;/</code>, never back inside the
     package: <code class="hl">system.md</code> is identity (who this agent is), <code class="hl">user.md</code>
     is task shape (the instructions, variables, and the <code class="hl">## Report</code> JSON
     example that mirrors the envelope type).
@@ -165,9 +165,9 @@ const description =
     </thead>
     <tbody>
       <tr><td>Your real commands</td><td><code class="hl">adws/adw_modules/quality.py</code></td><td>The shipped blocks are placeholders that exit 0; until you wire this, your test phase validates nothing</td></tr>
-      <tr><td>Your prompts</td><td><code class="hl">adws/adw_data/prompt_engineering/&#123;agent&#125;/</code></td><td>Where your standards live: what a good plan looks like, what a review has to catch</td></tr>
-      <tr><td>Your roster</td><td><code class="hl">adws/adw_sssf_config/sssf.config.yaml</code></td><td>Models, thinking levels, tools, and what each agent is allowed to write</td></tr>
-      <tr><td>Your chains</td><td><code class="hl">adws/adw_*.py</code></td><td>Copy the closest workflow and edit the phase list (they are 40 to 180 lines on purpose)</td></tr>
+      <tr><td>Your prompts</td><td><code class="hl">adws/data/prompt_engineering/&#123;agent&#125;/</code></td><td>Where your standards live: what a good plan looks like, what a review has to catch</td></tr>
+      <tr><td>Your roster</td><td><code class="hl">adws/config/sssf.config.yaml</code></td><td>Models, thinking levels, tools, and what each agent is allowed to write</td></tr>
+      <tr><td>Your chains</td><td><code class="hl">adws/modules/adw_*.py</code></td><td>Copy the closest workflow and edit the phase list (they are 40 to 180 lines on purpose)</td></tr>
       <tr><td>Your definition of done</td><td><code class="hl">adws/adw_modules/gates.py</code></td><td>A gate is one function. Whatever &ldquo;done&rdquo; means where you work, write it here</td></tr>
     </tbody>
   </table>

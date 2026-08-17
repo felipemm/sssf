@@ -25,13 +25,13 @@ sssf viz                         # open the global visualizer on :4600
 Three principles:
 
 - **Observable** — every run, phase, envelope, gate, and process streams into
-  `adws/adw_data/sssf.db` (WAL, so reads never block writers). Watch live in
+  `adws/data/sssf.db` (WAL, so reads never block writers). Watch live in
   `sssf viz` or from the terminal with `sssf sessions / phases / tail / procs`.
 - **Design quality** — deterministic `impeccable detect` gate (shipped configured) + an opt-in
   agentic design pass (`adw_design_sdlc`) — see the site's Design quality docs.
 - **Customizable** — `sssf init` stamps only the customization surface: your
-  chains (`adws/adw_*.py`), your roster (`adws/adw_sssf_config/sssf.config.yaml`),
-  your prompts (`adws/adw_data/prompt_engineering/`). The engine is package code
+  chains (`adws/modules/adw_*.py`), your roster (`adws/config/sssf.config.yaml`),
+  your prompts (`adws/data/prompt_engineering/`). The engine is package code
   — see `src/sssf/docs/customizing.md`.
 - **Reusable** — one global install, any number of projects, registered in
   `~/.sssf/projects.json`. `sssf viz` is a global service over all of them with
@@ -123,7 +123,7 @@ sssf heal stop
 | `sssf sweep [--project P] [--days N]` | archive finished sessions older than N days (default 30) |
 | `sssf sandbox build\|list\|prune [--all]` | runner image / sandbox lifecycle |
 | `sssf heal start\|stop\|status` | self-healing monitor daemon |
-| `sssf ticket add/sync/list/run [--project]` | ticketing integration (internal add, external sync, backlog run) — optional, per-project `adws/adw_sssf_config/ticketing.yaml` |
+| `sssf ticket add/sync/list/run [--project]` | ticketing integration (internal add, external sync, backlog run) — optional, per-project `adws/config/ticketing.yaml` |
 | `sssf doctor` | check global prerequisites (`uv`, `pi`, `bun`, `sqlite3`) |
 | `sssf upgrade` | `uv tool upgrade sssf` |
 
