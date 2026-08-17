@@ -394,11 +394,17 @@ def sandbox_env(project_root: Path) -> tuple[Path, Path, dict[str, str]]:
     data_dir = paths.data_dir(project_root)
     pi_home = Path(os.environ.get("PI_HOME", Path.home() / ".pi" / "agent"))
     env: dict[str, str] = {}
-    if os.environ.get("GENPLAT_TOKEN"):
-        env["GENPLAT_TOKEN"] = os.environ["GENPLAT_TOKEN"]
+    if os.environ.get("OPENAI_API_KEY"):
+        # The standard OpenAI env vars — litellm/pi read these natively for
+        # OpenAI-compatible endpoints (e.g. GenPlat); the container gets them
+        # the same way it gets SNYK_TOKEN. No GENPLAT_TOKEN: it is not a
+        # standard var and no tooling in the container reads it.
+        env["OPENAI_API_KEY"] = os.environ["OPENAI_API_KEY"]
+    if os.environ.get("OPENAI_BASE_URL"):
+        env["OPENAI_BASE_URL"] = os.environ["OPENAI_BASE_URL"]
     if os.environ.get("SNYK_TOKEN"):
         # snyk auth is an env token on the operator machine (or a configstore
-        # token); the container gets it the same way it gets GENPLAT_TOKEN.
+        # token); the container gets it the same way.
         env["SNYK_TOKEN"] = os.environ["SNYK_TOKEN"]
     name, email = _git_identity(project_root)
     if name and email:

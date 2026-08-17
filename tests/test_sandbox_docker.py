@@ -71,7 +71,7 @@ def test_run_sandbox_flags(fake_docker, tmp_path):
         worktree=tmp_path / "wt", data_dir=tmp_path / "data",
         pi_home=tmp_path / "pi", git_dir=tmp_path / "proj" / ".git",
         config_dir=tmp_path / ".config",
-        uid=501, gid=20, env={"GENPLAT_TOKEN": "x"}, cmd=["python", "adws/modules/adw_simple_sdlc.py"],
+        uid=501, gid=20, env={"OPENAI_API_KEY": "x", "OPENAI_BASE_URL": "https://genplat.example.com/v1"}, cmd=["python", "adws/modules/adw_simple_sdlc.py"],
     )
     calls = fake_docker.read_text().splitlines()
     run = next(c for c in calls if c.startswith("run"))
@@ -82,7 +82,8 @@ def test_run_sandbox_flags(fake_docker, tmp_path):
     assert f"{tmp_path}/proj/.git:{tmp_path}/proj/.git:rw" in run
     assert f"{tmp_path}/.config:/tmp/.config:ro" in run
     assert "--user 501:20" in run
-    assert "-e GENPLAT_TOKEN=x" in run
+    assert "-e OPENAI_API_KEY=x" in run
+    assert "-e OPENAI_BASE_URL=https://genplat.example.com/v1" in run
     assert "-p" not in run
 
 
