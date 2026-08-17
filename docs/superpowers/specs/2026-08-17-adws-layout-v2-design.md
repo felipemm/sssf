@@ -11,7 +11,7 @@ migration path for existing projects:
 ```
 adws/
 ├── modules/    adw_*.py chains                        (was: at adws/ root)
-├── config/     sssf.config.yaml, ticketing.yaml       (was: adw_ssfs_config)
+├── config/     sssf.config.yaml, ticketing.yaml       (was: adw_sssf_config)
 ├── data/       sssf.db, sessions/, prompt_engineering/,
 │               harness_engineering/                   (was: adw_data)
 ├── prompts/    your prompt files (ticketing writes NN-<slug>.md here)
@@ -41,7 +41,7 @@ def is_legacy_layout(root: Path) -> bool
 def warn_if_legacy(root: Path, *, command: str) -> bool
 ```
 
-`is_legacy_layout` is true when any of these exist: `adws/adw_ssfs_config/`,
+`is_legacy_layout` is true when any of these exist: `adws/adw_sssf_config/`,
 `adws/adw_data/`, `adws/app_docs/`, or a root-level `adws/adw_*.py`.
 
 `warn_if_legacy` prints a clear banner on every engine command entry and
@@ -69,11 +69,11 @@ When `--refresh` runs on a legacy project, migration proceeds in this order:
 2. **Backup** — full copy of `adws/` to a timestamped sibling
    `adws.backup.<YYYYmmdd-HHMMSS>/`; adds `adws.backup.*/` to `.gitignore`
    so the backup is never committed.
-3. **Migrate (move)** — `adw_ssfs_config/` → `config/`, `adw_data/` → `data/`,
+3. **Migrate (move)** — `adw_sssf_config/` → `config/`, `adw_data/` → `data/`,
    `app_docs/` → `kb/`, root `adw_*.py` → `modules/`. If a v2 target already
    exists, the legacy item is NOT moved (never overwrite migrated data).
 4. **Rewrite path literals** in the moved chain files: the known literals
-   `adws/adw_ssfs_config/`, `adws/adw_data`, `adws/app_docs` are replaced with
+   `adws/adw_sssf_config/`, `adws/adw_data`, `adws/app_docs` are replaced with
    `adws/config/`, `adws/data`, `adws/kb` respectively — so even custom chains
    resolve post-migration without relying on runtime fallback.
 5. **Scaffold** — stamp anything still missing from templates (prompts/,
@@ -127,7 +127,7 @@ safety net for custom chains that predate runtime resolution.
 
 `src/sssf/templates/sssf.config.yaml`:
 - `data_dir: adws/adw_data` → `adws/data`
-- `protected_files`: `adws/adw_*.py` → `adws/modules/`; keep `adws/adw_ssfs_config/`
+- `protected_files`: `adws/adw_*.py` → `adws/modules/`; keep `adws/adw_sssf_config/`
   and `adws/adw_data/` coverage via the new names `adws/config/` + `adws/data/`
 - planner `writes: [adws/specs/]` (unchanged — spec folder is new)
 - documenter `writes: [adws/app_docs/]` → `adws/kb/` (plus `**/*.md`)
@@ -141,7 +141,7 @@ docstrings) → `adws/kb/`.
 - Site pages referencing adws paths: `configuration`, `run-semantics`,
   `cli`, `sandbox`, `core-concepts` (audit + update).
 - `README.md` (feature bullets referencing `adws/adw_*.py` /
-  `adws/adw_ssfs_config` / `adws/adw_data`).
+  `adws/adw_sssf_config` / `adws/adw_data`).
 - `AGENTS.md` stamp block in `init.py`.
 
 ## 7. Tests
@@ -165,7 +165,7 @@ docstrings) → `adws/kb/`.
 
 1. Full pytest green.
 2. Fresh-init project: layout is exactly the v2 tree; `sssf run scout` works.
-3. Legacy fixture project (chains at root, `adw_ssfs_config/`, `adw_data/`,
+3. Legacy fixture project (chains at root, `adw_sssf_config/`, `adw_data/`,
    `app_docs/`): `sssf run scout` prints the migration banner and fails
    loudly; `sssf init --refresh` backs up + migrates; post-migration the
    project runs clean; the backup tree is intact and untracked.

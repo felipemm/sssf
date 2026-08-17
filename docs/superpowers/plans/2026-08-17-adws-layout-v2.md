@@ -66,7 +66,7 @@ def test_v2_paths(tmp_path, fn, rel):
 
 
 @pytest.mark.parametrize("marker", [
-    "adws/adw_ssfs_config/sssf.config.yaml",
+    "adws/adw_sssf_config/sssf.config.yaml",
     "adws/adw_data",
     "adws/app_docs",
     "adws/adw_simple_sdlc.py",
@@ -154,7 +154,7 @@ def specs_dir(root: Path) -> Path:
 
 # The v1 markers — any one present means the project predates v2.
 _LEGACY_MARKERS = (
-    "adws/adw_ssfs_config",
+    "adws/adw_sssf_config",
     "adws/adw_data",
     "adws/app_docs",
 )
@@ -274,7 +274,7 @@ Write-ups the documenter commits (`adws/kb/<adw_id>_<slug>.md`).
 
 In `src/sssf/templates/adws/config/sssf.config.yaml`:
 - `data_dir: adws/adw_data` → `data_dir: adws/data`
-- `protected_files:` list: `adws/adw_*.py` → `adws/modules/`; keep `adws/adw_ssfs_config/` + `adws/adw_data/` entries replaced by `adws/config/` and `adws/data/` (also keep `adws/adw_modules/` if present)
+- `protected_files:` list: `adws/adw_*.py` → `adws/modules/`; keep `adws/adw_sssf_config/` + `adws/adw_data/` entries replaced by `adws/config/` and `adws/data/` (also keep `adws/adw_modules/` if present)
 - documenter `writes: - adws/app_docs/` → `- adws/kb/`
 
 Also update the documenter user prompt and any ADW docstrings that name
@@ -315,7 +315,7 @@ def test_adws_resolve_config_at_runtime():
     for adw in (TEMPLATES / "adws" / "modules").glob("adw_*.py"):
         text = adw.read_text()
         assert "paths.config_file" in text
-        assert "adws/adw_ssfs_config" not in text
+        assert "adws/adw_sssf_config" not in text
         assert "adws/app_docs" not in text
 ```
 
@@ -329,14 +329,14 @@ Expected: FAIL
 Each ADW has (same shape in every file):
 
 ```python
-def main(prompt: str, config: str = "adws/adw_ssfs_config/sssf.config.yaml", adw_id: str | None = None) -> int:
+def main(prompt: str, config: str = "adws/adw_sssf_config/sssf.config.yaml", adw_id: str | None = None) -> int:
     cfg = agents.load_config(config)
 ```
 
 and
 
 ```python
-    parser.add_argument("--config", default="adws/adw_ssfs_config/sssf.config.yaml")
+    parser.add_argument("--config", default="adws/adw_sssf_config/sssf.config.yaml")
 ```
 
 Change to:
@@ -355,7 +355,7 @@ and
                         help="path to sssf.config.yaml (default: adws/config/sssf.config.yaml)")
 ```
 
-Also update each ADW's docstring usage line `[--config adws/adw_ssfs_config/sssf.config.yaml]`
+Also update each ADW's docstring usage line `[--config adws/adw_sssf_config/sssf.config.yaml]`
 → `[--config adws/config/sssf.config.yaml]`.
 
 Use `sed` for the mechanical parts across the 13 files:
@@ -363,9 +363,9 @@ Use `sed` for the mechanical parts across the 13 files:
 ```bash
 cd src/sssf/templates/adws/modules
 sed -i '' \
-  -e 's|config: str = "adws/adw_ssfs_config/sssf.config.yaml"|config: str | None = None|' \
-  -e 's|--config adws/adw_ssfs_config/sssf.config.yaml|--config adws/config/sssf.config.yaml|g' \
-  -e 's|parser.add_argument("--config", default="adws/adw_ssfs_config/sssf.config.yaml")|parser.add_argument("--config", default=None, help="path to sssf.config.yaml (default: adws/config/sssf.config.yaml)")|' \
+  -e 's|config: str = "adws/adw_sssf_config/sssf.config.yaml"|config: str | None = None|' \
+  -e 's|--config adws/adw_sssf_config/sssf.config.yaml|--config adws/config/sssf.config.yaml|g' \
+  -e 's|parser.add_argument("--config", default="adws/adw_sssf_config/sssf.config.yaml")|parser.add_argument("--config", default=None, help="path to sssf.config.yaml (default: adws/config/sssf.config.yaml)")|' \
   adw_*.py
 ```
 
@@ -473,7 +473,7 @@ def _sandbox_enabled(root: Path) -> bool:
         return False
 ```
 
-In `_run_sandboxed`: `load_config(str(root / "adws" / "adw_ssfs_config" / "sssf.config.yaml"))`
+In `_run_sandboxed`: `load_config(str(root / "adws" / "adw_sssf_config" / "sssf.config.yaml"))`
 → `load_config(str(paths.config_file(root)))`; the sandbox cmd
 `["python", "adws/adw_simple_sdlc.py", ...]` → `["python", "adws/modules/adw_simple_sdlc.py", ...]`.
 Also add `paths.warn_if_legacy(root, command="run")` before the sandbox branch if not already
@@ -501,7 +501,7 @@ def data_dir(root: Path) -> Path:
 
 - [ ] **Step 7: Modify `src/sssf/adw_modules/permissions.py`**
 
-Wherever protected-file paths or repo paths are derived from `adws/adw_ssfs_config` /
+Wherever protected-file paths or repo paths are derived from `adws/adw_sssf_config` /
 `adws/adw_data` / `adws/adw_*.py`, switch to the `paths` helpers (config_dir, data_dir,
 modules_dir). Grep `adws/adw_` in the file and replace each site with the helper call.
 
@@ -538,7 +538,7 @@ git commit -m "feat(engine): strict v2 path resolution + legacy banner in run/ti
 - [ ] **Step 1: Write the failing tests**
 
 Update path expectations in the listed test files: `adws/adw_data/sssf.db` →
-`adws/data/sssf.db`; `adws/adw_ssfs_config/sssf.config.yaml` → `adws/config/sssf.config.yaml`.
+`adws/data/sssf.db`; `adws/adw_sssf_config/sssf.config.yaml` → `adws/config/sssf.config.yaml`.
 Add one banner test to `tests/test_sweep.py` (or `test_obs.py`):
 
 ```python
@@ -582,7 +582,7 @@ Add the banner.
 
 - [ ] **Step 7: obs/viz/registry**
 
-Grep for `adw_data` / `adw_ssfs_config` in `obs_cmds.py`, `viz.py`, `registry.py`; replace
+Grep for `adw_data` / `adw_sssf_config` in `obs_cmds.py`, `viz.py`, `registry.py`; replace
 any hardcoded references with the `paths` helpers and add the banner at entry. (These files
 mostly go through `project.data_dir` / `registry` — verify and adjust only what's hardcoded.)
 
@@ -633,7 +633,7 @@ def test_init_stamps_v2_layout(tmp_path, monkeypatch):
     assert (root / "adws/data/prompt_engineering/planner/system.md").exists()
     for folder in ("prompts", "specs", "kb"):
         assert (root / "adws" / folder / "README.md").is_file()
-    assert not (root / "adws/adw_ssfs_config").exists()
+    assert not (root / "adws/adw_sssf_config").exists()
     assert not (root / "adws/adw_data").exists()
     assert not (root / "adws/adw_prompt.py").exists()
 
@@ -642,14 +642,14 @@ def test_refresh_migrates_legacy_layout(tmp_path, monkeypatch):
     root = tmp_path / "proj"
     root.mkdir()
     # Build a v1 project by hand
-    (root / "adws" / "adw_ssfs_config").mkdir(parents=True)
-    (root / "adws" / "adw_ssfs_config" / "sssf.config.yaml").write_text("roster: v1\n")
+    (root / "adws" / "adw_sssf_config").mkdir(parents=True)
+    (root / "adws" / "adw_sssf_config" / "sssf.config.yaml").write_text("roster: v1\n")
     (root / "adws" / "adw_data").mkdir(parents=True)
     (root / "adws" / "adw_data" / "sssf.db").write_text("db")
     (root / "adws" / "app_docs").mkdir(parents=True)
     (root / "adws" / "app_docs" / "note.md").write_text("note")
     custom = root / "adws" / "adw_custom.py"
-    custom.write_text('config: str = "adws/adw_ssfs_config/sssf.config.yaml"\n')
+    custom.write_text('config: str = "adws/adw_sssf_config/sssf.config.yaml"\n')
     assert _run_init(root, monkeypatch, ["--refresh"]) == 0
     # moved to v2
     assert (root / "adws/config/sssf.config.yaml").read_text() == "roster: v1\n"
@@ -658,13 +658,13 @@ def test_refresh_migrates_legacy_layout(tmp_path, monkeypatch):
     assert (root / "adws/modules/adw_custom.py").exists()
     # literal rewritten in the moved chain
     moved = (root / "adws/modules/adw_custom.py").read_text()
-    assert "adws/adw_ssfs_config" not in moved and "adws/config/" in moved
+    assert "adws/adw_sssf_config" not in moved and "adws/config/" in moved
     # backup exists and is gitignored
     backups = list(root.glob("adws.backup.*"))
     assert len(backups) == 1 and backups[0].is_dir()
     assert "adws.backup." in (root / ".gitignore").read_text()
     # legacy names gone
-    assert not (root / "adws/adw_ssfs_config").exists()
+    assert not (root / "adws/adw_sssf_config").exists()
     assert not (root / "adws/adw_data").exists()
     assert not (root / "adws/app_docs").exists()
 
@@ -692,12 +692,12 @@ from sssf.adw_modules import paths
 
 _BACKUP_PREFIX = "adws.backup."
 _LEGACY_MOVES = (  # (legacy relpath under adws/, v2 relpath under adws/)
-    ("adw_ssfs_config", "config"),
+    ("adw_sssf_config", "config"),
     ("adw_data", "data"),
     ("app_docs", "kb"),
 )
 _LITERAL_REWRITES = (  # applied to moved chain files
-    ("adws/adw_ssfs_config/", "adws/config/"),
+    ("adws/adw_sssf_config/", "adws/config/"),
     ("adws/adw_data", "adws/data"),
     ("adws/app_docs", "adws/kb"),
 )
@@ -820,8 +820,8 @@ git commit -m "feat(init): stamp v2 layout + legacy migration (warn, backup, mov
 - Modify: `src/sssf/docs/customizing.md`, `src/sssf/docs/quality-gates.md`
 - Modify: `site/src/pages/docs/configuration.astro`, `run-semantics.astro`, `cli.astro`,
   `sandbox.astro`, `core-concepts.astro`, `quickstart.astro` (only the pages that name the
-  old paths — grep `adw_ssfs_config|adw_data|app_docs|adw_\.py` and update)
-- Modify: `README.md` (bullets naming `adws/adw_*.py`, `adws/adw_ssfs_config`, `adws/adw_data`)
+  old paths — grep `adw_sssf_config|adw_data|app_docs|adw_\.py` and update)
+- Modify: `README.md` (bullets naming `adws/adw_*.py`, `adws/adw_sssf_config`, `adws/adw_data`)
 
 - [ ] **Step 1: Update each file**
 
@@ -875,7 +875,7 @@ Expected: init stamps v2 (modules/, config/, data/, prompts/, specs/, kb/); scou
 
 ```bash
 rm -rf /tmp/legacy && mkdir -p /tmp/legacy && cd /tmp/legacy && git init -q
-# hand-build a v1 project (adws/adw_simple_sdlc.py at root, adw_ssfs_config/, adw_data/, app_docs/)
+# hand-build a v1 project (adws/adw_simple_sdlc.py at root, adw_sssf_config/, adw_data/, app_docs/)
 sssf run scout "x" --no-sandbox        # → legacy banner + loud failure
 sssf init --refresh                    # → warn + backup + migrate
 sssf run scout "map the repo" --no-sandbox   # → works
