@@ -34,7 +34,7 @@ def _render(db: Path, sql: str, params: tuple, title: str, limit: int | None = N
     rows = obs.query(db, sql, params)
     table = Table(title=title)
     if rows:
-        for col in rows[0].keys():
+        for col in rows[0].keys():  # noqa: SIM118 — must iterate KEYS; Row iteration yields values
             table.add_column(col)
         for row in rows:
             table.add_row(*[str(v) if v is not None else "" for v in row])
