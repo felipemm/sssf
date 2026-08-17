@@ -71,7 +71,7 @@ def test_run_sandbox_flags(fake_docker, tmp_path):
         worktree=tmp_path / "wt", data_dir=tmp_path / "data",
         pi_home=tmp_path / "pi", git_dir=tmp_path / "proj" / ".git",
         config_dir=tmp_path / ".config",
-        uid=501, gid=20, env={"GENPLAT_TOKEN": "x"}, cmd=["python", "adws/adw_simple_sdlc.py"],
+        uid=501, gid=20, env={"GENPLAT_TOKEN": "x"}, cmd=["python", "adws/modules/adw_simple_sdlc.py"],
     )
     calls = fake_docker.read_text().splitlines()
     run = next(c for c in calls if c.startswith("run"))

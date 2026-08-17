@@ -31,7 +31,7 @@ class GateFailure(RuntimeError):
 
 # ── config ───────────────────────────────────────────────────────────────────
 
-def load_config(path: str = "adws/adw_sssf_config/sssf.config.yaml") -> SSSFConfig:
+def load_config(path: str = "adws/config/sssf.config.yaml") -> SSSFConfig:
     raw = yaml.safe_load(Path(path).read_text()) or {}
     defaults = raw.get("defaults", {}) or {}
     for agent in raw.get("agents", []) or []:

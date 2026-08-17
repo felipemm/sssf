@@ -30,10 +30,10 @@ defaults:
     - adws/adw_modules/
     - adws/adw_sssf_config/
     - adws/adw_*.py
-  data_dir: adws/adw_data          # runtime home: {data_dir}/sessions/{adw_id}/{agent_name}/
+  data_dir: adws/data          # runtime home: {data_dir}/sessions/{adw_id}/{agent_name}/
 
 observability:
-  db: adws/adw_data/sssf.db        # tracer writes here directly; the UI polls it
+  db: adws/data/sssf.db        # tracer writes here directly; the UI polls it
   poll_ms: 500                     # visualizer live-poll cadence
 
 # Deterministic quality commands — the kind="code" phases. Replace the
@@ -91,10 +91,10 @@ agents:
     color: "#a78bfa"                 # optional hex — the agent's lane color in the visualizer
     purpose: Turn a request into a plan the builder can implement without asking questions.
     prompt_engineering:
-      system: adws/adw_data/prompt_engineering/planner/system.md
-      user: adws/adw_data/prompt_engineering/planner/user.md
+      system: adws/data/prompt_engineering/planner/system.md
+      user: adws/data/prompt_engineering/planner/user.md
     harness_engineering:
-      - adws/adw_data/harness_engineering/subagents.ts    # registers the four subagent_* tools below
+      - adws/data/harness_engineering/subagents.ts    # registers the four subagent_* tools below
     writes:                        # the plan is the only thing it may leave in the repo
       - adws/specs/
     tools:                         # full recon + write for plan.md; no edit — the planner never touches repo files
@@ -113,8 +113,8 @@ agents:
     color: "#22d3ee"
     purpose: Implement the plan exactly; report every changed file in the envelope.
     prompt_engineering:
-      system: adws/adw_data/prompt_engineering/builder/system.md
-      user: adws/adw_data/prompt_engineering/builder/user.md
+      system: adws/data/prompt_engineering/builder/system.md
+      user: adws/data/prompt_engineering/builder/user.md
     # No `writes` key: unrestricted, and the only agent that is. It still cannot
     # touch defaults.protected_files — the builder does not get to edit its own grader.
     tools:                         # the only agent that mutates the repo — everything on
@@ -130,10 +130,10 @@ agents:
     color: "#fbbf24"
     purpose: Find and report where things live; change nothing.
     prompt_engineering:
-      system: adws/adw_data/prompt_engineering/scout/system.md
-      user: adws/adw_data/prompt_engineering/scout/user.md
+      system: adws/data/prompt_engineering/scout/system.md
+      user: adws/data/prompt_engineering/scout/user.md
     harness_engineering:
-      - adws/adw_data/harness_engineering/subagents.ts    # registers the four subagent_* tools below
+      - adws/data/harness_engineering/subagents.ts    # registers the four subagent_* tools below
     writes: []                     # read-only, and now actually read-only: its findings
                                    # go to context_handoff/, which is runtime, not the repo
     tools:                         # search-heavy recon; write only so scout_findings.md lands without a bash heredoc
@@ -157,8 +157,8 @@ agents:
     color: "#fb7185"
     purpose: Confirm that what was built is what was asked for; change nothing.
     prompt_engineering:
-      system: adws/adw_data/prompt_engineering/reviewer/system.md
-      user: adws/adw_data/prompt_engineering/reviewer/user.md
+      system: adws/data/prompt_engineering/reviewer/system.md
+      user: adws/data/prompt_engineering/reviewer/user.md
     writes: []                     # a reviewer that cannot fix cannot quietly fix — the
                                    # claim the tool list only implied, now enforced
     tools:                         # full read surface; write only for review.md, no edit
@@ -173,8 +173,8 @@ agents:
     color: "#f59e0b"
     purpose: Run the impeccable design pass (audit, critique, polish, optimize) on the project's design surface and apply the fixes it reports.
     prompt_engineering:
-      system: adws/adw_data/prompt_engineering/designer/system.md
-      user: adws/adw_data/prompt_engineering/designer/user.md
+      system: adws/data/prompt_engineering/designer/system.md
+      user: adws/data/prompt_engineering/designer/user.md
     writes:
       - site/                     # the design surface; adjust in project configs
     tools:
@@ -191,10 +191,10 @@ agents:
     color: "#e879f9"
     purpose: Write up the change that was just made, from the diff; document only.
     prompt_engineering:
-      system: adws/adw_data/prompt_engineering/documenter/system.md
-      user: adws/adw_data/prompt_engineering/documenter/user.md
+      system: adws/data/prompt_engineering/documenter/system.md
+      user: adws/data/prompt_engineering/documenter/user.md
     writes:                        # documentation only — "document only" is a rule now,
-      - adws/app_docs/                  # not a line in a prompt the model may drift from.
+      - adws/kb/                  # not a line in a prompt the model may drift from.
       - docs/                      # Markdown anywhere, because docs live next to the
       - "**/*.md"                  # code they describe as often as in a docs folder.
       - "*.md"

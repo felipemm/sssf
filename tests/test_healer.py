@@ -60,7 +60,7 @@ def test_recover_finalize_marks_failed(tmp_path, monkeypatch):
     (root / "f.txt").write_text("x\n")
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
     subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
-    data = root / "adws" / "adw_data"
+    data = root / "adws" / "data"
     data.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(sb.project_db_path(data)))
     conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
@@ -89,7 +89,7 @@ def test_recover_ticket_backlog_keeps_history(tmp_path, monkeypatch):
     root = tmp_path / "proj"
     root.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
-    data = root / "adws" / "adw_data"
+    data = root / "adws" / "data"
     data.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(sb.project_db_path(data)))
     conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
@@ -127,7 +127,7 @@ def test_restart_budget_exhausts_then_finalizes(tmp_path, monkeypatch):
     (root / "f.txt").write_text("x\n")
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
     subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
-    data = root / "adws" / "adw_data"
+    data = root / "adws" / "data"
     data.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(sb.project_db_path(data)))
     conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
@@ -215,7 +215,7 @@ def test_recover_records_and_prunes_healed_state(tmp_path, monkeypatch):
     (root / "f.txt").write_text("x\n")
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
     subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
-    data = root / "adws" / "adw_data"
+    data = root / "adws" / "data"
     data.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(sb.project_db_path(data)))
     conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")

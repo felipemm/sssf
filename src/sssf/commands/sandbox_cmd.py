@@ -19,6 +19,8 @@ def build(explicit: str | None) -> int:
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
         return 1
+    from sssf.adw_modules import paths
+    paths.warn_if_legacy(root, command="sandbox")
     if not docker_available():
         print("sssf: docker is not available — install/start Docker Desktop first.",
               file=sys.stderr)

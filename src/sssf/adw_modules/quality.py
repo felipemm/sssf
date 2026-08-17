@@ -5,7 +5,7 @@ down belongs here as code — it runs in milliseconds, costs nothing, and return
 the same answer every time. Agents are for the parts that need reading and
 deciding.
 
-Commands are configured PER PROJECT in `adws/adw_sssf_config/sssf.config.yaml`
+Commands are configured PER PROJECT in `adws/config/sssf.config.yaml`
 under `quality.checks`. A project that wires nothing runs the honest
 placeholders below — an `echo` that exits 0 and says out loud that it is fake.
 A wrong-but-plausible command that silently passes is worse than one that says
@@ -54,13 +54,13 @@ TAIL_CHARS = 4_000
 
 _DEFAULT_ARGV: dict[str, list[str]] = {
     "test": ["echo", "PLACEHOLDER test: wire quality.checks in "
-                        "adws/adw_sssf_config/sssf.config.yaml"],
+                        "adws/config/sssf.config.yaml"],
     "lint": ["echo", "PLACEHOLDER lint: wire quality.checks in "
-                        "adws/adw_sssf_config/sssf.config.yaml"],
+                        "adws/config/sssf.config.yaml"],
     "typecheck": ["echo", "PLACEHOLDER typecheck: wire quality.checks in "
-                            "adws/adw_sssf_config/sssf.config.yaml"],
+                            "adws/config/sssf.config.yaml"],
     "build": ["echo", "PLACEHOLDER build: wire quality.checks in "
-                        "adws/adw_sssf_config/sssf.config.yaml"],
+                        "adws/config/sssf.config.yaml"],
 }
 
 _DEFAULT_OPERATION: dict[str, str] = {

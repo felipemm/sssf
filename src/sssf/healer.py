@@ -160,7 +160,7 @@ def recover(root: Path, adw_id: str, session_status: str | None,
     cutoff = (now - datetime.timedelta(days=7)).isoformat()
     state["healed"] = [h for h in state["healed"] if h.get("ts", "") >= cutoff][-1000:]
     wt = sandbox_dir(root, adw_id)
-    per_run_db = wt / "adws" / "adw_data" / "sssf.db"
+    per_run_db = wt / "adws" / "data" / "sssf.db"
 
     if action == "finalize":
         from sssf.sandbox import stop_run
@@ -220,6 +220,8 @@ def heal_once(initial: dict | None = None) -> list[str]:
     st = initial if initial is not None else state()
     actions: list[str] = []
     for name, root in registry_projects():
+        from sssf.adw_modules import paths
+        paths.warn_if_legacy(root, command="healer")
         project_db = _project_db(root)
         if not project_db.exists():
             continue
@@ -238,7 +240,7 @@ def heal_once(initial: dict | None = None) -> list[str]:
             wt = sandbox_dir(root, adw_id)
             has_wt = wt.exists()
             has_ct = _container_exists(adw_id)
-            per_run = wt / "adws" / "adw_data" / "sssf.db"
+            per_run = wt / "adws" / "data" / "sssf.db"
             action = diagnose(status, None, has_ct, has_wt, per_run.exists(),
                               _last_event_minutes(project_db, adw_id))
             if action:

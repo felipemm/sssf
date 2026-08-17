@@ -7,17 +7,17 @@ from sssf.commands import ticket
 
 def _project(tmp_path, monkeypatch, ticketing_yaml: str | None = None) -> Path:
     root = tmp_path / "proj"
-    (root / "adws" / "adw_sssf_config").mkdir(parents=True)
-    (root / "adws" / "adw_data").mkdir(parents=True)
+    (root / "adws" / "config").mkdir(parents=True)
+    (root / "adws" / "data").mkdir(parents=True)
     (root / "adws" / "prompts").mkdir(parents=True)
     if ticketing_yaml is not None:
-        (root / "adws" / "adw_sssf_config" / "ticketing.yaml").write_text(ticketing_yaml)
+        (root / "adws" / "config" / "ticketing.yaml").write_text(ticketing_yaml)
     monkeypatch.chdir(root)
     return root
 
 
 def _db(root: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(root / "adws" / "adw_data" / "sssf.db")
+    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
     conn.execute(ticketing.TICKETS_DDL)
     conn.execute(ticketing.TICKET_RUNS_DDL)
     return conn
@@ -55,7 +55,8 @@ def test_run_creates_prompt_and_spawns(tmp_path, monkeypatch, capsys):
                  " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'backlog')")
     conn.commit()
     conn.close()
-    (root / "adws" / "adw_simple_sdlc.py").write_text("print('adw stub')\n")
+    (root / "adws" / "modules").mkdir(parents=True, exist_ok=True)
+    (root / "adws" / "modules" / "adw_simple_sdlc.py").write_text("print('adw stub')\n")
     spawned = {}
 
     def fake_popen(argv, **kw):
@@ -99,7 +100,8 @@ def test_run_bumps_updated_at(tmp_path, monkeypatch):
                  " VALUES ('internal:abc', 'internal', '', 'X', 'backlog', '2026-08-01T00:00:00+00:00')")
     conn.commit()
     conn.close()
-    (root / "adws" / "adw_simple_sdlc.py").write_text("print('adw stub')\n")
+    (root / "adws" / "modules").mkdir(parents=True, exist_ok=True)
+    (root / "adws" / "modules" / "adw_simple_sdlc.py").write_text("print('adw stub')\n")
     class P:
         pid = 12345
     monkeypatch.setattr(ticket.subprocess, "Popen", lambda argv, **kw: P())
@@ -119,7 +121,8 @@ def test_run_records_run_history(tmp_path, monkeypatch, capsys):
                  " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'backlog')")
     conn.commit()
     conn.close()
-    (root / "adws" / "adw_simple_sdlc.py").write_text("print('adw stub')\n")
+    (root / "adws" / "modules").mkdir(parents=True, exist_ok=True)
+    (root / "adws" / "modules" / "adw_simple_sdlc.py").write_text("print('adw stub')\n")
 
     class P:
         pid = 12345

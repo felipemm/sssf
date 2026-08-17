@@ -9,9 +9,16 @@ def _setup_project(tmp_path, monkeypatch):
     root.mkdir()
     monkeypatch.setattr(registry, "registry_path",
                         lambda: tmp_path / ".sssf" / "projects.json")
-    init.run(root)
+    # minimal v2 project (init itself is covered in test_init.py)
+    (root / "adws" / "modules").mkdir(parents=True)
+    (root / "adws" / "config").mkdir(parents=True)
+    (root / "adws" / "config" / "sssf.config.yaml").write_text(
+        "defaults:\n  coding_agent: pi\n  model: openai/gpt-4o-mini\n"
+        "sandbox:\n  enabled: false\n"
+        "observability:\n  db: adws/data/sssf.db\n")
+    registry.register_project(root, root / "adws" / "data" / "sssf.db", "1.0.0")
     # a stub ADW that proves the engine import works end-to-end
-    stub = root / "adws" / "adw_stub_check.py"
+    stub = root / "adws" / "modules" / "adw_stub_check.py"
     stub.write_text(
         "import sssf.adw_modules\n"
         "from sssf.adw_modules.data_types import EnvelopeBase\n"
@@ -40,3 +47,12 @@ def test_run_updates_last_run(tmp_path, monkeypatch):
     run.run(root, "stub_check", [], None)
     entry = registry.list_projects()[0]
     assert entry["last_run"] is not None
+
+
+def test_run_warns_on_legacy_layout(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "proj"
+    (root / "adws" / "adw_data").mkdir(parents=True)
+    monkeypatch.setattr(registry, "registry_path",
+                        lambda: tmp_path / ".sssf" / "projects.json")
+    assert run.run(root, "scout", [], None, no_sandbox=True) != 0
+    assert "legacy adws layout" in capsys.readouterr().err

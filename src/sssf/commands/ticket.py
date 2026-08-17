@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from sssf import ticketing
+from sssf.adw_modules import paths
 from sssf.project import find_project
 
 
@@ -17,7 +18,7 @@ def _root(explicit: str | None) -> Path | None:
 
 
 def _db(root: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(root / "adws" / "adw_data" / "sssf.db")
+    conn = sqlite3.connect(str(paths.data_dir(root) / "sssf.db"))
     conn.execute(ticketing.TICKETS_DDL)
     conn.execute(ticketing.TICKET_RUNS_DDL)
     return conn
@@ -32,10 +33,11 @@ def add(title: str, project: str | None = None) -> int:
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
         return 1
+    paths.warn_if_legacy(root, command="ticket")
     cfg = ticketing.load_config(root)
     if cfg is None or "internal" not in cfg.providers:
         print("sssf ticket: the internal provider is not enabled in "
-              "adws/adw_sssf_config/ticketing.yaml", file=sys.stderr)
+              "adws/config/ticketing.yaml", file=sys.stderr)
         return 1
     ticket_id = f"internal:{uuid.uuid4().hex[:12]}"
     now = _now()
@@ -55,10 +57,11 @@ def sync(project: str | None = None) -> int:
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
         return 1
+    paths.warn_if_legacy(root, command="ticket")
     cfg = ticketing.load_config(root)
     if cfg is None:
         print("sssf ticket: ticketing not configured — enable it in "
-              "adws/adw_sssf_config/ticketing.yaml", file=sys.stderr)
+              "adws/config/ticketing.yaml", file=sys.stderr)
         return 1
     results = ticketing.sync_tickets(root, cfg)
     for r in results:
@@ -74,10 +77,11 @@ def list_tickets(project: str | None = None) -> int:
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
         return 1
+    paths.warn_if_legacy(root, command="ticket")
     cfg = ticketing.load_config(root)
     if cfg is None:
         print("sssf ticket: ticketing not configured — enable it in "
-              "adws/adw_sssf_config/ticketing.yaml", file=sys.stderr)
+              "adws/config/ticketing.yaml", file=sys.stderr)
         return 1
     conn = _db(root)
     rows = conn.execute(
@@ -95,10 +99,11 @@ def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) ->
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
         return 1
+    paths.warn_if_legacy(root, command="ticket")
     cfg = ticketing.load_config(root)
     if cfg is None:
         print("sssf ticket: ticketing not configured — enable it in "
-              "adws/adw_sssf_config/ticketing.yaml", file=sys.stderr)
+              "adws/config/ticketing.yaml", file=sys.stderr)
         return 1
     conn = _db(root)
     row = conn.execute(
@@ -115,10 +120,10 @@ def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) ->
         return 1
     slug = "".join(c if c.isalnum() else "-" for c in title.lower()).strip("-")[:40] or "ticket"
     adw_id = uuid.uuid4().hex[:8]
-    adw_file = root / "adws" / "adw_simple_sdlc.py"
+    adw_file = paths.modules_dir(root) / "adw_simple_sdlc.py"
     if not adw_file.exists():
         conn.close()
-        print(f"sssf ticket: no adws/adw_simple_sdlc.py in {root}", file=sys.stderr)
+        print(f"sssf ticket: no adws/modules/adw_simple_sdlc.py in {root}", file=sys.stderr)
         return 1
 
     sandboxed = not no_sandbox and _sandbox_enabled(root)
@@ -143,7 +148,7 @@ def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) ->
         try:
             spawn_sandbox(
                 root, adw_id,
-                cmd=["python", "adws/adw_simple_sdlc.py",
+                cmd=["python", "adws/modules/adw_simple_sdlc.py",
                      f"run prompt adws/prompts/{prompt_path.name}", "--adw-id", adw_id],
                 image=cfg.sandbox.image,
                 data_dir=data_dir, pi_home=pi_home, env=env,
@@ -228,4 +233,5 @@ def _sandbox_enabled(root: Path) -> bool:
 
 def _config_for_sandbox(root: Path):
     from sssf.adw_modules.agents import load_config
-    return load_config(str(root / "adws" / "adw_sssf_config" / "sssf.config.yaml"))
+    from sssf.adw_modules import paths
+    return load_config(str(paths.config_file(root)))

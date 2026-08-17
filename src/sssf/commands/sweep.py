@@ -35,7 +35,9 @@ def run(project_root: str | None = None, days: int = 30) -> int:
     interval = f"-{days} days"
     if project_root:
         root = Path(project_root).resolve()
-        targets = [(root.name, root / "adws" / "adw_data" / "sssf.db")]
+        from sssf.adw_modules import paths
+        paths.warn_if_legacy(root, command="sweep")
+        targets = [(root.name, paths.data_dir(root) / "sssf.db")]
     else:
         targets = [(p["name"], Path(p["db"])) for p in registry.list_projects()]
 

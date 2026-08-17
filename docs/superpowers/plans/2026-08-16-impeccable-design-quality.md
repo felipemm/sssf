@@ -4,7 +4,7 @@
 
 **Goal:** Wire Impeccable into sssf as a deterministic design gate (shipped configured by default alongside snyk), an agentic design pass in a new opt-in ADW variant, and full site documentation.
 
-**Architecture:** (1) `impeccable detect` runs as a config-driven `quality.checks` entry with the CLI baked into the runner image (bare binary, snyk pattern) plus CI gates on the site; (2) a new `designer` roster agent + `adw_plan_build_test_quality_design.py` variant runs `/impeccable audit → critique → polish → optimize` (PRODUCT.md via `init` early, DESIGN.md via `document` at the end); (3) the impeccable pi skill is vendored under `docker/impeccable-pi/` and copied into the sandbox pi home by the entrypoint.
+**Architecture:** (1) `impeccable detect` runs as a config-driven `quality.checks` entry with the CLI baked into the runner image (bare binary, snyk pattern) plus CI gates on the site; (2) a new `designer` roster agent + `adw_design_sdlc.py` variant runs `/impeccable audit → critique → polish → optimize` (PRODUCT.md via `init` early, DESIGN.md via `document` at the end); (3) the impeccable pi skill is vendored under `docker/impeccable-pi/` and copied into the sandbox pi home by the entrypoint.
 
 **Tech Stack:** Python (sssf engine, pytest), YAML config, Docker, bash entrypoint, GitHub Actions, Astro (site), npm.
 
@@ -323,15 +323,15 @@ git commit -m "feat(templates): designer agent + design/snyk checks shipped conf
 
 ---
 
-### Task 4: New ADW variant `adw_plan_build_test_quality_design.py`
+### Task 4: New ADW variant `adw_design_sdlc.py`
 
 **Files:**
-- Create: `src/sssf/templates/adws/adw_plan_build_test_quality_design.py`
+- Create: `src/sssf/templates/adws/adw_design_sdlc.py`
 - Modify: `tests/test_templates.py` (chain-count test + variant phase test)
 
 **Interfaces:**
 - Consumes: `planner`, `builder`, `designer`, `documenter` roster agents (Task 3); `quality.run_quality(run)` (existing — includes the `design` + `snyk` checks from config); `quality.as_envelope(result, what)`; `gates.artifacts_exist`, `gates.files_non_empty`, `gates.diff_matches_claims`; `git_helper.commit_all(message)`; `session.ensure(cfg, adw_id)`.
-- Produces: runnable ADW `adw_plan_build_test_quality_design.py` — the opt-in chain. Phases: request → plan → build → init (PRODUCT.md) → design → verify loop → fix loop → document (DESIGN.md) → commit.
+- Produces: runnable ADW `adw_design_sdlc.py` — the opt-in chain. Phases: request → plan → build → init (PRODUCT.md) → design → verify loop → fix loop → document (DESIGN.md) → commit.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -352,7 +352,7 @@ def test_thirteen_starter_chains():
 
 ```python
 def test_quality_design_variant_has_impeccable_phases():
-    text = (TEMPLATES / "adws" / "adw_plan_build_test_quality_design.py").read_text()
+    text = (TEMPLATES / "adws" / "adw_design_sdlc.py").read_text()
     for needle in ('name="init"', 'name="design"', 'owner="designer"',
                    'owner="documenter"', 'name="document"', 'impeccable'):
         assert needle in text, f"variant missing {needle}"
@@ -365,7 +365,7 @@ Expected: FAIL — file missing, count 12 ≠ 13
 
 - [ ] **Step 3: Create the ADW variant**
 
-`src/sssf/templates/adws/adw_plan_build_test_quality_design.py`:
+`src/sssf/templates/adws/adw_design_sdlc.py`:
 
 ```python
 #!/usr/bin/env -S uv run
@@ -373,7 +373,7 @@ Expected: FAIL — file missing, count 12 ≠ 13
 impeccable design pass and deterministic quality gates.
 
 Usage:
-    uv run adws/adw_plan_build_test_quality_design.py "<prompt or path/to/prompt.md>" [--config adws/adw_sssf_config/sssf.config.yaml] [--adw-id a1b2c3d4]
+    uv run adws/adw_design_sdlc.py "<prompt or path/to/prompt.md>" [--config adws/adw_sssf_config/sssf.config.yaml] [--adw-id a1b2c3d4]
 
 Phases: engineer(request) -> planner -> builder -> documenter(init) ->
 designer(design) -> [code(verify) -> builder(fix)] bounded -> documenter(document)
@@ -492,8 +492,8 @@ Expected: PASS
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/sssf/templates/adws/adw_plan_build_test_quality_design.py tests/test_templates.py
-git commit -m "feat(adws): adw_plan_build_test_quality_design — impeccable design pass variant"
+git add src/sssf/templates/adws/adw_design_sdlc.py tests/test_templates.py
+git commit -m "feat(adws): adw_design_sdlc — impeccable design pass variant"
 ```
 
 ---
@@ -738,7 +738,7 @@ git commit -m "docs(site): quality-checks configuration reference page"
 `site/src/pages/docs/design-quality.astro` — model on `configuration.astro`. Content:
 
 - the deterministic gate: `impeccable detect` — 59 rules, exit 0/2 semantics, advisory-only em-dash rule false positive on `--` CLI flags;
-- the agentic pass: new `designer` agent + `adw_plan_build_test_quality_design` ADW — init (PRODUCT.md) → design (audit → critique → polish → optimize) → verify (incl. the detect gate) → document (DESIGN.md);
+- the agentic pass: new `designer` agent + `adw_design_sdlc` ADW — init (PRODUCT.md) → design (audit → critique → polish → optimize) → verify (incl. the detect gate) → document (DESIGN.md);
 - how to opt in: choose the variant ADW, adjust `site/` target + the `design` check argv, ensure the runner image has impeccable;
 - cross-link to `/docs/quality-checks` for full configuration.
 
@@ -773,7 +773,7 @@ const description =
 
   <h2>The agentic pass</h2>
   <p>
-    <code>adws/adw_plan_build_test_quality_design.py</code> adds three phases to the standard
+    <code>adws/adw_design_sdlc.py</code> adds three phases to the standard
     build-test chain: <code>init</code> (documenter runs <code>/impeccable init</code> →
     PRODUCT.md), <code>design</code> (designer runs audit → critique → polish → optimize on
     <code>site/</code>), and <code>document</code> (documenter runs <code>/impeccable document</code>
@@ -845,7 +845,7 @@ In `site/src/pages/docs/configuration.astro`, add a short paragraph (e.g., at th
 In `README.md`, add one line in the feature/overview area:
 
 ```markdown
-- Design quality: deterministic `impeccable detect` gate (shipped configured) + an opt-in agentic design pass (`adw_plan_build_test_quality_design`) — see the site's Design quality docs.
+- Design quality: deterministic `impeccable detect` gate (shipped configured) + an opt-in agentic design pass (`adw_design_sdlc`) — see the site's Design quality docs.
 ```
 
 - [ ] **Step 7: Verify the site builds**
@@ -928,7 +928,7 @@ Expected: skill installed into the pi home (`~/.pi/agent/skills/impeccable` or a
 
 ```bash
 cd <a project with a site, e.g. the sssf site as a stamped project>
-sssf run adws/adw_plan_build_test_quality_design.py "<prompt>"
+sssf run adws/adw_design_sdlc.py "<prompt>"
 ```
 
 Expected: init (PRODUCT.md) → design → verify (incl. design + snyk) → document (DESIGN.md) → commit, all green. If the project lacks SNYK_TOKEN, remove the `snyk` check for the test run.

@@ -18,4 +18,5 @@ def find_project(cwd: Path, explicit: str | None = None) -> Path | None:
 
 
 def data_dir(root: Path) -> Path:
-    return root / "adws" / "adw_data"
+    from sssf.adw_modules import paths
+    return paths.data_dir(root)

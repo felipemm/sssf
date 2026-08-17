@@ -6,7 +6,7 @@ your chain, and each one records a `gate_results` row, so the status
 dashboard's **quality KPI** (gate pass rate, hotspot, retries) counts the real
 runs — not just the agents' claim gates.
 
-You configure them per project in `adws/adw_sssf_config/sssf.config.yaml`:
+You configure them per project in `adws/config/sssf.config.yaml`:
 
 ```yaml
 quality:

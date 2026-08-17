@@ -28,13 +28,13 @@ def _register(tmp_path: Path, monkeypatch, root: Path | None = None) -> None:
     monkeypatch.setattr(registry, "registry_path",
                         lambda: tmp_path / ".sssf" / "projects.json")
     if root is not None:
-        registry.register_project(root, root / "adws" / "adw_data" / "sssf.db", "0.1.0")
+        registry.register_project(root, root / "adws" / "data" / "sssf.db", "0.1.0")
 
 
 def test_sweep_archives_old_finished_only(tmp_path, monkeypatch, capsys):
     root = tmp_path / "proj"
-    (root / "adws/adw_data").mkdir(parents=True)
-    db = root / "adws" / "adw_data" / "sssf.db"
+    (root / "adws/data").mkdir(parents=True)
+    db = root / "adws" / "data" / "sssf.db"
     _make_db(db)
     _register(tmp_path, monkeypatch, root)
 
@@ -53,8 +53,8 @@ def test_sweep_archives_old_finished_only(tmp_path, monkeypatch, capsys):
 
 def test_sweep_project_flag(tmp_path, monkeypatch, capsys):
     root = tmp_path / "proj"
-    (root / "adws/adw_data").mkdir(parents=True)
-    db = root / "adws" / "adw_data" / "sssf.db"
+    (root / "adws/data").mkdir(parents=True)
+    db = root / "adws" / "data" / "sssf.db"
     _make_db(db)
     # not registered — --project sweeps it directly
     assert sweep.run(str(root)) == 0
@@ -69,8 +69,8 @@ def test_sweep_empty_registry_is_friendly(tmp_path, monkeypatch, capsys):
 
 def test_sweep_days_flag(tmp_path, monkeypatch, capsys):
     root = tmp_path / "proj"
-    (root / "adws/adw_data").mkdir(parents=True)
-    db = root / "adws" / "adw_data" / "sssf.db"
+    (root / "adws/data").mkdir(parents=True)
+    db = root / "adws" / "data" / "sssf.db"
     _make_db(db)
     _register(tmp_path, monkeypatch, root)
     # 1-day window: only the 40-day-old sessions qualify
