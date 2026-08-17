@@ -111,14 +111,28 @@ def fetch_jira(cfg: TicketingConfig) -> list[TicketRecord]:
     jql = cfg.jira.get("jql")
     if not jql:
         raise RuntimeError("the jira provider needs a `jql` in ticketing.yaml")
-    data = _run_acli(["issue", "list", "--jql", jql, "-f", "json"])
+    # acli >= 1.3 moved work items under `jira workitem search` (old
+    # `acli issue list` was removed). Default fields exclude description,
+    # so request it explicitly.
+    data = _run_acli([
+        "jira", "workitem", "search",
+        "--jql", jql,
+        "--fields", "summary,description",
+        "--limit", "100",
+        "--json",
+    ])
     issues = data if isinstance(data, list) else (data.get("issues") or data.get("data") or [])
+    base_host = (cfg.jira.get("base_url") or "").rstrip("/").removeprefix("https://")
     records = []
     for issue in issues:
         fields = issue.get("fields") or {}
         key = str(issue.get("key") or "")
         self_url = issue.get("self") or ""
         host = self_url.split("/")[2] if self_url.startswith("http") else ""
+        # Internal Atlassian `self` hosts (jira-prod-us-*.prod.atl-paas.net)
+        # aren't browsable; prefer the configured base_url when present.
+        if base_host and (not host or "atl-paas.net" in host):
+            host = base_host
         records.append(TicketRecord(
             provider="jira", external_id=key,
             title=str(fields.get("summary") or key),

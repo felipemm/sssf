@@ -66,9 +66,34 @@ def test_fetch_jira_parses_acli_output(tmp_path, monkeypatch):
     monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
     monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/acli")
     records = ticketing.fetch_jira(_cfg(tmp_path))
-    assert calls[0] == ["acli", "issue", "list", "--jql", "project = ACME", "-f", "json"]
+    # acli >= 1.3: `issue list` was removed; work items live under
+    # `jira workitem search` with explicit fields.
+    assert calls[0] == ["acli", "jira", "workitem", "search", "--jql", "project = ACME",
+                        "--fields", "summary,description", "--limit", "100", "--json"]
     assert records[0].external_id == "ACME-7"
     assert records[0].source_url == "https://acme.atlassian.net/browse/ACME-7"
+
+
+def test_fetch_jira_internal_host_uses_configured_base_url(tmp_path, monkeypatch):
+    """Internal Atlassian `self` hosts (jira-prod-us-*.prod.atl-paas.net) are
+    not browsable — the configured base_url wins for source_url when present."""
+    def fake_run(args, capture_output, text, timeout):
+        class R:
+            returncode = 0
+            stdout = json.dumps([{
+                "key": "ACME-7",
+                "self": "https://jira-prod-us-1.prod.atl-paas.net/rest/api/3/issue/ACME-7",
+                "fields": {"summary": "Add dark mode", "description": "x"},
+            }])
+            stderr = ""
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/acli")
+    cfg = _cfg(tmp_path)
+    cfg.jira["base_url"] = "https://jira.corp.example.com"
+    records = ticketing.fetch_jira(cfg)
+    assert records[0].source_url == "https://jira.corp.example.com/browse/ACME-7"
 
 
 def test_fetch_jira_missing_acli(tmp_path, monkeypatch):
