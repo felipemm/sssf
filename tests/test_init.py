@@ -50,18 +50,18 @@ def test_refresh_adds_missing_only(tmp_path, monkeypatch):
     assert (root / "adws/modules/adw_prompt.py").exists()
 
 
-def test_init_stamps_commented_ticketing_template(tmp_path, monkeypatch):
+def test_init_stamps_ticketing_template_with_internal_enabled(tmp_path, monkeypatch):
+    """The stamped ticketing.yaml enables the internal provider by default."""
     root = tmp_path / "proj"
     root.mkdir()
     assert _run_init(root, monkeypatch) == 0
     cfg = root / "adws/config/ticketing.yaml"
     assert cfg.exists()
     text = cfg.read_text()
-    assert text.lstrip().startswith("#")          # fully commented
-    assert "providers" in text
-    # and it parses as "not configured":
+    assert "providers" in text and "- internal" in text
     from sssf import ticketing
-    assert ticketing.load_config(root) is None
+    loaded = ticketing.load_config(root)
+    assert loaded is not None and "internal" in loaded.providers
 
 
 def test_refresh_prompts_and_keeps_on_no(tmp_path, monkeypatch):
