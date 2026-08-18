@@ -40,7 +40,17 @@ def test_exit_127_hints_missing_binary():
 
 def test_executable_not_found_hints_missing_binary():
     tail = 'exec: "snyk": executable file not found in $PATH'
-    assert "missing from the runner image" in classify_failure(tail, "1")
+    hint = classify_failure(tail, "1")
+    assert "missing from the runner image" in hint
+    assert "snyk" in hint  # the hint must name the missing binary (spec table)
+
+
+def test_executable_not_found_without_quoted_binary_is_generic():
+    # No `exec: "..."` name to extract — the hint still lands, just unnamed.
+    tail = "executable file not found in $PATH"
+    hint = classify_failure(tail, "1")
+    assert "missing from the runner image" in hint
+    assert "(" not in hint
 
 
 def test_127_with_specific_signature_prefers_signature():

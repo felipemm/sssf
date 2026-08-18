@@ -1,3 +1,4 @@
+import json
 import os
 import stat
 import subprocess
@@ -177,7 +178,6 @@ def test_record_never_started_leaves_evidence(monkeypatch, tmp_path):
     assert ev[0] == "sandbox spawn failure"
     assert "1" in ev[1]  # exit code captured
     assert "No such file or directory" in ev[1]  # log tail captured
-    import json
 
     payload = json.loads(ev[1])
     assert "remediation" in payload
@@ -193,8 +193,6 @@ def test_record_never_started_zero_evidence_has_null_remediation(monkeypatch, tm
     failure still records, and remediation is null. The classifier's
     pass-through branches guarantee a hint whenever evidence EXISTS, so
     null means zero evidence, not 'unmatched signature'."""
-    import json
-
     from sssf.adw_modules.tracer import Tracer
 
     db = tmp_path / "proj" / "adws" / "data" / "sssf.db"

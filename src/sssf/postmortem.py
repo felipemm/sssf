@@ -22,6 +22,13 @@ def classify_failure(log_tail: str, exit_code: str = "") -> str | None:
     if ("importerror" in low or "modulenotfounderror" in low) and "sssf.adw_modules" in low:
         return "runner image is stale or broken — rebuild it: `sssf sandbox build`"
     if "executable file not found" in low:
+        m = re.search(r'exec:\s*"([^"]+)"', tail, re.IGNORECASE)
+        if m:
+            binary = m.group(1)[:150]  # cap so the hint stays ≤ 300 chars
+            return (
+                f"a required binary ({binary}) is missing from the runner image —"
+                " rebuild it or fix docker/sssf-runner.Dockerfile"
+            )
         return "a required binary is missing from the runner image — rebuild it or fix docker/sssf-runner.Dockerfile"
     if code == "127" and tail:
         return "a required binary is missing from the runner image (exit 127) — rebuild it or fix docker/sssf-runner.Dockerfile"
