@@ -110,8 +110,9 @@ payload, so the hint appears there with no UI change.
   127-with-specific-signature precedence, hint length bound.
 - `tests/test_sandbox_docker.py` — extend the `record_never_started`
   evidence test: the event payload now contains a `remediation` key with the
-  expected hint for a known signature, and `remediation` is null for
-  unmatched evidence.
+  expected hint for a known signature, and `remediation` is null for zero
+  evidence (the pass-through branches guarantee a hint whenever evidence
+  exists — null means the container was gone before evidence capture).
 
 ## Files
 
