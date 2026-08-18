@@ -438,6 +438,18 @@ def sync_run_db(conn: sqlite3.Connection, per_run_db: Path, adw_id: str) -> None
             tmp.unlink(missing_ok=True)
 
 
+def _container_gone(docker_fn, name: str) -> bool:
+    """True only when the container is actually gone. A docker hiccup is NOT
+    'gone' — treat it as a retry, never as the run finishing (audit A2)."""
+    try:
+        r = docker_fn("ps", "--filter", f"name={name}",
+                      "--format", "{{.Status}}", timeout_s=30)
+        return not r.stdout.strip()
+    except Exception as error:      # docker is down/glitchy
+        print(f"sssf: teardown poll docker error ({error}) — retrying", file=sys.stderr)
+        return False
+
+
 def monitor_run(project_root: Path, adw_id: str) -> int:
     """The detached monitor: while the run's container is alive, merge the
     per-run db into the project db (live-ish visibility, ~3s), then a final
@@ -453,19 +465,8 @@ def monitor_run(project_root: Path, adw_id: str) -> int:
     tracer = Tracer(str(project_db), str(project_db.parent / "sessions" / adw_id / "events.jsonl"))
     try:
         while True:
-            try:
-                r = _docker(
-                    "ps",
-                    "--filter",
-                    f"name={container_name(adw_id)}",
-                    "--format",
-                    "{{.Status}}",
-                    timeout_s=30,
-                )
-                if not r.stdout.strip():
-                    break  # container gone — the run is done
-            except Exception:
-                break
+            if _container_gone(_docker, container_name(adw_id)):
+                break  # container gone — the run is done
             sync_run_db(tracer.conn, per_run_db, adw_id)
             time.sleep(3)
     finally:

@@ -135,3 +135,29 @@ def test_ensure_image_current_missing_raises(fake_docker, monkeypatch):
     _fake_docker_stdout(monkeypatch, "")
     with pytest.raises(SandboxError, match="missing or unreadable"):
         sandbox.ensure_image_current("sssf-missing")
+
+
+def test_teardown_poll_treats_docker_error_as_retry_not_gone(monkeypatch, capsys):
+    """A docker hiccup during the teardown poll must not be read as
+    'container gone' — that tears the run down prematurely (audit A2)."""
+    from sssf.sandbox import _container_gone
+
+    def flaky(*a, **k):
+        raise RuntimeError("docker hiccup")
+
+    assert _container_gone(flaky, "sssf-x") is False
+    assert "retrying" in capsys.readouterr().err
+
+
+def test_teardown_poll_gone_only_on_empty_output(monkeypatch):
+    from sssf.sandbox import _container_gone
+
+    def gone(*a, **k):
+        return subprocess.CompletedProcess(a, 0, stdout="", stderr="")
+
+    assert _container_gone(gone, "sssf-x") is True
+
+    def up(*a, **k):
+        return subprocess.CompletedProcess(a, 0, stdout="Up 2 minutes", stderr="")
+
+    assert _container_gone(up, "sssf-x") is False

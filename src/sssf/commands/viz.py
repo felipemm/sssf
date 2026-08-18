@@ -114,8 +114,8 @@ def start(port: int, db_override: str | None, project: str | None) -> int:
 
         if healer.running_pid() is None:
             healer.start()
-    except Exception:
-        pass
+    except Exception as error:   # the browser still opens
+        print(f"sssf viz: healer start failed ({error})", file=sys.stderr)
     webbrowser.open(url)
     return 0
 
