@@ -198,8 +198,40 @@ def test_record_never_started_leaves_evidence(monkeypatch, tmp_path):
     assert ev[0] == "sandbox spawn failure"
     assert "1" in ev[1]  # exit code captured
     assert "No such file or directory" in ev[1]  # log tail captured
+    import json
+
+    payload = json.loads(ev[1])
+    assert "remediation" in payload
+    assert "not in the worktree" in payload["remediation"]
     status = tracer.conn.execute("SELECT status FROM tickets WHERE id='internal:x'").fetchone()[0]
     assert status == "failed"
+
+
+def test_record_never_started_zero_evidence_has_null_remediation(monkeypatch, tmp_path):
+    """Evidence capture comes up empty (container already gone) — the
+    failure still records, and remediation is null. The classifier's
+    pass-through branches guarantee a hint whenever evidence EXISTS, so
+    null means zero evidence, not 'unmatched signature'."""
+    import json
+
+    from sssf.adw_modules.tracer import Tracer
+
+    db = tmp_path / "proj" / "adws" / "data" / "sssf.db"
+    tracer = Tracer(db, tmp_path / "proj" / "adws" / "data" / "sessions" / "abc123" / "events.jsonl")
+
+    def fake_docker(*args, **kwargs):
+        # container already gone: both evidence captures come back empty
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(sandbox, "_docker", fake_docker)
+    per_run = tmp_path / "proj" / ".worktrees" / "abc123" / "adws" / "data" / "sssf.db"
+    sandbox.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
+
+    ev = tracer.conn.execute(
+        "SELECT payload_json FROM events WHERE adw_id='abc123'"
+    ).fetchone()
+    payload = json.loads(ev[0])
+    assert payload["remediation"] is None
 
 
 def test_record_never_started_skips_when_adw_started(monkeypatch, tmp_path):
