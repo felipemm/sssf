@@ -404,42 +404,24 @@ const server = Bun.serve({
       const name = param(req, "project");
       const root = projectRoot(name);
       if (!root || !isEnabled(root)) return json({ error: "ticketing not configured" }, 400);
-      const proc = Bun.spawn(["sssf", "ticket", "sync", "--project", root],
-        { stdout: "pipe", stderr: "pipe" });
-      const [output, errout] = await Promise.all(
-        [new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-      await proc.exited;
-      const combined = (output + (errout ? "\n" + errout : "")).trim();
-      return json({ ok: proc.exitCode === 0, output: combined });
+      const res = await syncTickets(root);
+      return json(res);
     }),
     "/api/projects/:project/tickets/:id/run": scoped(async (req) => {
       const name = param(req, "project");
       const root = projectRoot(name);
       const id = param(req, "id");
       if (!root || !isEnabled(root)) return json({ error: "ticketing not configured" }, 400);
-      const proc = Bun.spawn(["sssf", "ticket", "run", id, "--project", root],
-        { stdout: "pipe", stderr: "pipe" });
-      const [output, errout] = await Promise.all(
-        [new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-      await proc.exited;
-      const combined = (output + (errout ? "\n" + errout : "")).trim();
-      if (proc.exitCode !== 0) return json({ ok: false, output: combined }, 409);
-      const adwId = output.match(/adw_id ([a-f0-9]+)/)?.[1] ?? null;
-      return json({ ok: true, adwId, output });
+      const res = await runTicket(root, id);
+      return res.ok ? json(res) : json(res, 409);
     }),
     "/api/projects/:project/tickets/:id/backlog": scoped(async (req) => {
       const name = param(req, "project");
       const root = projectRoot(name);
       const id = param(req, "id");
       if (!root || !isEnabled(root)) return json({ error: "ticketing not configured" }, 400);
-      const proc = Bun.spawn(["sssf", "ticket", "backlog", id, "--project", root],
-        { stdout: "pipe", stderr: "pipe" });
-      const [output, errout] = await Promise.all(
-        [new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-      await proc.exited;
-      const combined = (output + (errout ? "\n" + errout : "")).trim();
-      if (proc.exitCode !== 0) return json({ ok: false, output: combined }, 409);
-      return json({ ok: true, output });
+      const res = await backlogTicket(root, id);
+      return res.ok ? json(res) : json(res, 409);
     }),
     "/api/projects/:project/sessions": scoped(sessionsHandler),
     "/api/projects/:project/sessions/:adw_id": scoped(sessionDetailHandler),

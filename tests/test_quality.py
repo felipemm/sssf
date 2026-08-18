@@ -247,3 +247,19 @@ def test_env_failure_none_for_code_failures(tmp_path):
     result = quality.run_quality(run)
     assert result.checks[0].env_error is False
     assert quality.env_failure(result) is None
+
+
+def test_env_failure_is_not_handed_to_the_builder(tmp_path):
+    """An env failure is never wrapped as a fixable envelope — the fix-loop
+    ADWs break on quality.env_failure() and the builder is never called with
+    an environment error (audit B5, issue #16 behavior)."""
+    run = _make_run(tmp_path, checks=[QualityCheckSpec(
+        name="test", area="backend", operation="build",
+        argv=["definitely-not-a-binary-xyz"])])
+    result = quality.run_quality(run)
+    assert quality.env_failure(result) is not None
+    assert any(c.env_error for c in result.checks)
+    # the code-failure path (as_envelope) is what a builder would receive; an
+    # env failure must never reach it as 'passed' — the ADW breaks before
+    # dispatching, and the envelope contract reflects the failure
+    assert quality.as_envelope(result, "quality gates").passed is False

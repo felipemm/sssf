@@ -46,7 +46,15 @@ def build(explicit: str | None) -> int:
         from sssf.adw_modules import paths
         from sssf.adw_modules.agents import load_config
 
-        cfg = load_config(str(paths.config_file(root)))
+        try:
+            cfg = load_config(str(paths.config_file(root)))
+        except Exception as error:
+            print(
+                f"sssf: cannot read {paths.config_file(root)} ({error}) — "
+                "if this project predates the v2 layout, run `sssf init --refresh`",
+                file=sys.stderr,
+            )
+            return 1
         build_image(cfg.sandbox.image, df, context)
     except SandboxError as e:
         print(f"sssf: image build failed: {e}", file=sys.stderr)

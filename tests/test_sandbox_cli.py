@@ -110,7 +110,8 @@ def test_sandbox_build_reads_v2_config(tmp_path, monkeypatch, fake_docker):
     monkeypatch.chdir(root)
     from sssf.commands import sandbox_cmd
     assert sandbox_cmd.build(None) == 0
-    # a v1-only project is refused (legacy banner)
+    # a v1-only project fails loudly (legacy banner + readable message),
+    # never with a raw traceback (audit B1)
     (root / "adws" / "config").rename(root / "adws" / "adw_sssf_config")
     monkeypatch.chdir(root)
-    assert sandbox_cmd.build(None) == 0
+    assert sandbox_cmd.build(None) == 1
