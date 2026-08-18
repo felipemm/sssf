@@ -41,7 +41,6 @@ pinned before the first commit phase and printed in the request phase.
 
 import argparse
 import sys
-from pathlib import Path
 
 from sssf.adw_modules import agents, changes, gates, git_helper, quality, session, utils
 from sssf.adw_modules.data_types import (
@@ -66,9 +65,7 @@ DOCUMENT_NOTES = (
 
 
 def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> int:
-    from sssf.adw_modules import paths
-
-    cfg = agents.load_config(config or str(paths.config_file(Path.cwd())))
+    cfg = agents.load_config(config or agents.default_config_path())
     # Create the session BEFORE validating: a validation failure (e.g. pi
     # --list-models hiccuping under concurrent container boots) then leaves a
     # visible failed session instead of nothing — the board/trace show what

@@ -120,7 +120,7 @@ def test_adws_resolve_config_at_runtime():
     never bake a layout literal that the v2 migration rewrites."""
     for adw in (TEMPLATES / "adws" / "modules").glob("adw_*.py"):
         text = adw.read_text()
-        assert "paths.config_file" in text
+        assert "agents.default_config_path" in text
         assert "adws/adw_sssf_config" not in text
         assert "adws/app_docs" not in text
 

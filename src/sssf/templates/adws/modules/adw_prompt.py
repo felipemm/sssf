@@ -9,7 +9,6 @@ Phases: engineer(request) -> <agent>
 
 import argparse
 import sys
-from pathlib import Path
 
 from sssf.adw_modules import agents, session, utils
 from sssf.adw_modules.data_types import AgentCall, GenericOutput, PhaseParams
@@ -18,9 +17,7 @@ from sssf.adw_modules.data_types import AgentCall, GenericOutput, PhaseParams
 def main(
     prompt: str, agent: str = "builder", config: str | None = None, adw_id: str | None = None
 ) -> int:
-    from sssf.adw_modules import paths
-
-    cfg = agents.load_config(config or str(paths.config_file(Path.cwd())))
+    cfg = agents.load_config(config or agents.default_config_path())
     agents.validate(cfg, [agent])
     run = session.ensure(cfg, adw_id)
 

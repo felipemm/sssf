@@ -9,7 +9,6 @@ Phases: engineer(request) -> scout
 
 import argparse
 import sys
-from pathlib import Path
 
 from sssf.adw_modules import agents, gates, session, utils
 from sssf.adw_modules.data_types import AgentCall, PhaseParams, ScoutOutput
@@ -18,9 +17,7 @@ REQUIRED_AGENTS = ["scout"]
 
 
 def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> int:
-    from sssf.adw_modules import paths
-
-    cfg = agents.load_config(config or str(paths.config_file(Path.cwd())))
+    cfg = agents.load_config(config or agents.default_config_path())
     agents.validate(cfg, REQUIRED_AGENTS)
     run = session.ensure(cfg, adw_id)
 

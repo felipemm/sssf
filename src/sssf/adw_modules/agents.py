@@ -40,6 +40,14 @@ class GateFailure(RuntimeError):
 # ── config ───────────────────────────────────────────────────────────────────
 
 
+def default_config_path() -> str:
+    """The project's config at the v2 path, resolved from the caller's cwd
+    (the ADW runs with cwd=project root). One place instead of 13 copies
+    (audit C3)."""
+    from sssf.adw_modules import paths
+    return str(paths.config_file(Path.cwd()))
+
+
 def load_config(path: str = "adws/config/sssf.config.yaml") -> SSSFConfig:
     raw = yaml.safe_load(Path(path).read_text()) or {}
     defaults = raw.get("defaults", {}) or {}

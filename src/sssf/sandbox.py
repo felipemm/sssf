@@ -450,6 +450,82 @@ def _container_gone(docker_fn, name: str) -> bool:
         return False
 
 
+def record_never_started(project_root: Path, adw_id: str, tracer, per_run_db: Path) -> None:
+    """A run whose container exited before the ADW ever wrote a session row
+    (spawn-death: missing entry file, stale/broken image, import error). The
+    monitor used to erase the only evidence — container and worktree — so a
+    dead spawn looked like it 'never started' (issue #21; the 2026-08-18
+    ticket stuck at 'starting' with no session row). Record the failure:
+    exit code + container log tail become a failed session with an 'error'
+    event, and any ticket linked to this run flips to failed. Best-effort:
+    teardown must still run even when docker/sqlite hiccups."""
+    # The ADW did start if EITHER db has a session row (a previous sync may
+    # already have merged the per-run copy into the project db).
+    for db in (per_run_db, tracer.conn):
+        try:
+            if isinstance(db, Path):
+                if not db.exists():
+                    continue
+                conn = sqlite3.connect(str(db), isolation_level=None)
+                row = conn.execute(
+                    "SELECT 1 FROM sessions WHERE adw_id=?", (adw_id,)
+                ).fetchone()
+                conn.close()
+            else:
+                row = db.execute(
+                    "SELECT 1 FROM sessions WHERE adw_id=?", (adw_id,)
+                ).fetchone()
+            if row:
+                return
+        except sqlite3.Error:
+            continue
+    name = container_name(adw_id)
+    exit_code, log_tail = "", ""
+    try:
+        r = _docker("inspect", "--format", "{{.State.ExitCode}}", name, timeout_s=15)
+        exit_code = r.stdout.strip()
+    except Exception:
+        pass
+    try:
+        r = _docker("logs", "--tail", "40", name, timeout_s=15)
+        log_tail = (r.stdout + r.stderr).strip()
+    except Exception:
+        pass
+    from sssf.adw_modules.data_types import EventRecord
+    from sssf.adw_modules.utils import now_iso
+
+    now = now_iso()
+    tracer.conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, request, status, engineer,"
+        " started_at, ended_at) VALUES (?,?,?,?,?,?,?)",
+        (
+            adw_id,
+            "adw_simple_sdlc (never started)",
+            "sandboxed run died before the ADW started — see the error event"
+            " for container output",
+            "fail",
+            "sssf",
+            now,
+            now,
+        ),
+    )
+    tracer.event(
+        EventRecord(
+            adw_id=adw_id,
+            type="error",
+            name="sandbox spawn failure",
+            payload={
+                "exit_code": exit_code,
+                "container_log_tail": log_tail[-2000:],
+            },
+        )
+    )
+    tracer.conn.execute(
+        "UPDATE tickets SET status='failed', updated_at=? WHERE adw_id=?",
+        (now, adw_id),
+    )
+
+
 def monitor_run(project_root: Path, adw_id: str) -> int:
     """The detached monitor: while the run's container is alive, merge the
     per-run db into the project db (live-ish visibility, ~3s), then a final
@@ -470,6 +546,13 @@ def monitor_run(project_root: Path, adw_id: str) -> int:
             sync_run_db(tracer.conn, per_run_db, adw_id)
             time.sleep(3)
     finally:
+        # Evidence first (logs are read while the container still exists),
+        # then the final merge, then teardown. A spawn-death must leave a
+        # visible failed session — never look like it 'never started'.
+        try:
+            record_never_started(project_root, adw_id, tracer, per_run_db)
+        except Exception as error:  # noqa: BLE001 — evidence is best-effort; teardown must still run
+            print(f"sssf: could not record spawn failure ({error})", file=sys.stderr)
         sync_run_db(tracer.conn, per_run_db, adw_id)  # final merge
         teardown_sandbox(project_root, adw_id)
     return 0

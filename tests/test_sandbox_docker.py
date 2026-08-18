@@ -137,6 +137,77 @@ def test_ensure_image_current_missing_raises(fake_docker, monkeypatch):
         sandbox.ensure_image_current("sssf-missing")
 
 
+def test_record_never_started_leaves_evidence(monkeypatch, tmp_path):
+    """A spawn-death (container exits before the ADW ever writes a session)
+    records a failed session + the container log tail and flips the linked
+    ticket — the monitor no longer erases the only evidence."""
+    from sssf.adw_modules.tracer import Tracer
+
+    db = tmp_path / "proj" / "adws" / "data" / "sssf.db"
+    tracer = Tracer(db, tmp_path / "proj" / "adws" / "data" / "sessions" / "abc123" / "events.jsonl")
+    tracer.conn.execute(
+        "INSERT INTO tickets (id, provider, title, status, adw_id) VALUES (?,?,?,?,?)",
+        ("internal:x", "internal", "boom", "starting", "abc123"),
+    )
+
+    def fake_docker(*args, **kwargs):
+        if args[0] == "inspect":
+            return subprocess.CompletedProcess(args, 0, stdout="1\n", stderr="")
+        if args[0] == "logs":
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                stdout=("python: can't open file 'adws/modules/adw_simple_sdlc.py':"
+                        " [Errno 2] No such file or directory\n"),
+                stderr="",
+            )
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(sandbox, "_docker", fake_docker)
+    per_run = tmp_path / "proj" / ".worktrees" / "abc123" / "adws" / "data" / "sssf.db"
+    sandbox.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
+
+    row = tracer.conn.execute(
+        "SELECT status, adw_name FROM sessions WHERE adw_id='abc123'"
+    ).fetchone()
+    assert row == ("fail", "adw_simple_sdlc (never started)")
+    ev = tracer.conn.execute(
+        "SELECT name, payload_json FROM events WHERE adw_id='abc123'"
+    ).fetchone()
+    assert ev[0] == "sandbox spawn failure"
+    assert "1" in ev[1]  # exit code captured
+    assert "No such file or directory" in ev[1]  # log tail captured
+    status = tracer.conn.execute(
+        "SELECT status FROM tickets WHERE id='internal:x'"
+    ).fetchone()[0]
+    assert status == "failed"
+
+
+def test_record_never_started_skips_when_adw_started(monkeypatch, tmp_path):
+    """A run that DID write a session row is left to the normal sync path —
+    no synthetic failure row, even when the session exists only in the
+    per-run db (not yet merged)."""
+    from sssf.adw_modules.tracer import Tracer
+
+    db = tmp_path / "proj" / "adws" / "data" / "sssf.db"
+    tracer = Tracer(db, tmp_path / "proj" / "adws" / "data" / "sessions" / "abc123" / "events.jsonl")
+    tracer.conn.execute(
+        "INSERT INTO sessions (adw_id, status) VALUES ('abc123', 'running')"
+    )
+
+    def fake_docker(*args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(sandbox, "_docker", fake_docker)
+    per_run = tmp_path / "proj" / ".worktrees" / "abc123" / "adws" / "data" / "sssf.db"
+    sandbox.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
+
+    rows = tracer.conn.execute(
+        "SELECT count(*) FROM sessions WHERE adw_id='abc123'"
+    ).fetchone()[0]
+    assert rows == 1  # still just the ADW's own row
+
+
 def test_teardown_poll_treats_docker_error_as_retry_not_gone(monkeypatch, capsys):
     """A docker hiccup during the teardown poll must not be read as
     'container gone' — that tears the run down prematurely (audit A2)."""

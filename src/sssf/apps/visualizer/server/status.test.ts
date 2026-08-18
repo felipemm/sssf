@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { computeStatus } from "./status.ts";
+import { ticketingEnabled } from "./ticketing.ts";
 
 function fakeProject() {
   const root = mkdtempSync(join(tmpdir(), "status-"));
@@ -44,5 +45,21 @@ describe("computeStatus trends", () => {
     expect(status.trends.buckets[0]!.fail).toBe(1);
     expect(status.totals.archived).toBe(2);
     rmSync(root, { recursive: true, force: true });
+  });
+});
+
+
+describe("ticketingEnabled (shared with tickets.ts)", () => {
+  test("v2 project with providers is enabled", () => {
+    const root = mkdtempSync(join(tmpdir(), "st-en-"));
+    mkdirSync(join(root, "adws", "config"), { recursive: true });
+    writeFileSync(join(root, "adws", "config", "ticketing.yaml"),
+                  "providers:\n  - internal\n");
+    expect(ticketingEnabled(root)).toBe(true);
+  });
+
+  test("no config → disabled", () => {
+    const root = mkdtempSync(join(tmpdir(), "st-no-"));
+    expect(ticketingEnabled(root)).toBe(false);
   });
 });

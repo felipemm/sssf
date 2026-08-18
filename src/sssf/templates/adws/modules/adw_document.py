@@ -19,7 +19,6 @@ branch, on main, and on a clean tree right after a chain committed.
 
 import argparse
 import sys
-from pathlib import Path
 
 from sssf.adw_modules import agents, changes, gates, git_helper, session, utils
 from sssf.adw_modules.data_types import AgentCall, ChangeCapture, DocumentOutput, PhaseParams
@@ -36,9 +35,7 @@ DOCUMENT_NOTES = (
 def main(
     prompt: str, base: str = "main", config: str | None = None, adw_id: str | None = None
 ) -> int:
-    from sssf.adw_modules import paths
-
-    cfg = agents.load_config(config or str(paths.config_file(Path.cwd())))
+    cfg = agents.load_config(config or agents.default_config_path())
     agents.validate(cfg, REQUIRED_AGENTS)
     run = session.ensure(cfg, adw_id)
 
