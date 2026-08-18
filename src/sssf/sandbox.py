@@ -551,7 +551,7 @@ def monitor_run(project_root: Path, adw_id: str) -> int:
         # visible failed session — never look like it 'never started'.
         try:
             record_never_started(project_root, adw_id, tracer, per_run_db)
-        except Exception as error:  # noqa: BLE001 — evidence is best-effort; teardown must still run
+        except Exception as error:  # evidence is best-effort; teardown must still run
             print(f"sssf: could not record spawn failure ({error})", file=sys.stderr)
         sync_run_db(tracer.conn, per_run_db, adw_id)  # final merge
         teardown_sandbox(project_root, adw_id)
