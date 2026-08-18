@@ -50,6 +50,14 @@ def test_127_with_specific_signature_prefers_signature():
     assert "not in the worktree" in classify_failure(tail, "127")
 
 
+def test_layout_hint_is_length_capped():
+    # Pathological long path must not blow the ≤ 300-char hint bound.
+    tail = "can't open file '/work/adws/" + "a" * 500 + ".py': No such file or directory"
+    hint = classify_failure(tail, "2")
+    assert "not in the worktree" in hint
+    assert len(hint) <= 300
+
+
 def test_unknown_tail_passes_through():
     tail = "some mysterious failure line"
     assert classify_failure(tail, "1") == tail
