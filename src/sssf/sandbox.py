@@ -207,8 +207,8 @@ def enabled(root: Path, *, command: str) -> bool:
     """The single sandbox decision (audit A1, C2). NEVER silently degrades to a
     local run: a missing config or a bug here is printed, not swallowed."""
     try:
-        from sssf.adw_modules.agents import load_config
         from sssf.adw_modules import paths
+        from sssf.adw_modules.agents import load_config
         cfg = load_config(str(paths.config_file(root)))
         return cfg.sandbox.enabled
     except Exception as error:
