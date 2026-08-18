@@ -203,6 +203,20 @@ _FINGERPRINT_PATH = "/opt/sssf-fingerprint"
 _fingerprint_cache: dict[str, str | None] = {}
 
 
+def enabled(root: Path, *, command: str) -> bool:
+    """The single sandbox decision (audit A1, C2). NEVER silently degrades to a
+    local run: a missing config or a bug here is printed, not swallowed."""
+    try:
+        from sssf.adw_modules.agents import load_config
+        from sssf.adw_modules import paths
+        cfg = load_config(str(paths.config_file(root)))
+        return cfg.sandbox.enabled
+    except Exception as error:
+        print(f"sssf: sandbox decision failed for {command} ({error}) — "
+              f"running unsandboxed", file=sys.stderr)
+        return False
+
+
 def _engine_fingerprint() -> str:
     """Fingerprint of the LOCAL sssf engine source — the CLI side of the
     staleness check. The runner image bakes the same fingerprint at build time
