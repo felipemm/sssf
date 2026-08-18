@@ -32,7 +32,7 @@ def classify_failure(log_tail: str, exit_code: str = "") -> str | None:
 
 def _quoted_path(tail: str) -> str:
     m = re.search(r"'([^'\s]*/[^'\s]*)'", tail)
-    return m.group(1) if m else "the entry file"
+    return m.group(1)[:170] if m else "the entry file"
 
 
 def _layout_hint(path: str) -> str:
