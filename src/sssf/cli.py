@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from sssf import __version__
-from sssf.commands import heal, init, misc, obs_cmds, run, sandbox_cmd, sweep, ticket, viz
+from sssf.commands import doctor, heal, init, misc, obs_cmds, run, sandbox_cmd, sweep, ticket, viz
 from sssf.project import data_dir, find_project
 
 
@@ -156,6 +156,10 @@ def main(argv: list[str] | None = None) -> int:
     p_heal = sub.add_parser("heal", help="self-healing monitor daemon (start / stop / status)")
     p_heal.add_argument("action", nargs="?", default="status", choices=["start", "stop", "status"])
     p_heal.set_defaults(func=lambda a: heal.main(a.action))
+
+    p_doctor = sub.add_parser("doctor", help="verify interview prerequisites + skill freshness")
+    p_doctor.add_argument("--project", default=None)
+    p_doctor.set_defaults(func=lambda a: doctor.run(Path.cwd(), a.project))
 
     p_sb = sub.add_parser("sandbox", help="sandbox lifecycle (build / list / prune)")
     sbsub = p_sb.add_subparsers(dest="sandbox_action", required=True)

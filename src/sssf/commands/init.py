@@ -189,4 +189,12 @@ def run(root: Path, *, refresh: bool = False, force: bool = False, auto: bool = 
         gitignore.write_text("\n".join(GITIGNORE_ENTRIES) + "\n")
 
     registry.register_project(root, paths.data_dir(root) / "sssf.db", __version__, added=True)
+
+    # Interview skills — project-local (.pi/skills/), never global. A fetch
+    # failure doesn't fail init; `sssf doctor` reports it.
+    try:
+        from sssf.adw_modules import skills_install
+        skills_install.install_skills(root, refresh=refresh)
+    except Exception as error:
+        print(f"sssf: skills install skipped ({error}) — run `sssf doctor`", file=sys.stderr)
     return 0

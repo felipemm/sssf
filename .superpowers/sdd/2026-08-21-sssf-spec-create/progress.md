@@ -4,3 +4,4 @@ Executing inline (subagent dispatch unavailable in this harness). Tasks 1-6, TDD
 
 ## Tasks
 Task 1: complete (commit 2fadff1 — 14 ticket tests, 189 full, ruff+mypy clean)
+Task 2: complete (commit 43d2f0c — installer + marker + staleness check; 4 installer tests)
