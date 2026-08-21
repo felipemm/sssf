@@ -75,28 +75,30 @@ jobs:
     name: security (snyk)
     runs-on: ubuntu-latest
     # Runs once SNYK_TOKEN is added as a repo secret (the runner image's
-    # per-project quality gate uses the same token). secrets is not allowed
-    # in a job-level if — each step gates on it instead.
+    # per-project quality gate uses the same token). secrets is allowed in
+    # env but not in if — derive a flag and gate each step on it.
+    env:
+      SNYK_PRESENT: ${{ secrets.SNYK_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --group dev
       - name: Install snyk
-        if: ${{ secrets.SNYK_TOKEN != '' }}
+        if: env.SNYK_PRESENT
         run: npm install -g snyk
       - name: Snyk python deps
-        if: ${{ secrets.SNYK_TOKEN != '' }}
+        if: env.SNYK_PRESENT
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: uv run snyk test --fail-on=upgradable
       - name: Snyk npm deps (site)
-        if: ${{ secrets.SNYK_TOKEN != '' }}
+        if: env.SNYK_PRESENT
         working-directory: site
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: npx --yes snyk test --fail-on=upgradable
       - name: Snyk code test (SAST)
-        if: ${{ secrets.SNYK_TOKEN != '' }}
+        if: env.SNYK_PRESENT
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: uv run snyk code test --severity-threshold=high
