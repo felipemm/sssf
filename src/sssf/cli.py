@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from sssf import __version__
-from sssf.commands import heal, init, misc, obs_cmds, run, sandbox_cmd, sweep, ticket, viz
+from sssf.commands import heal, init, misc, obs_cmds, run, sandbox_cmd, spec, sweep, ticket, viz
 from sssf.project import data_dir, find_project
 
 
@@ -156,6 +156,15 @@ def main(argv: list[str] | None = None) -> int:
     p_heal = sub.add_parser("heal", help="self-healing monitor daemon (start / stop / status)")
     p_heal.add_argument("action", nargs="?", default="status", choices=["start", "stop", "status"])
     p_heal.set_defaults(func=lambda a: heal.main(a.action))
+
+    p_spec = sub.add_parser("spec", help="interview-driven ticket creation")
+    p_spec_create = p_spec.add_subparsers(dest="spec_action", required=True)
+    p_sc = p_spec_create.add_parser("create", help="start a product-manager interview")
+    p_sc.add_argument("--mode", default="idea", choices=["idea", "bug", "feature"])
+    p_sc.add_argument("--title", default=None)
+    p_sc.add_argument("--project", default=None)
+    p_sc.set_defaults(func=lambda a: spec.create(a.mode, a.title, Path.cwd(), a.project))
+
 
     p_sb = sub.add_parser("sandbox", help="sandbox lifecycle (build / list / prune)")
     sbsub = p_sb.add_subparsers(dest="sandbox_action", required=True)

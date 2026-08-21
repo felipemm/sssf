@@ -243,3 +243,37 @@ def test_ticket_sandbox_failure_is_loud(tmp_path, monkeypatch, capsys):
 
     assert ticket._sandbox_enabled(root) is False
     assert "sandbox decision failed" in capsys.readouterr().err
+
+
+INTERNAL_YAML = "providers:\n  - internal\n"
+
+
+def test_add_with_description_and_prompt_file(tmp_path, monkeypatch):
+    root = _project(tmp_path, monkeypatch, INTERNAL_YAML)
+    prompt = root / "adws" / "prompts" / "01-x.md"
+    prompt.parent.mkdir(parents=True, exist_ok=True)
+    prompt.write_text("spec")
+    assert ticket.add("New thing", None, description="the spec", prompt_file=str(prompt)) == 0
+    conn = _db(root)
+    row = conn.execute("SELECT description, prompt_file FROM tickets").fetchone()
+    assert row == ("the spec", "adws/prompts/01-x.md")
+
+
+def test_run_honors_existing_prompt_file(tmp_path, monkeypatch, capsys):
+    root = _project(tmp_path, monkeypatch, INTERNAL_YAML)
+    prompt = root / "adws" / "prompts" / "01-x.md"
+    prompt.parent.mkdir(parents=True, exist_ok=True)
+    prompt.write_text("THE SPEC PROMPT")
+    (root / "adws" / "modules").mkdir(parents=True, exist_ok=True)
+    (root / "adws" / "modules" / "adw_simple_sdlc.py").write_text("print('adw stub')\n")
+    conn = _db(root)
+    conn.execute("INSERT INTO tickets (id, provider, title, description, status, prompt_file)"
+                 " VALUES ('internal:x','internal','X','','backlog','adws/prompts/01-x.md')")
+    conn.commit()
+    conn.close()
+
+    class P:
+        pid = 12345
+    monkeypatch.setattr(ticket.subprocess, "Popen", lambda argv, **kw: P())
+    assert ticket.run("internal:x", None) == 0
+    assert list((root / "adws" / "prompts").glob("*.md")) == [prompt]
