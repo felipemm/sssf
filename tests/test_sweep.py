@@ -7,14 +7,21 @@ from sssf.commands import sweep
 
 
 def _make_db(path: Path) -> None:
-    """A sessions table with one old and one recent session, plus a running one."""
+    """A sessions table with one old and one recent session, plus a running one.
+
+    `recent` sits comfortably INSIDE the sweep window (1 hour old, not exactly
+    one day): sweep compares with second precision
+    (`datetime(ended_at) < datetime('now', '-N days')`), so a value set to
+    exactly N days ago flips across the boundary whenever the wall clock
+    crosses a second between insert and sweep — a classic date flake.
+    """
     conn = sqlite3.connect(path)
     conn.executescript(
         "CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT,"
         " archived INTEGER DEFAULT 0, request TEXT);"
     )
     old = (datetime.now(UTC) - timedelta(days=40)).isoformat(timespec="milliseconds")
-    recent = (datetime.now(UTC) - timedelta(days=1)).isoformat(timespec="milliseconds")
+    recent = (datetime.now(UTC) - timedelta(hours=1)).isoformat(timespec="milliseconds")
     conn.execute(
         "INSERT INTO sessions (adw_id, status, ended_at, archived) VALUES"
         " ('old-success', 'success', ?, 0), ('old-fail', 'fail', ?, 0),"
