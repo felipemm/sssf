@@ -7,7 +7,7 @@ def test_ci_has_site_design_job():
     text = (REPO / ".github" / "workflows" / "ci.yml").read_text()
     assert "  site:" in text
     assert "impeccable detect dist" in text
-    assert "needs: [python, visualizer, site, lint, typecheck, security]" in text
+    assert "needs: [python, visualizer, site, lint, typecheck]" in text
 
 
 def test_pages_deploy_has_design_gate():

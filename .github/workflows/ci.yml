@@ -105,6 +105,9 @@ jobs:
   aggregate:
     name: CI
     runs-on: ubuntu-latest
-    needs: [python, visualizer, site, lint, typecheck, security]
+    # security is token-gated (SNYK_TOKEN secret) and skips until the secret
+    # exists — a skipped needs-job would skip the aggregate and the required
+    # CI check would never report. security runs standalone until then.
+    needs: [python, visualizer, site, lint, typecheck]
     steps:
-      - run: echo "python + visualizer + site + lint + typecheck + security green"
+      - run: echo "python + visualizer + site + lint + typecheck green (security: standalone)"
