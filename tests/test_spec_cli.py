@@ -41,7 +41,7 @@ def test_create_writes_context_and_spawns_pi(tmp_path, monkeypatch):
 
 
 def test_create_modes_select_template(tmp_path, monkeypatch):
-    _project(tmp_path, monkeypatch, "providers:\n  - internal\n")
+    root = _project(tmp_path, monkeypatch, "providers:\n  - internal\n")
     monkeypatch.setattr(spec.misc, "which", lambda name: "/usr/local/bin/pi")
     monkeypatch.setattr(spec.subprocess, "call", lambda argv, cwd: 0)
     for mode, marker in (("bug", "grill-me"), ("feature", "ACCEPTANCE"), ("idea", "grilling")):
@@ -55,7 +55,7 @@ def test_create_guards(tmp_path, monkeypatch, capsys):
     assert spec.create("idea", "x", Path.cwd()) == 1
     assert "no project here" in capsys.readouterr().err
 
-    root = _project(tmp_path, monkeypatch, "providers:\n  - internal\n")
+    _project(tmp_path, monkeypatch, "providers:\n  - internal\n")
     monkeypatch.setattr(spec.misc, "which", lambda name: None)
     assert spec.create("idea", "x", Path.cwd()) == 1
     assert "pi binary not found" in capsys.readouterr().err
