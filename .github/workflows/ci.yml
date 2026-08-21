@@ -110,4 +110,4 @@ jobs:
     # CI check would never report. security runs standalone until then.
     needs: [python, visualizer, site, lint, typecheck]
     steps:
-      - run: echo "python + visualizer + site + lint + typecheck green (security: standalone)"
+      - run: echo "python + visualizer + site + lint + typecheck green (security: standalone job)"
