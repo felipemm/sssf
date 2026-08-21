@@ -124,7 +124,7 @@ def test_run_bumps_updated_at(tmp_path, monkeypatch):
     conn = _db(root)
     row = conn.execute("SELECT updated_at FROM tickets WHERE id='internal:abc'").fetchone()
     conn.close()
-    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    today = datetime.datetime.now(datetime.UTC).date().isoformat()
     assert row[0].startswith(today)  # today, not a stale hard-coded date
 
 
