@@ -22,8 +22,10 @@ async function runCli(args: string[], spawnFn: SpawnFn): Promise<{ exitCode: num
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
   ]);
-  await proc.exited;
-  return { exitCode: proc.exitCode, output: (output + (errout ? "\n" + errout : "")).trim() };
+  // bunSpawn captures exitCode at spawn time, when it is still null — the
+  // awaited `exited` promise is the authoritative exit code.
+  const exitCode = await proc.exited;
+  return { exitCode, output: (output + (errout ? "\n" + errout : "")).trim() };
 }
 
 export interface TicketActionResult {

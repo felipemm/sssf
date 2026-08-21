@@ -84,21 +84,21 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --group dev
       - name: Install snyk
-        if: env.SNYK_PRESENT
+        if: env.SNYK_PRESENT == 'true'
         run: npm install -g snyk
       - name: Snyk python deps
-        if: env.SNYK_PRESENT
+        if: env.SNYK_PRESENT == 'true'
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: uv run snyk test --fail-on=upgradable
       - name: Snyk npm deps (site)
-        if: env.SNYK_PRESENT
+        if: env.SNYK_PRESENT == 'true'
         working-directory: site
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: npx --yes snyk test --fail-on=upgradable
       - name: Snyk code test (SAST)
-        if: env.SNYK_PRESENT
+        if: env.SNYK_PRESENT == 'true'
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: uv run snyk code test --severity-threshold=high

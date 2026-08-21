@@ -23,6 +23,7 @@ import { SssfDb, resolveDbPath } from "./db.ts";
 import { ProjectRegistry } from "./registry.ts";
 import { sweepAll } from "./sweep.ts";
 import { isEnabled, readTickets } from "./tickets.ts";
+import { syncTickets, runTicket, backlogTicket } from "./ticketRoutes.ts";
 import { computeStatus } from "./status.ts";
 import { computeCockpit, computeCockpitContributions, containerLogs, defaultSpawnCli, handleControl } from "./cockpit.ts";
 import type { AgentPrompts, ApiError, ControlResult, HealthResponse } from "../shared/types.ts";
