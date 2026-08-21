@@ -121,10 +121,10 @@ def docker_available() -> bool:
     return r.returncode == 0
 
 
-def build_image(image: str, dockerfile: Path, context: Path | None = None) -> None:
+def build_image(image: str, dockerfile: Path, context: Path | None = None, *, timeout_s: int = 1800) -> None:
     # -t is mandatory: an untagged build leaves the image dangling and every
     # run keeps using the stale sssf-runner:latest.
-    r = _docker("build", "-t", image, "-f", str(dockerfile), str(context or dockerfile.parent))
+    r = _docker("build", "-t", image, "-f", str(dockerfile), str(context or dockerfile.parent), timeout_s=timeout_s)
     if r.returncode != 0:
         raise SandboxError(f"docker build failed: {r.stderr.strip()[:500]}")
 
@@ -275,6 +275,46 @@ def ensure_image_current(image: str) -> None:
             f"runner image '{image}' is stale (image fingerprint {have[:12]} "
             f"≠ CLI {want[:12]}) — run `sssf sandbox build` to rebuild it"
         )
+
+
+# ── runner image upkeep (auto-rebuild path) ────────────────────────────────
+
+
+def runner_source_root() -> Path:
+    """The sssf source tree that owns docker/sssf-runner.Dockerfile — resolved
+    from the installed package, not the cwd (the Dockerfile's COPY lines expect
+    the package layout, whatever the current directory is)."""
+    return Path(__file__).resolve().parents[2]
+
+
+def runner_dockerfile() -> Path | None:
+    """The sssf-runner Dockerfile in the sssf source tree; None when missing."""
+    df = runner_source_root() / "docker" / "sssf-runner.Dockerfile"
+    return df if df.exists() else None
+
+
+def image_is_current(image: str) -> bool:
+    """True when the runner image exists and its baked engine fingerprint
+    matches the local engine — exactly what ensure_image_current() enforces,
+    without raising (the healer's rebuild probe)."""
+    return image_engine_fingerprint(image) == _engine_fingerprint()
+
+
+def build_runner_image(image: str) -> None:
+    """Build (or rebuild) the runner image with the current engine baked in.
+
+    Uses a generous timeout (a full build installs pi/bun/snyk/impeccable) and
+    clears the in-process fingerprint cache afterwards: the cache would
+    otherwise keep reporting the OLD marker, and the next guard would still
+    refuse the freshly rebuilt image.
+    """
+    df = runner_dockerfile()
+    if df is None:
+        raise SandboxError("docker/sssf-runner.Dockerfile not found")
+    src = runner_source_root()
+    context = src if (src / "pyproject.toml").exists() else df.parent
+    build_image(image, df, context)
+    _fingerprint_cache.pop(image, None)
 
 
 def spawn_sandbox(

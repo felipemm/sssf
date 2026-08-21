@@ -22,7 +22,10 @@ from pathlib import Path
 
 from sssf.sandbox import (
     abort_sandbox,
+    build_runner_image,
     container_name,
+    docker_available,
+    image_is_current,
     project_db_path,
     sandbox_dir,
     sandbox_env,
@@ -36,6 +39,7 @@ REGISTRY_PATH = Path(os.environ.get("SSSF_REGISTRY", STATE_DIR / "projects.json"
 NO_PROGRESS_MIN = 10  # a phase with no new events for this long = hung
 MAX_RESTARTS = 3  # per-session restart budget before finalizing
 DEFAULT_INTERVAL = 30  # daemon loop interval (seconds)
+BUILD_COOLDOWN_MIN = 30  # min between image-rebuild attempts after a failure
 
 
 # ── registry ───────────────────────────────────────────────────────────────
@@ -321,6 +325,9 @@ def heal_once(initial: dict | None = None) -> list[str]:
                 actions.append(recover(root, adw_id, None, ticket_status, action, st))
         # orphaned containers/worktrees whose session is gone
         actions.extend(_clean_orphans(root))
+    # preventive upkeep: a stale/missing runner image would break the NEXT
+    # sandboxed run — rebuild it now (deduped, cooldown-guarded).
+    actions.extend(_heal_runner_images(st))
     _save_state(st)
     return actions
 
@@ -376,6 +383,76 @@ def healed_total(days: int = 7) -> int:
     return sum(1 for h in state().get("healed", []) if h.get("ts", "") >= cutoff)
 
 
+# ── runner image upkeep ─────────────────────────────────────────────────────
+
+
+def _build_attempt_recent(st: dict, image: str) -> bool:
+    """A rebuild was attempted for this image within BUILD_COOLDOWN_MIN — skip
+    it so a failing build (docker down, no network for the base image) doesn't
+    hammer docker on every pass. A successful build clears the record, so the
+    cooldown only ever covers failures."""
+    import datetime
+
+    ts = st.get("builds", {}).get(image)
+    if not ts:
+        return False
+    try:
+        last = datetime.datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=datetime.UTC)
+    except ValueError:
+        return False
+    return (datetime.datetime.now(datetime.UTC) - last).total_seconds() / 60 < BUILD_COOLDOWN_MIN
+
+
+def _heal_runner_images(st: dict) -> list[str]:
+    """Rebuild the runner image when it is stale or missing — the failure mode
+    where every sandboxed run dies on spawn (issue #21) until someone runs
+    `sssf sandbox build` by hand.
+
+    Runs once per pass, after session/ticket healing: images are collected from
+    every registered project's config (deduped by name, skipped when the
+    project has sandbox disabled), gated on docker being available, and each
+    stale image is rebuilt. A failed build is remembered in state for
+    BUILD_COOLDOWN_MIN so the daemon doesn't hammer docker; a successful
+    rebuild clears the record — the fingerprint then matches and this step is
+    a no-op until the next engine change.
+    """
+    import datetime
+
+    if not docker_available():
+        return []
+    actions: list[str] = []
+    seen: set[str] = set()
+    for _name, root in registry_projects():
+        try:
+            from sssf.adw_modules import paths
+            from sssf.adw_modules.agents import load_config
+
+            cfg = load_config(str(paths.config_file(root)))
+        except Exception:
+            continue  # unreadable config — session/ticket healing covers the rest
+        image = cfg.sandbox.image
+        if not cfg.sandbox.enabled or image in seen:
+            continue
+        seen.add(image)
+        if image_is_current(image):
+            continue  # up to date — nothing to do
+        if _build_attempt_recent(st, image):
+            continue  # a recent attempt failed; back off until the cooldown lapses
+        try:
+            build_runner_image(image)
+        except Exception as error:  # never die — arm the cooldown and retry later
+            st.setdefault("builds", {})[image] = datetime.datetime.now(datetime.UTC).isoformat()
+            actions.append(
+                f"{image}: image rebuild failed ({error}) — retrying in {BUILD_COOLDOWN_MIN} min"
+            )
+        else:
+            st.setdefault("builds", {}).pop(image, None)
+            actions.append(f"{image}: image rebuilt (runner image is current)")
+    return actions
+
+
 def log_tail(n: int = 5) -> list[str]:
     """Last n non-empty lines of the daemon log; [] when unreadable."""
     try:
@@ -386,13 +463,15 @@ def log_tail(n: int = 5) -> list[str]:
 
 
 def heal_summary() -> dict:
-    """Read-only snapshot for the cockpit: running state, log tail, restart budgets."""
+    """Read-only snapshot for the cockpit: running state, log tail, restart
+    budgets, recent image-rebuild attempts."""
     pid = running_pid()
     return {
         "running": pid is not None,
         "pid": pid,
         "logTail": log_tail(),
         "restarts": state().get("restarts", {}),
+        "builds": state().get("builds", {}),
         "healed7d": healed_total(),
     }
 
