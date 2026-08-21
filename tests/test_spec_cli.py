@@ -41,7 +41,7 @@ def test_create_writes_context_and_spawns_pi(tmp_path, monkeypatch):
 
 
 def test_create_modes_select_template(tmp_path, monkeypatch):
-    root = _project(tmp_path, monkeypatch, "providers:\n  - internal\n")
+    _project(tmp_path, monkeypatch, "providers:\n  - internal\n")
     monkeypatch.setattr(spec.misc, "which", lambda name: "/usr/local/bin/pi")
     monkeypatch.setattr(spec.subprocess, "call", lambda argv, cwd: 0)
     for mode, marker in (("bug", "grill-me"), ("feature", "ACCEPTANCE"), ("idea", "grilling")):
