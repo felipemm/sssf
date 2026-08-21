@@ -6,14 +6,19 @@ Status: Draft for review
 ## Goal
 
 A new `sssf spec create` command that spawns an **interactive pi session** —
-customized with an interviewer persona and the grilling/brainstorming skills —
-to interview the user and turn the answers into a **robust, runnable ticket**:
-a structured spec written to `adws/prompts/NN-<slug>.md` and an internal ticket
-created via the ticketing system, runnable from the visualizer's kanban.
+customized with a **product manager** persona and the grilling/brainstorming
+skills **pre-loaded** — to interview the user and turn the answers into a
+**robust, runnable ticket**: a structured spec written to
+`adws/prompts/NN-<slug>.md` and an internal ticket created via the ticketing
+system, runnable from the visualizer's kanban.
 
 The interview validates what the user is asking for (consequences, effort,
 complexity, UX, perceived value) instead of just recording it — the difference
 between a story ("I want X") and a well-formed spec.
+
+The skills ship **project-locally** (`.pi/skills/`, never global): `sssf init`
+installs them, and a new `sssf doctor` verifies they are present and up to
+date.
 
 ## Current state (measured)
 
@@ -30,7 +35,9 @@ between a story ("I want X") and a well-formed spec.
   local clone behind `origin/main` by ~10 commits (grilling HR separator,
   new `implement-spec` skill, YAML front-matter fixes).
 
-## 1. CLI command: `sssf spec create`
+## 1. CLI commands
+
+### `sssf spec create`
 
 ```
 sssf spec create [--mode idea|bug|feature] [--title "<title>"]
@@ -41,24 +48,48 @@ Behavior (a new `spec` subcommand group under the sssf CLI):
 1. Resolve the project (`find_project`); warn on legacy layout; require the
    internal ticketing provider enabled (same guard as `ticket add`).
 2. Derive a slug from `--title` or prompt for one (the ticketing slug rule).
-3. Write the per-run interviewer context file to
+3. Write the per-run **product manager** context file to
    `adws/adw_data/spec_interview/<mode>-<adw-id-or-slug>.md` (runtime dir,
    gitignored) — rendered from the mode template + project context (config
    roster summary, data-dir paths).
 4. Spawn **interactive pi** in the project root:
-   `pi --append-system-prompt <context-file>` (cwd = project; skills loaded
-   from the user's pi home). The command blocks until the session ends.
+   `pi --append-system-prompt <context-file>` (cwd = project; the skills are
+   already available from the project's `.pi/skills/`, and the context routes
+   the session to run the right skill automatically — the user never invokes
+   a skill by hand). The command blocks until the session ends.
 5. Exit with the pi session's exit code; print a summary.
 
 The command is a thin launcher — the interview itself is the pi session.
 
-## 2. Interviewer context templates (shipped, mode-specific)
+### `sssf doctor`
+
+```
+sssf doctor [--project <path>]
+```
+
+Verifies the interview prerequisites and reports a health summary (exit 0
+healthy, 1 broken):
+
+1. Project found + internal ticketing provider enabled.
+2. `pi` binary present.
+3. **Skills installed project-locally** (`.pi/skills/`): the expected skill
+   folders exist (superpowers `grilling`/`brainstorming`, mattpocock
+   `grill-me`/`grill-with-docs`) and the install marker (the pinned source
+   commit) is present.
+4. **Skills up to date**: compare each skill's pinned source commit against
+   the remote repo HEAD (git ls-remote) → "stale: run `sssf init --refresh`"
+   when behind; offline → "cannot verify (offline)" (non-fatal).
+
+`sssf doctor` never installs anything — it verifies and reports.
+
+## 2. Product manager context templates (shipped, mode-specific)
 
 `src/sssf/templates/spec_interviewer/idea.md`, `bug.md`, `feature.md` — the
 `--append-system-prompt` payload, each with:
 
-- **Persona**: a "spec interviewer" who validates before recording — hard
-  questions, no rubber-stamping.
+- **Persona: the product manager** — validates before recording; hard
+  questions, no rubber-stamping; owns the spec's quality the way a PM owns a
+  ticket's definition of done.
 - **Mode-specific skill routing + question focus**:
   - `idea`: use superpowers **`/grilling`** (relentless probing) then
     **`/brainstorming`** — consequences, effort, complexity, UX improvement,
@@ -76,16 +107,26 @@ The command is a thin launcher — the interview itself is the pi session.
   (a) write the spec to `adws/prompts/NN-<slug>.md`, and (b) create the ticket
   (section 4). The context defines the spec's required sections.
 
-## 3. Skills provisioning
+## 3. Skills provisioning — project-local, never global
 
-- **superpowers**: already up to date — no action.
-- **mattpocock**: update the local clone
-  (`~/dev/ai/resources/github-projects/mattpocock-skills`, `git pull`) and
-  refresh the installed skills under `~/.pi/agent/skills/` so the interactive
-  session has the latest `grill-me`/`grill-with-docs` (and the new
-  `implement-spec` if useful).
-- No new standalone skill for v1 — the mode templates carry the interview
-  contract. (A dedicated `sssf-spec` skill is a possible follow-up.)
+The skills live in the **project** (`.pi/skills/`, pi's project-scope
+location — never in `~/.pi/agent/skills/`):
+
+- **`sssf init` installs them**: fetches the required skill folders from
+  their public repos (superpowers `grilling` + `brainstorming` from
+  `github.com/obra/superpowers`; mattpocock `grill-me` + `grill-with-docs`
+  from `github.com/mattpocock/skills`) into `<project>/.pi/skills/`, and
+  writes an install marker (`.pi/skills/.sssf-versions.json`): skill name →
+  pinned source commit.
+- **`sssf init --refresh` refreshes them**: re-fetches and updates the
+  marker when the remote is ahead.
+- **`sssf doctor`** verifies presence + freshness (section 1).
+- Version pinning makes the interview reproducible; the marker is what
+  doctor diffs against the remote HEAD.
+- The **developer-machine global skills are NOT used** for interviews — the
+  project's `.pi/skills/` shadows them (pi resolves project scope first).
+- No new standalone skill for v1 — the product manager templates carry the
+  interview contract. (A dedicated `sssf-spec` skill is a possible follow-up.)
 
 ## 4. Output → runnable ticket (small ticketing enhancements)
 
@@ -125,9 +166,16 @@ button then executes the interview's spec verbatim.
   `--prompt-file` links it; `ticket run` with a pre-set `prompt_file` uses
   that file's contents as the prompt and skips regeneration; no prompt_file →
   unchanged behavior.
-- **Template**: the three context templates exist under
+- **Skills provisioning**: `sssf init` writes the four skill folders +
+  the `.sssf-versions.json` marker under `.pi/skills/` (fetched — mocked
+  offline, or a fixture repo); `sssf init --refresh` updates the marker when
+  the remote is ahead; nothing is ever written to `~/.pi/agent/skills/`.
+- **`sssf doctor`**: healthy project → exit 0; missing skills → reports them;
+  stale skill (marker behind the remote) → "stale" + exit 1; pi missing /
+  provider disabled → reported.
+- **Template**: the three product-manager context templates exist under
   `src/sssf/templates/spec_interviewer/` and each contains the output
-  contract marker.
+  contract marker + the pre-loaded skill routing (no user invocation).
 - **Manual e2e**: one live `sssf spec create --mode idea` interview producing
   a spec + ticket, then Run from the visualizer.
 
@@ -142,6 +190,8 @@ button then executes the interview's spec verbatim.
 
 ## Out of scope
 
+- Installing skills globally (`~/.pi/agent/skills/`) — deliberately never.
+- Auto-updating skills on every run (doctor reports; `init --refresh` acts).
 - A standalone `sssf-spec` skill (follow-up if the templates prove too thin).
 - Non-interactive/silent spec generation (the interview is the point).
 - External ticket providers (jira/linear) for `spec create` — internal only
