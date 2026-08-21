@@ -1,0 +1,54 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+
+const description =
+  'sssf spec create — an interactive product-manager interview that turns ideas, bugs, and features into runnable tickets.';
+---
+<DocsLayout
+  title="Spec create"
+  description={description}
+  current="/docs/spec-create"
+  prev={{ href: '/docs/ticketing', label: 'Ticketing' }}
+  next={{ href: '/docs/quality-checks', label: 'Quality checks' }}
+>
+  <p>
+    <code class="hl">sssf spec create</code> spawns an interactive pi session with a
+    <strong>product manager</strong> persona to interview you — hard questions, no rubber-stamping —
+    and turns the answers into a <strong>runnable ticket</strong>: a structured spec in
+    <code>adws/prompts/</code> plus an internal backlog ticket, runnable from the visualizer's kanban.
+  </p>
+
+  <h2>Modes</h2>
+  <pre><code>sssf spec create --mode idea     "explore a new idea"     # grilling + brainstorming
+sssf spec create --mode bug      "report a bug"            # grill-me + grill-with-docs
+sssf spec create --mode feature  "shape a known feature"   # story → spec</code></pre>
+  <p>The skills run <strong>automatically</strong> — you never invoke one by hand. The product
+     manager validates consequences, effort, complexity, UX, and perceived value before anything
+     is written down (idea), gathers errors/logs/repro until the bug is blind-reproducible (bug),
+     and pushes stories into concrete requirements with acceptance criteria (feature).</p>
+
+  <h2>How the ticket is created</h2>
+  <p>At the end of the interview the agent:</p>
+  <ol>
+    <li>Writes the spec to <code>adws/prompts/NN-&lt;slug&gt;.md</code> (ticketing numbering).</li>
+    <li>Creates the ticket with <code>sssf ticket add "&lt;title&gt;" --description "…" --prompt-file adws/prompts/NN-&lt;slug&gt;.md</code>.</li>
+  </ol>
+  <p>The ticket appears on the kanban; <strong>Run</strong> executes with your spec verbatim
+     (the run honors the linked prompt file).</p>
+
+  <h2>Skills &amp; <code>sssf doctor</code></h2>
+  <p>The interview skills are installed <strong>project-locally</strong> by <code>sssf init</code>
+     into <code>.pi/skills/</code> (never your global pi home): superpowers
+     <code>brainstorming</code>, mattpocock <code>grilling</code>, <code>grill-me</code>,
+     <code>grill-with-docs</code> — pinned to their source commits.
+     <code>sssf init --refresh</code> updates them.</p>
+  <p><code>sssf doctor</code> verifies everything: project, internal provider, pi binary, and each
+     skill's presence + freshness (stale → "run <code>sssf init --refresh</code>").</p>
+
+  <h2>Requirements</h2>
+  <ul>
+    <li>An <code>adws/</code> project with the internal ticketing provider enabled.</li>
+    <li><code>pi</code> on PATH (interactive session).</li>
+    <li>Network on first <code>sssf init</code> (fetches the skills).</li>
+  </ul>
+</DocsLayout>

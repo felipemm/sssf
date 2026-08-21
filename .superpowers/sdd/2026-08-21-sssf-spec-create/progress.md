@@ -8,3 +8,4 @@ Task 2: complete (commit 43d2f0c — installer + marker + staleness check; 4 ins
 Task 3: complete (commit 656cbf8 — doctor cmd + init wiring; 3 doctor tests)
 Task 3: complete (commit 09928e2 — merged into the EXISTING misc.doctor; 3 doctor tests, full suite green)
 Task 4: complete (commit 59f27f0 — 3 PM templates + contract test)
+Task 5: complete (commit 1f53a47 — spec create cmd + cli; 3 spec tests; full suite green)
