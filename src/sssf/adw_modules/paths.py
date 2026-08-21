@@ -59,9 +59,7 @@ def is_legacy_layout(root: Path) -> bool:
         if (root / marker).exists():
             return True
     # v1 chains sat directly under adws/ — e.g. adws/adw_simple_sdlc.py
-    if any((root / ADWS).glob("adw_*.py")):
-        return True
-    return False
+    return bool(any((root / ADWS).glob("adw_*.py")))
 
 
 def warn_if_legacy(root: Path, *, command: str) -> bool:

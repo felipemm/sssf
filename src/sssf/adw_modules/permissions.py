@@ -61,8 +61,7 @@ def snapshot(run) -> dict[str, str]:
         if len(fields) >= 3:
             path = fields[-1].strip()
             fingerprints[path] = f"{fields[0]},{fields[1]}"
-    for path in _git(["ls-files", "--others", "--exclude-standard"],
-                     run.repo_root).splitlines():
+    for path in _git(["ls-files", "--others", "--exclude-standard"], run.repo_root).splitlines():
         if path.strip():
             fingerprints[path.strip()] = "untracked"
     return fingerprints
@@ -70,8 +69,7 @@ def snapshot(run) -> dict[str, str]:
 
 def changed_paths(before: dict[str, str], after: dict[str, str]) -> list[str]:
     """Every path whose state differs — appeared, vanished, or was rewritten."""
-    return sorted({p for p in set(before) | set(after)
-                   if before.get(p) != after.get(p)})
+    return sorted({p for p in set(before) | set(after) if before.get(p) != after.get(p)})
 
 
 def _glob(pattern: str) -> re.Pattern:
@@ -100,7 +98,7 @@ def _glob(pattern: str) -> re.Pattern:
 
 
 def _matches(path: str, pattern: str) -> bool:
-    if pattern.endswith("/"):                      # directory prefix
+    if pattern.endswith("/"):  # directory prefix
         return path.startswith(pattern)
     if "*" in pattern or "?" in pattern:
         return _glob(pattern).fullmatch(path) is not None
@@ -129,10 +127,10 @@ def permitted(path: str, agent: AgentConfig, cfg: SSSFConfig) -> bool:
     if any(_matches(path, p) for p in always_writable(cfg)):
         return True
     if any(_matches(path, p) for p in (agent.writes or [])):
-        return True                      # naming a path is what unlocks a protected one
+        return True  # naming a path is what unlocks a protected one
     if any(_matches(path, p) for p in cfg.defaults.protected_files):
         return False
-    return agent.writes is None          # None = unrestricted, [] = no repo writes
+    return agent.writes is None  # None = unrestricted, [] = no repo writes
 
 
 def _roll_back(run, path: str, before: dict[str, str], after: dict[str, str]) -> str:
@@ -147,16 +145,20 @@ def _roll_back(run, path: str, before: dict[str, str], after: dict[str, str]) ->
         # Already dirty beforehand. If it is gone from the diff now, the agent
         # reverted an engineer's uncommitted work and the content is not ours
         # to reconstruct — say so loudly rather than pretend it was handled.
-        return "REVERTED-BY-AGENT (uncommitted work lost, cannot restore)" \
-            if path not in after else "left as-is (was already modified)"
+        return (
+            "REVERTED-BY-AGENT (uncommitted work lost, cannot restore)"
+            if path not in after
+            else "left as-is (was already modified)"
+        )
     if after.get(path) == "untracked":
         try:
             (Path(run.repo_root) / path).unlink()
             return "deleted"
         except OSError as error:
             return f"could not delete ({error})"
-    result = subprocess.run(["git", "checkout", "--", path],
-                            cwd=run.repo_root, capture_output=True, text=True)
+    result = subprocess.run(
+        ["git", "checkout", "--", path], cwd=run.repo_root, capture_output=True, text=True
+    )
     return "rolled back" if result.returncode == 0 else "could not roll back"
 
 
@@ -177,9 +179,14 @@ def enforce(run, phase, agent: AgentConfig, before: dict[str, str]) -> list[str]
         return touched
 
     outcomes = {p: _roll_back(run, p, before, after) for p in breaches}
-    scope = ("read-only" if agent.writes == []
-             else f"limited to {agent.writes}" if agent.writes
-             else f"barred from {run.cfg.defaults.protected_files}")
+    scope = (
+        "read-only"
+        if agent.writes == []
+        else f"limited to {agent.writes}"
+        if agent.writes
+        else f"barred from {run.cfg.defaults.protected_files}"
+    )
     detail = "\n".join(f"  - {p} — {outcome}" for p, outcome in outcomes.items())
     raise PermissionBreach(
-        f"{agent.name} is {scope} but modified {len(breaches)} path(s):\n{detail}")
+        f"{agent.name} is {scope} but modified {len(breaches)} path(s):\n{detail}"
+    )

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .data_types import EnvelopeBase, GateReport
 
-TAIL_CHARS = 1000        # command output kept as evidence on a failure
+TAIL_CHARS = 1000  # command output kept as evidence on a failure
 
 
 def _size(path: Path) -> str:
@@ -28,8 +28,11 @@ def artifacts_exist(envelope: EnvelopeBase, run) -> GateReport:
     report = GateReport()
     for a in envelope.artifacts:
         p = Path(a)
-        report.check(a, p.exists(),
-                     f"exists, {_size(p)}" if p.exists() else "declared artifact does not exist")
+        report.check(
+            a,
+            p.exists(),
+            f"exists, {_size(p)}" if p.exists() else "declared artifact does not exist",
+        )
     return report
 
 
@@ -38,7 +41,7 @@ def files_non_empty(envelope: EnvelopeBase, run) -> GateReport:
     for a in envelope.artifacts:
         p = Path(a)
         if not (p.exists() and p.is_file()):
-            continue                       # existence is artifacts_exist's job
+            continue  # existence is artifacts_exist's job
         empty = p.stat().st_size == 0
         report.check(a, not empty, "declared artifact is empty" if empty else _size(p))
     return report
@@ -63,8 +66,11 @@ def diff_matches_claims(envelope: EnvelopeBase, run) -> GateReport:
     report = GateReport()
     for f in getattr(envelope, "changed_files", []):
         p = Path(f)
-        report.check(f, p.exists(),
-                     f"exists, {_size(p)}" if p.exists() else "claimed changed file does not exist")
+        report.check(
+            f,
+            p.exists(),
+            f"exists, {_size(p)}" if p.exists() else "claimed changed file does not exist",
+        )
     return report
 
 
@@ -81,22 +87,37 @@ def verdict_consistent(envelope: EnvelopeBase, run) -> GateReport:
     blocking = list(getattr(envelope, "blocking", []))
     unmet = [f.requirement for f in getattr(envelope, "findings", []) if not f.met]
 
-    report.check("approved vs blocking", not (approved and blocking),
-                 "no blocking items" if not blocking
-                 else f"{len(blocking)} blocking item(s) while approved=true"
-                 if approved else f"{len(blocking)} blocking item(s), not approved")
-    report.check("approved vs findings", not (approved and unmet),
-                 "every requirement met" if not unmet
-                 else f"{len(unmet)} unmet requirement(s) while approved=true"
-                 if approved else f"{len(unmet)} unmet requirement(s), not approved")
-    report.check("rejection names a problem", approved or bool(blocking or unmet),
-                 "verdict is supported" if approved or blocking or unmet
-                 else "approved=false but no blocking item or unmet requirement was given")
+    report.check(
+        "approved vs blocking",
+        not (approved and blocking),
+        "no blocking items"
+        if not blocking
+        else f"{len(blocking)} blocking item(s) while approved=true"
+        if approved
+        else f"{len(blocking)} blocking item(s), not approved",
+    )
+    report.check(
+        "approved vs findings",
+        not (approved and unmet),
+        "every requirement met"
+        if not unmet
+        else f"{len(unmet)} unmet requirement(s) while approved=true"
+        if approved
+        else f"{len(unmet)} unmet requirement(s), not approved",
+    )
+    report.check(
+        "rejection names a problem",
+        approved or bool(blocking or unmet),
+        "verdict is supported"
+        if approved or blocking or unmet
+        else "approved=false but no blocking item or unmet requirement was given",
+    )
     return report
 
 
 def tests_pass(command: str):
     """Gate factory: the given shell command must exit 0."""
+
     def gate(envelope: EnvelopeBase, run) -> GateReport:
         result = subprocess.run(command, shell=True, capture_output=True, text=True)
         ok = result.returncode == 0
@@ -104,5 +125,6 @@ def tests_pass(command: str):
         if not ok:
             note += "\n" + (result.stdout + result.stderr)[-TAIL_CHARS:]
         return GateReport().check(command, ok, note)
+
     gate.__name__ = f"tests_pass({command})"
     return gate

@@ -1690,7 +1690,7 @@ Expected: 2 PASS
 Run:
 
 ```bash
-cd ~/dev/lab/mvp/sssf && uv build && unzip -l dist/sssf-0.1.0-py3-none-any.whl | grep -E "SKILL.md|templates/adws/adw_prompt.py|apps/visualizer/server/index.ts" 
+cd ~/dev/lab/mvp/sssf && uv build && unzip -l dist/sssf-0.1.0-py3-none-any.whl | grep -E "SKILL.md|templates/adws/adw_prompt.py|apps/visualizer/server/index.ts"
 ```
 
 Expected: all three paths listed in the wheel.

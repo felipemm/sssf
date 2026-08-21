@@ -1,12 +1,12 @@
 """The `sssf` entry point. Dispatch only — logic lives in sssf.commands modules."""
+
 import argparse
 import sys
 from pathlib import Path
 
 from sssf import __version__
-from sssf import registry
 from sssf.commands import heal, init, misc, obs_cmds, run, sandbox_cmd, sweep, ticket, viz
-from sssf.project import find_project, data_dir
+from sssf.project import data_dir, find_project
 
 
 def _dispatch_ticket(a) -> int:
@@ -26,6 +26,7 @@ def _dispatch_ticket(a) -> int:
 
 def _register_obs(sub: argparse._SubParsersAction) -> None:
     """sessions / phases / tail / procs — each resolves the project db, then renders."""
+
     def db_path(explicit: str | None) -> Path:
         root = find_project(Path.cwd(), explicit)
         if root is None:
@@ -43,8 +44,11 @@ def _register_obs(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--project", default=None)
     p.set_defaults(func=sessions_cmd)
 
-    for name, fn in (("phases", obs_cmds.phases), ("tail", obs_cmds.tail),
-                     ("procs", obs_cmds.procs)):
+    for name, fn in (
+        ("phases", obs_cmds.phases),
+        ("tail", obs_cmds.tail),
+        ("procs", obs_cmds.procs),
+    ):
         p = sub.add_parser(name, help=f"trace: {name} <adw_id>")
         p.add_argument("--project", default=None)
         p.add_argument("adw_id")
@@ -71,18 +75,26 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("--project", default=None, help="project root (default: cwd)")
     p_init.add_argument("--refresh", action="store_true", help="copy only missing files")
     p_init.add_argument("--force", action="store_true", help="overwrite existing files")
-    p_init.add_argument("--auto", action="store_true",
-                        help="--refresh without prompts (accept all — scripting)")
-    p_init.set_defaults(func=lambda a: init.run(Path(a.project or ".").resolve(),
-                                                refresh=a.refresh, force=a.force,
-                                                auto=a.auto))
+    p_init.add_argument(
+        "--auto", action="store_true", help="--refresh without prompts (accept all — scripting)"
+    )
+    p_init.set_defaults(
+        func=lambda a: init.run(
+            Path(a.project or ".").resolve(), refresh=a.refresh, force=a.force, auto=a.auto
+        )
+    )
 
-    p_run = sub.add_parser("run", help="execute an ADW chain: sssf run <adw> \"<prompt>\" [--adw-id X]")
+    p_run = sub.add_parser(
+        "run", help='execute an ADW chain: sssf run <adw> "<prompt>" [--adw-id X]'
+    )
     p_run.add_argument("adw", help="chain name; the adw_ prefix is optional")
     p_run.add_argument("args", nargs=argparse.REMAINDER, help="passed through to the ADW")
     p_run.add_argument("--project", default=None)
-    p_run.add_argument("--no-sandbox", action="store_true",
-                       help="run in the current dir instead of a sandbox container")
+    p_run.add_argument(
+        "--no-sandbox",
+        action="store_true",
+        help="run in the current dir instead of a sandbox container",
+    )
     p_run.set_defaults(func=lambda a: run.run(Path.cwd(), a.adw, a.args, a.project, a.no_sandbox))
 
     _register_obs(sub)
@@ -92,21 +104,28 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("name", nargs="?")
     p.set_defaults(func=lambda a: misc.projects(a.action, a.name))
 
-    sub.add_parser("doctor", help="check global prerequisites and project state") \
-       .set_defaults(func=lambda a: misc.doctor())
-    sub.add_parser("upgrade", help="uv tool upgrade sssf") \
-       .set_defaults(func=lambda a: misc.upgrade())
+    sub.add_parser("doctor", help="check global prerequisites and project state").set_defaults(
+        func=lambda a: misc.doctor()
+    )
+    sub.add_parser("upgrade", help="uv tool upgrade sssf").set_defaults(
+        func=lambda a: misc.upgrade()
+    )
 
     p_viz = sub.add_parser("viz", help="run the global trace visualizer as a background service")
     p_viz.add_argument("action", nargs="?", default="start", choices=["start", "stop"])
     p_viz.add_argument("--port", type=int, default=4600)
     p_viz.add_argument("--db", default=None, help="adhoc single-db mode")
     p_viz.add_argument("--project", default=None, help="use this project's registry")
-    p_viz.set_defaults(func=lambda a: viz.start(a.port, a.db, a.project)
-                       if a.action == "start" else viz.stop())
+    p_viz.set_defaults(
+        func=lambda a: viz.start(a.port, a.db, a.project) if a.action == "start" else viz.stop()
+    )
 
-    p_sweep = sub.add_parser("sweep", help="archive finished sessions older than the interval (all registered projects)")
-    p_sweep.add_argument("--project", default=None, help="sweep one project root instead of the whole registry")
+    p_sweep = sub.add_parser(
+        "sweep", help="archive finished sessions older than the interval (all registered projects)"
+    )
+    p_sweep.add_argument(
+        "--project", default=None, help="sweep one project root instead of the whole registry"
+    )
     p_sweep.add_argument("--days", type=int, default=30)
     p_sweep.set_defaults(func=lambda a: sweep.run(a.project, a.days))
 
@@ -122,9 +141,14 @@ def main(argv: list[str] | None = None) -> int:
     p_run = tsub.add_parser("run", help="spawn simple_sdlc for a ticket")
     p_run.add_argument("ticket_id")
     p_run.add_argument("--project", default=None)
-    p_run.add_argument("--no-sandbox", action="store_true",
-                       help="run in the current dir instead of a sandbox container")
-    p_backlog = tsub.add_parser("backlog", help="return a ticket to the backlog (keeps run history)")
+    p_run.add_argument(
+        "--no-sandbox",
+        action="store_true",
+        help="run in the current dir instead of a sandbox container",
+    )
+    p_backlog = tsub.add_parser(
+        "backlog", help="return a ticket to the backlog (keeps run history)"
+    )
     p_backlog.add_argument("ticket_id")
     p_backlog.add_argument("--project", default=None)
     p_ticket.set_defaults(func=lambda a: _dispatch_ticket(a))

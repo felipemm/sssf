@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from sssf import registry
 from sssf.commands import misc
 
@@ -26,3 +24,23 @@ def test_doctor_ok_when_all_present(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(misc, "which", lambda name: "/usr/bin/" + name)
     assert misc.doctor() == 0
     assert "ok" in capsys.readouterr().out
+
+
+def test_viz_healer_start_failure_is_loud(tmp_path, monkeypatch, capsys):
+    """A healer-start failure is surfaced, not swallowed (audit A3)."""
+    import sssf.commands.viz as viz
+
+    def boom():
+        raise RuntimeError("healer broken")
+
+    monkeypatch.setattr(viz.misc, "which", lambda name: "/usr/local/bin/bun")  # CI python job has no bun
+    monkeypatch.setattr(viz, "_running_pid", lambda: None)
+    monkeypatch.setattr(viz, "_spawn", lambda *a, **k: 99999)
+    monkeypatch.setattr(viz, "_wait_for_server", lambda *a, **k: None)
+    monkeypatch.setattr(viz, "_pid_alive", lambda *a, **k: True)
+    monkeypatch.setattr(viz, "webbrowser", type("B", (), {"open": staticmethod(lambda u: True)})())
+    import sssf.healer as healer_mod
+    monkeypatch.setattr(healer_mod, "running_pid", lambda: None)  # prior tests may start the real daemon
+    monkeypatch.setattr(healer_mod, "start", boom)
+    viz.start(4600, None, None)
+    assert "healer start failed" in capsys.readouterr().err

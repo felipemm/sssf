@@ -1,4 +1,3 @@
-import subprocess
 from pathlib import Path
 
 from sssf import registry
@@ -6,10 +5,8 @@ from sssf.commands import init
 
 
 def _run_init(root: Path, monkeypatch, argv: list[str] | None = None) -> int:
-    monkeypatch.setattr(registry, "registry_path",
-                        lambda: root.parent / ".sssf" / "projects.json")
-    return init.run(root, refresh="--refresh" in (argv or []),
-                    force="--force" in (argv or []))
+    monkeypatch.setattr(registry, "registry_path", lambda: root.parent / ".sssf" / "projects.json")
+    return init.run(root, refresh="--refresh" in (argv or []), force="--force" in (argv or []))
 
 
 def test_init_stamps_project(tmp_path, monkeypatch):
@@ -60,6 +57,7 @@ def test_init_stamps_ticketing_template_with_internal_enabled(tmp_path, monkeypa
     text = cfg.read_text()
     assert "providers" in text and "- internal" in text
     from sssf import ticketing
+
     loaded = ticketing.load_config(root)
     assert loaded is not None and "internal" in loaded.providers
 
@@ -73,7 +71,7 @@ def test_refresh_prompts_and_keeps_on_no(tmp_path, monkeypatch):
     adw.write_text(original + "\n# user edit\n")
     monkeypatch.setattr("builtins.input", lambda prompt="": "n")
     assert _run_init(root, monkeypatch, ["--refresh"]) == 0
-    assert adw.read_text() == original + "\n# user edit\n"   # nothing clobbered
+    assert adw.read_text() == original + "\n# user edit\n"  # nothing clobbered
 
 
 def test_refresh_overwrites_on_yes(tmp_path, monkeypatch):
@@ -85,7 +83,7 @@ def test_refresh_overwrites_on_yes(tmp_path, monkeypatch):
     adw.write_text(template + "\n# user edit\n")
     monkeypatch.setattr("builtins.input", lambda prompt="": "y")
     assert _run_init(root, monkeypatch, ["--refresh"]) == 0
-    assert adw.read_text() == template                  # template restored
+    assert adw.read_text() == template  # template restored
 
 
 def test_refresh_yes_to_all_overwrites_every_adw(tmp_path, monkeypatch):
@@ -103,14 +101,15 @@ def test_refresh_auto_accepts_all_without_stdin(tmp_path, monkeypatch):
     """--auto must overwrite every adws file without ever prompting."""
     root = tmp_path / "proj"
     root.mkdir()
-    assert _run_init(root, monkeypatch) == 0          # initial stamp
+    assert _run_init(root, monkeypatch) == 0  # initial stamp
     target = root / "adws" / "modules" / "adw_simple_sdlc.py"
-    target.write_text("OLD")                          # drift it
-    monkeypatch.setattr("builtins.input",
-                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("prompted!")))
+    target.write_text("OLD")  # drift it
+    monkeypatch.setattr(
+        "builtins.input", lambda *a, **k: (_ for _ in ()).throw(AssertionError("prompted!"))
+    )
     rc = init.run(root, refresh=True, auto=True)
     assert rc == 0
-    assert target.read_text() != "OLD"                # overwritten by the template
+    assert target.read_text() != "OLD"  # overwritten by the template
     assert (root / "adws" / "config" / "ticketing.yaml").exists()
 
 
@@ -123,8 +122,8 @@ def test_refresh_without_auto_still_prompts(tmp_path, monkeypatch):
     calls: list[str] = []
     monkeypatch.setattr("builtins.input", lambda prompt: calls.append(str(prompt)) or "n")
     assert _run_init(root, monkeypatch, ["--refresh"]) == 0
-    assert calls and "overwrite" in calls[0]          # the y/N/a prompt ran
-    assert target.read_text() == "OLD"                # answered 'n'
+    assert calls and "overwrite" in calls[0]  # the y/N/a prompt ran
+    assert target.read_text() == "OLD"  # answered 'n'
 
 
 def test_init_stamps_v2_layout(tmp_path, monkeypatch):
@@ -148,7 +147,8 @@ def test_refresh_migrates_legacy_layout(tmp_path, monkeypatch):
     # Build a v1 project by hand
     (root / "adws" / "adw_sssf_config").mkdir(parents=True)
     (root / "adws" / "adw_sssf_config" / "sssf.config.yaml").write_text(
-        "roster: v1\nsystem: adws/adw_data/prompt_engineering/scout/system.md\n")
+        "roster: v1\nsystem: adws/adw_data/prompt_engineering/scout/system.md\n"
+    )
     (root / "adws" / "adw_data").mkdir(parents=True)
     (root / "adws" / "adw_data" / "sssf.db").write_text("db")
     (root / "adws" / "app_docs").mkdir(parents=True)
@@ -159,7 +159,8 @@ def test_refresh_migrates_legacy_layout(tmp_path, monkeypatch):
     assert _run_init(root, monkeypatch, ["--refresh"]) == 0
     # moved to v2
     assert (root / "adws/config/sssf.config.yaml").read_text() == (
-        "roster: v1\nsystem: adws/data/prompt_engineering/scout/system.md\n")
+        "roster: v1\nsystem: adws/data/prompt_engineering/scout/system.md\n"
+    )
     assert (root / "adws/data/sssf.db").read_text() == "db"
     assert (root / "adws/kb/note.md").read_text() == "note"
     assert (root / "adws/modules/adw_custom.py").exists()

@@ -1,5 +1,5 @@
-from pathlib import Path
 #!/usr/bin/env -S uv run
+
 """ADW Document — write up the work that was just done, from the diff.
 
 Usage:
@@ -21,49 +21,83 @@ import argparse
 import sys
 
 from sssf.adw_modules import agents, changes, gates, git_helper, session, utils
-from sssf.adw_modules.data_types import (AgentCall, ChangeCapture, DocumentOutput,
-                                    PhaseParams)
+from sssf.adw_modules.data_types import AgentCall, ChangeCapture, DocumentOutput, PhaseParams
 
 REQUIRED_AGENTS = ["documenter"]
 
-DOCUMENT_NOTES = ("Read diff_path in full before writing. Document only what the "
-                  "diff shows, then copy the write-up into adws/kb/ as your task "
-                  "describes.")
+DOCUMENT_NOTES = (
+    "Read diff_path in full before writing. Document only what the "
+    "diff shows, then copy the write-up into adws/kb/ as your task "
+    "describes."
+)
 
 
-def main(prompt: str, base: str = "main",
-         config: str | None = None, adw_id: str | None = None) -> int:
-    from sssf.adw_modules import paths
-    cfg = agents.load_config(config or str(paths.config_file(Path.cwd())))
+def main(
+    prompt: str, base: str = "main", config: str | None = None, adw_id: str | None = None
+) -> int:
+    cfg = agents.load_config(config or agents.default_config_path())
     agents.validate(cfg, REQUIRED_AGENTS)
     run = session.ensure(cfg, adw_id)
 
-    with run.phase(PhaseParams(name="request", kind="engineer", owner=run.engineer,
-                               description="Capture the incoming ask")) as ph:
+    with run.phase(
+        PhaseParams(
+            name="request",
+            kind="engineer",
+            owner=run.engineer,
+            description="Capture the incoming ask",
+        )
+    ) as ph:
         ph.log(input=prompt)
 
-    with run.phase(PhaseParams(name="changes", kind="code", owner="git",
-                               description=f"Diff the working tree against {base} — the change to be written up")) as ph:
+    with run.phase(
+        PhaseParams(
+            name="changes",
+            kind="code",
+            owner="git",
+            description=f"Diff the working tree against {base} — the change to be written up",
+        )
+    ) as ph:
         changeset = changes.capture(run, ChangeCapture(base=base))
-        ph.log(base=f"{changeset.base.label} @ {changeset.base.commit[:7]}",
-               reason=changeset.base.reason,
-               files=len(changeset.files) + len(changeset.untracked),
-               lines=f"+{changeset.insertions} -{changeset.deletions}",
-               diff=changeset.diff_path)
+        ph.log(
+            base=f"{changeset.base.label} @ {changeset.base.commit[:7]}",
+            reason=changeset.base.reason,
+            files=len(changeset.files) + len(changeset.untracked),
+            lines=f"+{changeset.insertions} -{changeset.deletions}",
+            diff=changeset.diff_path,
+        )
         if changeset.empty:
             raise RuntimeError(
                 f"nothing changed since {changeset.base.label} ({changeset.base.reason}) "
                 f"— documenting runs after a build. Build something first, or point "
-                f"--base at the ref the work should be measured from.")
+                f"--base at the ref the work should be measured from."
+            )
 
-    with run.phase(PhaseParams(name="document", kind="agent", owner="documenter", retries=1,
-                               description="Turn the captured diff into a write-up an engineer can read")) as ph:
-        document = ph.call(AgentCall(output_type=DocumentOutput, prompt=prompt,
-                          previous=changes.as_envelope(changeset, DOCUMENT_NOTES),
-                          gates=[gates.artifacts_exist, gates.files_non_empty]))
+    with run.phase(
+        PhaseParams(
+            name="document",
+            kind="agent",
+            owner="documenter",
+            retries=1,
+            description="Turn the captured diff into a write-up an engineer can read",
+        )
+    ) as ph:
+        document = ph.call(
+            AgentCall(
+                output_type=DocumentOutput,
+                prompt=prompt,
+                previous=changes.as_envelope(changeset, DOCUMENT_NOTES),
+                gates=[gates.artifacts_exist, gates.files_non_empty],
+            )
+        )
 
-    with run.phase(PhaseParams(name="commit_docs", kind="code", owner="git",
-                               description="Ship the write-up in its own commit, beside the code it describes")) as ph:
+    with run.phase(
+        PhaseParams(
+            name="commit_docs",
+            kind="code",
+            owner="git",
+            description="Ship the write-up in its own commit, beside the code it describes",
+        )
+    ) as ph:
         message = document.commit_message or f"sssf({run.adw_id}): {document.summary}"
         ph.log(sha=git_helper.commit_all(message), message=message)
 
@@ -74,7 +108,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("prompt", help="inline text or a path to a prompt file")
     parser.add_argument("--base", default="main", help="ref the change is measured against")
-    parser.add_argument("--config", default=None, help="path to sssf.config.yaml (default: adws/config/sssf.config.yaml)")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="path to sssf.config.yaml (default: adws/config/sssf.config.yaml)",
+    )
     parser.add_argument("--adw-id", default=None, help="join or pin an existing session")
     args = parser.parse_args()
     sys.exit(main(utils.resolve_prompt(args.prompt), args.base, args.config, args.adw_id))

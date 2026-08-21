@@ -1,4 +1,5 @@
 /** Status dashboard: one aggregate payload per project, computed from the trace db. */
+import { ticketingEnabled } from "./ticketing";
 import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -82,18 +83,6 @@ export interface StatusResponse {
 
 const AGENT_ROLES = ["planner", "builder", "reviewer", "documenter"];
 
-/** Same enabled check as tickets.ts — ticketing.yaml with an uncommented providers line. */
-function ticketingEnabled(root: string): boolean {
-  const path = resolve(root, "adws", "config", "ticketing.yaml");
-  if (!existsSync(path)) return false;
-  try {
-    return readFileSync(path, "utf8")
-      .split("\n")
-      .some((line) => /^\s*providers\s*:/.test(line));
-  } catch {
-    return false;
-  }
-}
 
 export function computeStatus(dbPath: string, root: string, name: string, windowDays: number): StatusResponse {
   const db = new Database(dbPath);

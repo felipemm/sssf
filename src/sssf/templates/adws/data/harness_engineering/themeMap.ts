@@ -61,11 +61,11 @@ export function applyExtensionTheme(fileUrl: string, ctx: ExtensionContext): boo
 	if (!ctx.hasUI) return false;
 
 	const name = extensionName(fileUrl);
-	
+
 	// If there are multiple extensions stacked in 'ipi', they each fire session_start
 	// and try to apply their own mapped theme. The LAST one to fire wins.
 	// Since system-select is last in the ipi alias array, it was setting 'catppuccin-mocha'.
-	
+
 	// We want to skip theme application for all secondary extensions if they are stacked,
 	// so the primary extension (first in the array) dictates the theme.
 	const primaryExt = primaryExtensionName();
@@ -74,17 +74,17 @@ export function applyExtensionTheme(fileUrl: string, ctx: ExtensionContext): boo
 	}
 
 	let themeName = THEME_MAP[name];
-	
+
 	if (!themeName) {
 		themeName = "synthwave";
 	}
 
 	const result = ctx.ui.setTheme(themeName);
-	
+
 	if (!result.success && themeName !== "synthwave") {
 		return ctx.ui.setTheme("synthwave").success;
 	}
-	
+
 	return result.success;
 }
 // ── Title ──────────────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ db integrity, and the surviving branches.
 
 Run: uv run python scripts/e2e_parallel.py [N]
 """
+
 from __future__ import annotations
 
 import shutil
@@ -46,7 +47,9 @@ def main() -> int:
         req = f"Create a file called task{i}.txt with the exact content: task {i} done"
         r = sh("sssf", "run", "simple_sdlc", req, "--project", str(PROJECT), cwd=PROJECT)
         ok = r.returncode == 0
-        print(f"[dispatch {i:>2}] {'ok' if ok else 'FAIL ' + r.stderr.strip()[:120]} — {r.stdout.strip()}")
+        print(
+            f"[dispatch {i:>2}] {'ok' if ok else 'FAIL ' + r.stderr.strip()[:120]} — {r.stdout.strip()}"
+        )
     dispatch_s = time.time() - t0
 
     # ── wait for all N to reach a terminal state ───────────────────────────
@@ -55,8 +58,10 @@ def main() -> int:
     # syncing any leftover per-run dbs if a monitor died).
     db = PROJECT / "adws/adw_data/sssf.db"
     import os
+
     sbx_dir = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf")) / "sandboxes" / PROJECT.name
     from sssf.sandbox import sync_run_db
+
     deadline = time.time() + 15 * 60
     settle_deadline = time.time() + 30
     while time.time() < deadline:
@@ -66,8 +71,11 @@ def main() -> int:
             conn.close()
         except sqlite3.Error:
             rows = []
-        containers = len(sh("docker", "ps", "-a", "--filter", "name=sssf-",
-                            "--format", "{{.Names}}").stdout.strip().splitlines())
+        containers = len(
+            sh("docker", "ps", "-a", "--filter", "name=sssf-", "--format", "{{.Names}}")
+            .stdout.strip()
+            .splitlines()
+        )
         terminal = len(rows) >= N and not any(r[0] == "running" for r in rows)
         if terminal and containers == 0:
             break
@@ -91,7 +99,8 @@ def main() -> int:
     # ── report ─────────────────────────────────────────────────────────────
     conn = sqlite3.connect(str(db), isolation_level=None, timeout=10)
     sessions = conn.execute(
-        "SELECT adw_id, status, started_at, ended_at FROM sessions ORDER BY started_at").fetchall()
+        "SELECT adw_id, status, started_at, ended_at FROM sessions ORDER BY started_at"
+    ).fetchall()
     phases = dict(conn.execute("SELECT adw_id, COUNT(*) FROM phases GROUP BY adw_id").fetchall())
     integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
     conn.close()
@@ -101,7 +110,7 @@ def main() -> int:
     finished = [s for s in sessions if s[2] and s[3]]
     max_overlap = 0
     for i, a in enumerate(finished):
-        for b in finished[i + 1:]:
+        for b in finished[i + 1 :]:
             if a[2] <= b[3] and b[2] <= a[3]:
                 max_overlap += 1
     overlap_pairs = max_overlap
@@ -112,9 +121,11 @@ def main() -> int:
     for adw_id, status, started, ended in sessions:
         dur = ""
         if started and ended:
-            dur = f" · {round((__import__('datetime').datetime.fromisoformat(ended.replace('Z','+00:00')) - __import__('datetime').datetime.fromisoformat(started.replace('Z','+00:00'))).total_seconds())}s"
+            dur = f" · {round((__import__('datetime').datetime.fromisoformat(ended.replace('Z', '+00:00')) - __import__('datetime').datetime.fromisoformat(started.replace('Z', '+00:00'))).total_seconds())}s"
         print(f"  {adw_id}  {status:8} phases={phases.get(adw_id, 0):>2}{dur}")
-    print(f"concurrent overlap: {overlap_pairs} run-pairs overlapped (max possible {N * (N - 1) // 2})")
+    print(
+        f"concurrent overlap: {overlap_pairs} run-pairs overlapped (max possible {N * (N - 1) // 2})"
+    )
     print(f"db integrity: {integrity}")
     branches = sh("git", "branch", "--list", "sssf/*", cwd=PROJECT).stdout.strip().splitlines()
     print(f"surviving branches: {len(branches)}")
@@ -123,18 +134,32 @@ def main() -> int:
     # and every branch surviving. The success/fail split is the ADW's own LLM
     # verdicts (the reviewer may reject a run — a model-level outcome, not a
     # sandbox failure), reported separately.
-    remaining_containers = len(sh("docker", "ps", "-a", "--filter", "name=sssf-",
-                                  "--format", "{{.Names}}").stdout.strip().splitlines())
-    remaining_worktrees = len(list(PROJECT.glob("../../.sssf/sandboxes/sbx-par10/*"))) if False else 0
+    remaining_containers = len(
+        sh("docker", "ps", "-a", "--filter", "name=sssf-", "--format", "{{.Names}}")
+        .stdout.strip()
+        .splitlines()
+    )
+    remaining_worktrees = (
+        len(list(PROJECT.glob("../../.sssf/sandboxes/sbx-par10/*"))) if False else 0
+    )
     import os
+
     sbx_dir = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf")) / "sandboxes" / "sbx-par10"
     remaining_worktrees = len(list(sbx_dir.glob("*"))) if sbx_dir.exists() else 0
-    infra_ok = (integrity == "ok" and len(sessions) == N
-                and overlap_pairs == N * (N - 1) // 2
-                and remaining_containers == 0 and remaining_worktrees == 0
-                and len(branches) == N)
-    print(f"leftover containers: {remaining_containers} · leftover worktrees: {remaining_worktrees}")
-    print("RESULT:", "PASS (infra)" if infra_ok else "FAIL", f"— LLM verdicts: {success}/{N} success")
+    infra_ok = (
+        integrity == "ok"
+        and len(sessions) == N
+        and overlap_pairs == N * (N - 1) // 2
+        and remaining_containers == 0
+        and remaining_worktrees == 0
+        and len(branches) == N
+    )
+    print(
+        f"leftover containers: {remaining_containers} · leftover worktrees: {remaining_worktrees}"
+    )
+    print(
+        "RESULT:", "PASS (infra)" if infra_ok else "FAIL", f"— LLM verdicts: {success}/{N} success"
+    )
     return 0 if infra_ok else 1
 
 

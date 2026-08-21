@@ -3,9 +3,6 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 from sssf.sandbox import sandbox_env
 
 
@@ -15,15 +12,13 @@ def test_sandbox_env_carries_full_git_identity(tmp_path, monkeypatch):
     commit` fails with 'Committer identity unknown'; without ENGINEER_NAME the
     engineer label degrades."""
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.delenv("SNYK_TOKEN", raising=False)   # operator token must not leak into this test
+    monkeypatch.delenv("SNYK_TOKEN", raising=False)  # operator token must not leak into this test
     (tmp_path / ".gitconfig").write_text(
-        "[user]\n"
-        "\tname = Ada Lovelace\n"
-        "\temail = ada@example.com\n"
+        "[user]\n\tname = Ada Lovelace\n\temail = ada@example.com\n"
     )
     _, _, env = sandbox_env(tmp_path)
     assert env["GIT_AUTHOR_NAME"] == "Ada Lovelace"
-    assert "SNYK_TOKEN" not in env      # not set on the operator machine — not invented
+    assert "SNYK_TOKEN" not in env  # not set on the operator machine — not invented
     assert env["GIT_AUTHOR_EMAIL"] == "ada@example.com"
     assert env["GIT_COMMITTER_NAME"] == "Ada Lovelace"
     assert env["GIT_COMMITTER_EMAIL"] == "ada@example.com"
@@ -38,10 +33,12 @@ def test_sandbox_env_reads_repo_local_identity(tmp_path, monkeypatch):
     sub = subprocess_quiet(["git", "init", "-q", str(tmp_path / "proj")])
     assert sub == 0
     set_ok = subprocess_quiet(
-        ["git", "-C", str(tmp_path / "proj"), "config", "user.name", "Repo Local"])
+        ["git", "-C", str(tmp_path / "proj"), "config", "user.name", "Repo Local"]
+    )
     assert set_ok == 0
     set_ok = subprocess_quiet(
-        ["git", "-C", str(tmp_path / "proj"), "config", "user.email", "local@example.com"])
+        ["git", "-C", str(tmp_path / "proj"), "config", "user.email", "local@example.com"]
+    )
     assert set_ok == 0
     _, _, env = sandbox_env(tmp_path / "proj")
     assert env["GIT_COMMITTER_NAME"] == "Repo Local"
@@ -53,7 +50,8 @@ def test_sandbox_env_forwards_snyk_token(tmp_path, monkeypatch):
     """The security gate's auth: SNYK_TOKEN reaches the container."""
     monkeypatch.setenv("HOME", str(tmp_path))
     (tmp_path / ".gitconfig").write_text(
-        "[user]\n\tname = Ada Lovelace\n\temail = ada@example.com\n")
+        "[user]\n\tname = Ada Lovelace\n\temail = ada@example.com\n"
+    )
     monkeypatch.setenv("SNYK_TOKEN", "tok123")
     _, _, env = sandbox_env(tmp_path)
     assert env["SNYK_TOKEN"] == "tok123"
@@ -72,8 +70,8 @@ def test_sandbox_env_without_identity_sets_nothing(tmp_path, monkeypatch):
 
 def subprocess_quiet(argv: list[str]) -> int:
     import subprocess
-    return subprocess.run(argv, capture_output=True, text=True,
-                          check=False).returncode
+
+    return subprocess.run(argv, capture_output=True, text=True, check=False).returncode
 
 
 def test_sandbox_env_forwards_openai_vars(tmp_path, monkeypatch):
@@ -82,7 +80,8 @@ def test_sandbox_env_forwards_openai_vars(tmp_path, monkeypatch):
     endpoints (e.g. GenPlat)."""
     monkeypatch.setenv("HOME", str(tmp_path))
     (tmp_path / ".gitconfig").write_text(
-        "[user]\n\tname = Ada Lovelace\n\temail = ada@example.com\n")
+        "[user]\n\tname = Ada Lovelace\n\temail = ada@example.com\n"
+    )
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test123")
     monkeypatch.setenv("OPENAI_BASE_URL", "https://genplat.example.com/v1")
     _, _, env = sandbox_env(tmp_path)

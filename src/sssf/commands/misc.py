@@ -1,4 +1,5 @@
 """sssf projects / doctor / upgrade."""
+
 from __future__ import annotations
 
 import os
@@ -48,7 +49,9 @@ def doctor() -> int:
             ok = False
     bin_dir = Path.home() / ".local" / "bin"
     on_path = str(bin_dir) in os.environ.get("PATH", "")
-    console.print(f"[{'green' if on_path else 'red'}]{'ok' if on_path else 'missing'}[/]  ~/.local/bin on PATH")
+    console.print(
+        f"[{'green' if on_path else 'red'}]{'ok' if on_path else 'missing'}[/]  ~/.local/bin on PATH"
+    )
     return 0 if ok else 1
 
 

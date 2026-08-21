@@ -3,11 +3,12 @@
 Runtime state, not config. `sssf init` registers, `sssf run` refreshes
 last_run, `sssf projects` lists/removes, `sssf viz` serves over it.
 """
+
 from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 SCHEMA_VERSION = 1
@@ -46,10 +47,16 @@ def register_project(root: Path, db_path: Path, tool_version: str, *, added: boo
     name = root.name
     data = load_registry()
     entry = _entry(data["projects"], name)
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     if entry is None:
-        entry = {"name": name, "root": str(root), "db": str(db_path.resolve()),
-                 "added": now, "last_run": None, "tool_version": tool_version}
+        entry = {
+            "name": name,
+            "root": str(root),
+            "db": str(db_path.resolve()),
+            "added": now,
+            "last_run": None,
+            "tool_version": tool_version,
+        }
         data["projects"].append(entry)
     else:
         entry["root"] = str(root)
@@ -67,7 +74,7 @@ def update_last_run(root: Path) -> None:
     entry = _entry(data["projects"], root.name)
     if entry is None:
         return
-    entry["last_run"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    entry["last_run"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     save_registry(data)
 
 

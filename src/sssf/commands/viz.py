@@ -6,8 +6,10 @@
 Runtime state lives beside the registry in ~/.sssf/: viz.pid (the server pid)
 and viz.log (server output).
 """
+
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -20,7 +22,7 @@ from pathlib import Path
 
 from sssf.commands import misc
 
-APP_DIR = Path(resources.files("sssf") / "apps" / "visualizer")
+APP_DIR = Path(str(resources.files("sssf") / "apps" / "visualizer"))
 STATE_DIR = Path.home() / ".sssf"
 
 
@@ -54,22 +56,22 @@ def _running_pid() -> int | None:
 
 def _spawn(port: int, db_override: str | None, project: str | None) -> int:
     env = dict(os.environ)
-    env["PORT"] = str(port)   # the bun server reads PORT env, not --port argv
+    env["PORT"] = str(port)  # the bun server reads PORT env, not --port argv
     if db_override:
         env["SSSF_DB"] = str(Path(db_override).resolve())
     if project:
         env["SSSF_REGISTRY"] = str(Path(project).resolve() / ".sssf" / "projects.json")
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    log = open(_log_file(), "a")
-    try:
+    with open(_log_file(), "a") as log:
         proc = subprocess.Popen(
             ["bun", "run", "server/index.ts", "--port", str(port)],
-            cwd=APP_DIR, env=env, stdin=subprocess.DEVNULL,
-            stdout=log, stderr=subprocess.STDOUT,
-            start_new_session=True,   # survives the terminal closing
+            cwd=APP_DIR,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,  # survives the terminal closing
         )
-    finally:
-        log.close()
     _pid_file().write_text(str(proc.pid))
     return proc.pid
 
@@ -96,10 +98,12 @@ def start(port: int, db_override: str | None, project: str | None) -> int:
         webbrowser.open(url)
         return 0
     pid = _spawn(port, db_override, project)
-    _wait_for_server(url)   # give it a moment to bind — or to crash
+    _wait_for_server(url)  # give it a moment to bind — or to crash
     if not _pid_alive(pid):
-        print(f"sssf viz: server exited during startup (is port {port} in use?) "
-              f"— see {_log_file()}", file=sys.stderr)
+        print(
+            f"sssf viz: server exited during startup (is port {port} in use?) — see {_log_file()}",
+            file=sys.stderr,
+        )
         _pid_file().unlink(missing_ok=True)
         return 1
     print(f"sssf viz: started (pid {pid}) — {url}")
@@ -107,10 +111,11 @@ def start(port: int, db_override: str | None, project: str | None) -> int:
     # the self-healing monitor rides along with the viz
     try:
         from sssf import healer
+
         if healer.running_pid() is None:
             healer.start()
-    except Exception:
-        pass
+    except Exception as error:   # the browser still opens
+        print(f"sssf viz: healer start failed ({error})", file=sys.stderr)
     webbrowser.open(url)
     return 0
 
@@ -121,9 +126,7 @@ def stop() -> int:
     if pid is None:
         print("sssf viz: not running")
         return 0
-    try:
+    with contextlib.suppress(ProcessLookupError):
         os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
     print(f"sssf viz: stopped (pid {pid})")
     return 0

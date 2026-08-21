@@ -54,3 +54,14 @@ field (WAL sidecars, cold readonly dbs, `SQLITE_IOERR` recovery).
 Concise, prefixed, lowercase — e.g. `feat: ...`, `fix: ...`, `docs: ...`,
 `refactor: ...`, `e2e: ...`. The history is the changelog source; write
 messages that read well in a list.
+
+## Local checks
+
+Before pushing, run the same gates CI enforces:
+
+- `uv run ruff check src/sssf tests`
+- `uv run mypy src/sssf`
+- `uv run pytest`
+- `cd src/sssf/apps/visualizer && bun test`
+
+Install the git hooks once: `uv run pre-commit install` (ruff + hygiene run on every commit).

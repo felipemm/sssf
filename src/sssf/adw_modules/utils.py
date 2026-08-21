@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import secrets
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -43,7 +43,7 @@ def new_id(length: int = 8) -> str:
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 def ensure_dir(path: str | Path) -> Path:
@@ -68,8 +68,9 @@ def engineer_name() -> str:
     if name:
         return name
     try:
-        out = subprocess.run(["git", "config", "user.name"],
-                             capture_output=True, text=True, timeout=5)
+        out = subprocess.run(
+            ["git", "config", "user.name"], capture_output=True, text=True, timeout=5
+        )
         if out.returncode == 0 and out.stdout.strip():
             return out.stdout.strip()
     except OSError:

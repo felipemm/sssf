@@ -1,12 +1,11 @@
 import os
 import stat
 import subprocess
-from pathlib import Path
 
 import pytest
 
-from sssf.sandbox import SandboxError, build_image, docker_available, run_sandbox, stop_remove
 import sssf.sandbox as sandbox
+from sssf.sandbox import SandboxError, build_image, docker_available, run_sandbox, stop_remove
 
 
 @pytest.fixture
@@ -68,17 +67,23 @@ def test_build_failure_raises(fake_docker, tmp_path, monkeypatch):
 
 def test_run_sandbox_flags(fake_docker, tmp_path):
     run_sandbox(
-        "sssf-runner", "sssf-abc",
-        worktree=tmp_path / "wt", data_dir=tmp_path / "data",
-        pi_home=tmp_path / "pi", git_dir=tmp_path / "proj" / ".git",
+        "sssf-runner",
+        "sssf-abc",
+        worktree=tmp_path / "wt",
+        data_dir=tmp_path / "data",
+        pi_home=tmp_path / "pi",
+        git_dir=tmp_path / "proj" / ".git",
         config_dir=tmp_path / ".config",
-        uid=501, gid=20, env={"OPENAI_API_KEY": "x", "OPENAI_BASE_URL": "https://genplat.example.com/v1"}, cmd=["python", "adws/modules/adw_simple_sdlc.py"],
+        uid=501,
+        gid=20,
+        env={"OPENAI_API_KEY": "x", "OPENAI_BASE_URL": "https://genplat.example.com/v1"},
+        cmd=["python", "adws/modules/adw_simple_sdlc.py"],
     )
     calls = fake_docker.read_text().splitlines()
     run = next(c for c in calls if c.startswith("run"))
     assert "--name sssf-abc" in run
     assert f"{tmp_path}/wt:/work" in run
-    assert "adws/adw_data" not in run   # the run writes its OWN db in the worktree
+    assert "adws/adw_data" not in run  # the run writes its OWN db in the worktree
     assert f"{tmp_path}/pi:/opt/pi-agent-host:ro" in run
     assert f"{tmp_path}/proj/.git:{tmp_path}/proj/.git:rw" in run
     assert f"{tmp_path}/.config:/tmp/.config:ro" in run
@@ -86,7 +91,6 @@ def test_run_sandbox_flags(fake_docker, tmp_path):
     assert "-e OPENAI_API_KEY=x" in run
     assert "-e OPENAI_BASE_URL=https://genplat.example.com/v1" in run
     assert "-p" not in run
-
 
     stop_remove("sssf-abc")
     stop_remove("sssf-abc")
@@ -96,24 +100,27 @@ def test_ensure_image_current_real_fingerprint(fake_docker, monkeypatch):
     """Exercises the REAL _engine_fingerprint (not a stub) — regression for the
     missing-import bug that made it crash with NameError."""
     from sssf.sandbox import _engine_fingerprint
+
     real = _engine_fingerprint() + "\n"
 
     def fake(*args, **kwargs):
         return subprocess.CompletedProcess(args, 0, stdout=real, stderr="")
+
     monkeypatch.setattr(sandbox, "_docker", fake)
-    sandbox.ensure_image_current("sssf-real")   # no raise — real fingerprint path
+    sandbox.ensure_image_current("sssf-real")  # no raise — real fingerprint path
 
 
 def _fake_docker_stdout(monkeypatch, stdout: str, rc: int = 0):
     def fake(*args, **kwargs):
         return subprocess.CompletedProcess(args, rc, stdout=stdout, stderr="")
+
     monkeypatch.setattr(sandbox, "_docker", fake)
     monkeypatch.setattr(sandbox, "_engine_fingerprint", lambda: "FPWANT")
 
 
 def test_ensure_image_current_matches(fake_docker, monkeypatch):
     _fake_docker_stdout(monkeypatch, "FPWANT\n")
-    sandbox.ensure_image_current("sssf-match")   # no raise
+    sandbox.ensure_image_current("sssf-match")  # no raise
 
 
 def test_ensure_image_current_stale_raises(fake_docker, monkeypatch):
@@ -128,3 +135,100 @@ def test_ensure_image_current_missing_raises(fake_docker, monkeypatch):
     _fake_docker_stdout(monkeypatch, "")
     with pytest.raises(SandboxError, match="missing or unreadable"):
         sandbox.ensure_image_current("sssf-missing")
+
+
+def test_record_never_started_leaves_evidence(monkeypatch, tmp_path):
+    """A spawn-death (container exits before the ADW ever writes a session)
+    records a failed session + the container log tail and flips the linked
+    ticket — the monitor no longer erases the only evidence."""
+    from sssf.adw_modules.tracer import Tracer
+
+    db = tmp_path / "proj" / "adws" / "data" / "sssf.db"
+    tracer = Tracer(db, tmp_path / "proj" / "adws" / "data" / "sessions" / "abc123" / "events.jsonl")
+    tracer.conn.execute(
+        "INSERT INTO tickets (id, provider, title, status, adw_id) VALUES (?,?,?,?,?)",
+        ("internal:x", "internal", "boom", "starting", "abc123"),
+    )
+
+    def fake_docker(*args, **kwargs):
+        if args[0] == "inspect":
+            return subprocess.CompletedProcess(args, 0, stdout="1\n", stderr="")
+        if args[0] == "logs":
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                stdout=("python: can't open file 'adws/modules/adw_simple_sdlc.py':"
+                        " [Errno 2] No such file or directory\n"),
+                stderr="",
+            )
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(sandbox, "_docker", fake_docker)
+    per_run = tmp_path / "proj" / ".worktrees" / "abc123" / "adws" / "data" / "sssf.db"
+    sandbox.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
+
+    row = tracer.conn.execute(
+        "SELECT status, adw_name FROM sessions WHERE adw_id='abc123'"
+    ).fetchone()
+    assert row == ("fail", "adw_simple_sdlc (never started)")
+    ev = tracer.conn.execute(
+        "SELECT name, payload_json FROM events WHERE adw_id='abc123'"
+    ).fetchone()
+    assert ev[0] == "sandbox spawn failure"
+    assert "1" in ev[1]  # exit code captured
+    assert "No such file or directory" in ev[1]  # log tail captured
+    status = tracer.conn.execute(
+        "SELECT status FROM tickets WHERE id='internal:x'"
+    ).fetchone()[0]
+    assert status == "failed"
+
+
+def test_record_never_started_skips_when_adw_started(monkeypatch, tmp_path):
+    """A run that DID write a session row is left to the normal sync path —
+    no synthetic failure row, even when the session exists only in the
+    per-run db (not yet merged)."""
+    from sssf.adw_modules.tracer import Tracer
+
+    db = tmp_path / "proj" / "adws" / "data" / "sssf.db"
+    tracer = Tracer(db, tmp_path / "proj" / "adws" / "data" / "sessions" / "abc123" / "events.jsonl")
+    tracer.conn.execute(
+        "INSERT INTO sessions (adw_id, status) VALUES ('abc123', 'running')"
+    )
+
+    def fake_docker(*args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(sandbox, "_docker", fake_docker)
+    per_run = tmp_path / "proj" / ".worktrees" / "abc123" / "adws" / "data" / "sssf.db"
+    sandbox.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
+
+    rows = tracer.conn.execute(
+        "SELECT count(*) FROM sessions WHERE adw_id='abc123'"
+    ).fetchone()[0]
+    assert rows == 1  # still just the ADW's own row
+
+
+def test_teardown_poll_treats_docker_error_as_retry_not_gone(monkeypatch, capsys):
+    """A docker hiccup during the teardown poll must not be read as
+    'container gone' — that tears the run down prematurely (audit A2)."""
+    from sssf.sandbox import _container_gone
+
+    def flaky(*a, **k):
+        raise RuntimeError("docker hiccup")
+
+    assert _container_gone(flaky, "sssf-x") is False
+    assert "retrying" in capsys.readouterr().err
+
+
+def test_teardown_poll_gone_only_on_empty_output(monkeypatch):
+    from sssf.sandbox import _container_gone
+
+    def gone(*a, **k):
+        return subprocess.CompletedProcess(a, 0, stdout="", stderr="")
+
+    assert _container_gone(gone, "sssf-x") is True
+
+    def up(*a, **k):
+        return subprocess.CompletedProcess(a, 0, stdout="Up 2 minutes", stderr="")
+
+    assert _container_gone(up, "sssf-x") is False

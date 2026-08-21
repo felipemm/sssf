@@ -5,6 +5,7 @@ read-only: Jira goes through the user-authenticated `acli` CLI, Linear through
 its GraphQL API with a token from the project .env. All tickets land in the
 trace db's `tickets` table; the kanban reads that.
 """
+
 from __future__ import annotations
 
 import json
@@ -14,7 +15,7 @@ import sqlite3
 import subprocess
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -85,25 +86,27 @@ def load_config(root: Path) -> TicketingConfig | None:
     providers = data.get("providers") or []
     if not providers:
         return None
-    return TicketingConfig(providers=list(providers),
-                           jira=data.get("jira") or {},
-                           linear=data.get("linear") or {})
+    return TicketingConfig(
+        providers=list(providers), jira=data.get("jira") or {}, linear=data.get("linear") or {}
+    )
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 def _run_acli(args: list[str]) -> dict:
     if shutil.which("acli") is None:
         raise RuntimeError(
             "the Jira provider needs the acli CLI — install it and configure auth: "
-            "https://github.com/zdharma-continuum/acli")
+            "https://github.com/zdharma-continuum/acli"
+        )
     result = subprocess.run(["acli", *args], capture_output=True, text=True, timeout=60)
     if result.returncode != 0:
         raise RuntimeError(
             f"acli failed ({result.returncode}): {result.stderr.strip() or result.stdout.strip()}\n"
-            "Is acli authenticated? Run its login/credentials setup first.")
+            "Is acli authenticated? Run its login/credentials setup first."
+        )
     return json.loads(result.stdout or "[]")
 
 
@@ -114,13 +117,20 @@ def fetch_jira(cfg: TicketingConfig) -> list[TicketRecord]:
     # acli >= 1.3 moved work items under `jira workitem search` (old
     # `acli issue list` was removed). Default fields exclude description,
     # so request it explicitly.
-    data = _run_acli([
-        "jira", "workitem", "search",
-        "--jql", jql,
-        "--fields", "summary,description",
-        "--limit", "100",
-        "--json",
-    ])
+    data = _run_acli(
+        [
+            "jira",
+            "workitem",
+            "search",
+            "--jql",
+            jql,
+            "--fields",
+            "summary,description",
+            "--limit",
+            "100",
+            "--json",
+        ]
+    )
     issues = data if isinstance(data, list) else (data.get("issues") or data.get("data") or [])
     base_host = (cfg.jira.get("base_url") or "").rstrip("/").removeprefix("https://")
     records = []
@@ -133,12 +143,15 @@ def fetch_jira(cfg: TicketingConfig) -> list[TicketRecord]:
         # aren't browsable; prefer the configured base_url when present.
         if base_host and (not host or "atl-paas.net" in host):
             host = base_host
-        records.append(TicketRecord(
-            provider="jira", external_id=key,
-            title=str(fields.get("summary") or key),
-            description=str(fields.get("description") or ""),
-            source_url=f"https://{host}/browse/{key}" if host else "",
-        ))
+        records.append(
+            TicketRecord(
+                provider="jira",
+                external_id=key,
+                title=str(fields.get("summary") or key),
+                description=str(fields.get("description") or ""),
+                source_url=f"https://{host}/browse/{key}" if host else "",
+            )
+        )
     return records
 
 
@@ -151,11 +164,14 @@ def fetch_linear(cfg: TicketingConfig) -> list[TicketRecord]:
     if not team:
         raise RuntimeError("the linear provider needs a `team` key in ticketing.yaml")
     query = (
-        'query { issues(filter: {team: {key: {eq: "%s"}}}, first: 100) '
-        '{ nodes { id identifier title description url state { name } } } }' % team)
+        f'query {{ issues(filter: {{team: {{key: {{eq: "{team}"}}}}}}, first: 100) '
+        "{ nodes { id identifier title description url state { name } } } }"
+    )
     req = urllib.request.Request(
-        LINEAR_API, data=json.dumps({"query": query}).encode(),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+        LINEAR_API,
+        data=json.dumps({"query": query}).encode(),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    )
     with urllib.request.urlopen(req, timeout=30) as resp:
         payload = json.loads(resp.read())
     nodes = (payload.get("data") or {}).get("issues", {}).get("nodes", [])
@@ -165,12 +181,15 @@ def fetch_linear(cfg: TicketingConfig) -> list[TicketRecord]:
         state = ((node.get("state") or {}).get("name") or "").strip().lower()
         if wanted and state not in wanted:
             continue
-        records.append(TicketRecord(
-            provider="linear", external_id=str(node.get("identifier") or node.get("id")),
-            title=str(node.get("title") or ""),
-            description=str(node.get("description") or ""),
-            source_url=str(node.get("url") or ""),
-        ))
+        records.append(
+            TicketRecord(
+                provider="linear",
+                external_id=str(node.get("identifier") or node.get("id")),
+                title=str(node.get("title") or ""),
+                description=str(node.get("description") or ""),
+                source_url=str(node.get("url") or ""),
+            )
+        )
     return records
 
 
@@ -187,8 +206,17 @@ def upsert_tickets(db_path: Path, records: list[TicketRecord]) -> int:
                 " ON CONFLICT(id) DO UPDATE SET title=excluded.title,"
                 " description=excluded.description, source_url=excluded.source_url,"
                 " updated_at=excluded.updated_at",
-                (f"{r.provider}:{r.external_id}", r.provider, r.external_id,
-                 r.title, r.description, r.source_url, now, now))
+                (
+                    f"{r.provider}:{r.external_id}",
+                    r.provider,
+                    r.external_id,
+                    r.title,
+                    r.description,
+                    r.source_url,
+                    now,
+                    now,
+                ),
+            )
             count += cur.rowcount
         conn.commit()
         return count
@@ -200,10 +228,12 @@ def sync_tickets(root: Path, cfg: TicketingConfig) -> list[ProviderSyncResult]:
     """Load .env, fetch every enabled provider, upsert; one result per provider."""
     try:
         from dotenv import load_dotenv
+
         load_dotenv(root / ".env")
     except ImportError:
         pass
     from sssf.adw_modules import paths
+
     db_path = paths.data_dir(root) / "sssf.db"
     results: list[ProviderSyncResult] = []
     for provider in cfg.providers:
@@ -213,7 +243,7 @@ def sync_tickets(root: Path, cfg: TicketingConfig) -> list[ProviderSyncResult]:
             elif provider == "linear":
                 records = fetch_linear(cfg)
             elif provider == "internal":
-                continue            # internal tickets already live in the db
+                continue  # internal tickets already live in the db
             else:
                 results.append(ProviderSyncResult(provider, error=f"unknown provider {provider!r}"))
                 continue
@@ -227,9 +257,10 @@ def next_prompt_name(root: Path, slug: str) -> Path:
     """The next enumerated prompt path: adws/prompts/NN-<slug>.md (collision suffix)."""
     prompts = root / "adws" / "prompts"
     prompts.mkdir(parents=True, exist_ok=True)
-    numbers = [int(p.stem.split("-")[0]) for p in prompts.glob("*.md")
-               if p.stem.split("-")[0].isdigit()]
-    n = (max(numbers, default=0) + 1)
+    numbers = [
+        int(p.stem.split("-")[0]) for p in prompts.glob("*.md") if p.stem.split("-")[0].isdigit()
+    ]
+    n = max(numbers, default=0) + 1
     candidate = prompts / f"{n:02d}-{slug}.md"
     i = 1
     while candidate.exists():

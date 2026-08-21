@@ -7,6 +7,7 @@ minted and printed so the next ADW can pick it up.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -29,8 +30,9 @@ def _finalize_when_killed(run: Run) -> None:
     already dead. Turning the signal into SystemExit both finalizes here and
     lets the phase context manager record the phase as failed on the way out.
     """
+
     def handler(signum, _frame):
-        run.tracer.session_finish(run.adw_id, ok=False)   # also closes process rows
+        run.tracer.session_finish(run.adw_id, ok=False)  # also closes process rows
         raise SystemExit(128 + signum)
 
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -39,15 +41,15 @@ def _finalize_when_killed(run: Run) -> None:
 
 def ensure(cfg: SSSFConfig, adw_id: str | None = None) -> Run:
     adw_id = adw_id or new_id(8)
-    tracer = Tracer(cfg.observability.db,
-                    f"{cfg.defaults.data_dir}/sessions/{adw_id}/events.jsonl")
+    tracer = Tracer(cfg.observability.db, f"{cfg.defaults.data_dir}/sessions/{adw_id}/events.jsonl")
     _reap_stale_run(tracer, adw_id)
     run = Run(cfg=cfg, adw_id=adw_id, tracer=tracer, engineer=engineer_name())
     tracer.session_start(adw_id, run.engineer, adw_name=Path(sys.argv[0]).stem)
     # This process is the run. Record it before any phase opens, so a run that
     # hangs in its first agent call is still killable by adw_id.
-    tracer.process_start(adw_id, "adw", "", os.getpid(),
-                         " ".join([Path(sys.argv[0]).name, *sys.argv[1:]]))
+    tracer.process_start(
+        adw_id, "adw", "", os.getpid(), " ".join([Path(sys.argv[0]).name, *sys.argv[1:]])
+    )
     _finalize_when_killed(run)
     _failsafe_on_uncaught(run)
     run.console.session_started(adw_id, run.engineer)
@@ -61,12 +63,16 @@ def _failsafe_on_uncaught(run: Run) -> None:
     rest — exceptions between phases, in finish(), or anywhere else after the
     session row exists. Idempotent: an already-failed session is just written
     again."""
+
     def hook(exc_type, exc, tb):
-        try:
-            run.tracer.session_finish(run.adw_id, ok=False)
-        except Exception:
-            pass   # the trace must never make the original crash unreportable
+        from contextlib import suppress
+
+        with suppress(Exception):  # never mask the original exception
+            run.tracer.session_finish(
+                run.adw_id, ok=False
+            )  # the trace must never make the original crash unreportable
         sys.__excepthook__(exc_type, exc, tb)
+
     sys.excepthook = hook
 
 
@@ -79,12 +85,12 @@ def _reap_stale_run(tracer: Tracer, adw_id: str) -> None:
     No-op for a fresh adw_id; the queries are cheap and hit empty tables.
     """
     stale = tracer.conn.execute(
-        "SELECT pid, kind, command FROM processes WHERE adw_id=? AND ended_at IS NULL",
-        (adw_id,)).fetchall()
+        "SELECT pid, kind, command FROM processes WHERE adw_id=? AND ended_at IS NULL", (adw_id,)
+    ).fetchall()
     for pid, _kind, command in stale:
         _terminate(pid, command)
     if stale:
-        time.sleep(0.5)   # grace for the SIGTERM handler to close its own trace
+        time.sleep(0.5)  # grace for the SIGTERM handler to close its own trace
         for pid, _kind, command in stale:
             _terminate(pid, command, force=True)
     # Mark the prior attempt's open phases + session failed REGARDLESS of
@@ -93,10 +99,12 @@ def _reap_stale_run(tracer: Tracer, adw_id: str) -> None:
     tracer.conn.execute(
         "UPDATE phases SET status='fail', error=?, ended_at=? "
         "WHERE adw_id=? AND status IN ('running','queued')",
-        ("reaped: superseded by a re-run", now_iso(), adw_id))
+        ("reaped: superseded by a re-run", now_iso(), adw_id),
+    )
     tracer.conn.execute(
         "UPDATE sessions SET status='fail', ended_at=? WHERE adw_id=? AND status='running'",
-        (now_iso(), adw_id))
+        (now_iso(), adw_id),
+    )
     tracer.processes_end_all(adw_id)
 
 
@@ -106,10 +114,8 @@ def _terminate(pid: int, recorded_command: str, force: bool = False) -> None:
     take down an innocent process."""
     if not _matches_recorded(pid, recorded_command):
         return
-    try:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
         os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        pass
 
 
 def _matches_recorded(pid: int, recorded: str) -> bool:
@@ -117,8 +123,9 @@ def _matches_recorded(pid: int, recorded: str) -> bool:
     command line. Recorded forms: 'adw_simple_sdlc.py …' (ADW), 'pi builder
     model' (agent) — both match against `ps` output."""
     try:
-        out = subprocess.run(["ps", "-p", str(pid), "-o", "command="],
-                             capture_output=True, text=True, timeout=5).stdout
+        out = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, timeout=5
+        ).stdout
     except (OSError, subprocess.TimeoutExpired):
         return False
     head = (recorded or "").split()[0] if (recorded or "").split() else ""

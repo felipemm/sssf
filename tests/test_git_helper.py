@@ -11,7 +11,9 @@ def repo(tmp_path: Path) -> Path:
     """A git repo with one commit and clean state, cwd inside it."""
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "tester"], check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "config", "user.email", "t@example.com"], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "t@example.com"], check=True
+    )
     (tmp_path / "seed.txt").write_text("seed")
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(tmp_path), "commit", "-q", "-m", "seed"], check=True)
@@ -28,9 +30,12 @@ def test_commit_all_allow_empty_returns_none(repo, monkeypatch):
     monkeypatch.chdir(repo)
     assert git_helper.commit_all("no-op", allow_empty=True) is None
     # still clean — nothing landed
-    assert subprocess.run(
-        ["git", "-C", str(repo), "status", "--porcelain"], capture_output=True, text=True
-    ).stdout == ""
+    assert (
+        subprocess.run(
+            ["git", "-C", str(repo), "status", "--porcelain"], capture_output=True, text=True
+        ).stdout
+        == ""
+    )
 
 
 def test_commit_all_commits_when_changed(repo, monkeypatch):
@@ -52,5 +57,5 @@ def test_diff_files_between(repo, monkeypatch):
     (repo / "b.txt").write_text("b")
     git_helper.commit_all("add b")
     assert git_helper.diff_files_between(base, "HEAD") == ["a.txt", "b.txt"]
-    assert git_helper.diff_files_between(base, f"HEAD~1") == ["a.txt"]
+    assert git_helper.diff_files_between(base, "HEAD~1") == ["a.txt"]
     assert git_helper.diff_files_between("HEAD", "HEAD") == []

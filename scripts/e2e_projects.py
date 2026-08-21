@@ -8,6 +8,7 @@ teardowns, and surviving branches.
 
 Run: uv run python scripts/e2e_projects.py [per_project]
 """
+
 from __future__ import annotations
 
 import shutil
@@ -51,26 +52,43 @@ def main() -> int:
     for pi, project in enumerate(PROJECTS):
         for i in range(PER):
             req = f"Create a file called p{pi}t{i}.txt with content project {pi} task {i}"
-            procs.append((project, subprocess.Popen(
-                ["sssf", "run", "simple_sdlc", req, "--project", str(project)],
-                cwd=str(project), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)))
+            procs.append(
+                (
+                    project,
+                    subprocess.Popen(
+                        ["sssf", "run", "simple_sdlc", req, "--project", str(project)],
+                        cwd=str(project),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    ),
+                )
+            )
     for _p, proc in procs:
         proc.wait(timeout=120)
     dispatch_s = time.time() - t0
 
     # ── wait for all sessions terminal (fast: no containers left + settle) ─
     import os
-    from sssf.sandbox import sync_run_db, project_db_path
+
+    from sssf.sandbox import project_db_path
+
     deadline = time.time() + 15 * 60
     settle = time.time() + 30
     while time.time() < deadline:
-        containers = len(sh("docker", "ps", "-a", "--filter", "name=sssf-",
-                            "--format", "{{.Names}}").stdout.strip().splitlines())
+        containers = len(
+            sh("docker", "ps", "-a", "--filter", "name=sssf-", "--format", "{{.Names}}")
+            .stdout.strip()
+            .splitlines()
+        )
         done = True
         for project in PROJECTS:
             try:
-                conn = sqlite3.connect(str(project_db_path(project / "adws/adw_data")),
-                                       isolation_level=None, timeout=10)
+                conn = sqlite3.connect(
+                    str(project_db_path(project / "adws/adw_data")),
+                    isolation_level=None,
+                    timeout=10,
+                )
                 rows = conn.execute("SELECT status FROM sessions").fetchall()
                 conn.close()
             except sqlite3.Error:
@@ -92,7 +110,8 @@ def main() -> int:
         try:
             conn = sqlite3.connect(str(db_path), isolation_level=None, timeout=10)
             sessions = conn.execute(
-                "SELECT adw_id, status, started_at, ended_at FROM sessions ORDER BY started_at").fetchall()
+                "SELECT adw_id, status, started_at, ended_at FROM sessions ORDER BY started_at"
+            ).fetchall()
             integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
             conn.close()
         except sqlite3.Error:
@@ -111,21 +130,32 @@ def main() -> int:
         overall["success"] += success
         overall["fail"] += failed + failed_to_start
         overall["pending"] += pending
-        print(f"\nproject {project.name}: sessions {len(sessions)} · success {success} · "
-              f"fail {failed} · failed-to-start {PER - len(sessions)} · pending {pending} · "
-              f"integrity {integrity} · branches {len(branches)} · leftover worktrees {leftover_wt} · "
-              f"{'PASS' if ok else 'FAIL'}")
+        print(
+            f"\nproject {project.name}: sessions {len(sessions)} · success {success} · "
+            f"fail {failed} · failed-to-start {PER - len(sessions)} · pending {pending} · "
+            f"integrity {integrity} · branches {len(branches)} · leftover worktrees {leftover_wt} · "
+            f"{'PASS' if ok else 'FAIL'}"
+        )
         for adw_id, status, _s, _e in sessions:
             print(f"  {adw_id}  {status}")
 
     print("\n=== E2E projects report ===")
-    print(f"projects: {len(PROJECTS)} × {PER} sessions · dispatched in {dispatch_s:.0f}s · "
-          f"finished in {elapsed:.0f}s")
-    print(f"total: {len(PROJECTS) * PER} sessions · {overall['success']} success · "
-          f"{overall['fail']} fail · {overall['pending']} pending")
-    print(f"leftover containers: {len(sh('docker', 'ps', '-a', '--filter', 'name=sssf-', '--format', '{{.Names}}').stdout.strip().splitlines())}")
-    print("RESULT:", "PASS" if all_ok and overall["pending"] == 0 else "FAIL",
-          f"— LLM verdicts: {overall['success']}/{len(PROJECTS) * PER} success")
+    print(
+        f"projects: {len(PROJECTS)} × {PER} sessions · dispatched in {dispatch_s:.0f}s · "
+        f"finished in {elapsed:.0f}s"
+    )
+    print(
+        f"total: {len(PROJECTS) * PER} sessions · {overall['success']} success · "
+        f"{overall['fail']} fail · {overall['pending']} pending"
+    )
+    print(
+        f"leftover containers: {len(sh('docker', 'ps', '-a', '--filter', 'name=sssf-', '--format', '{{.Names}}').stdout.strip().splitlines())}"
+    )
+    print(
+        "RESULT:",
+        "PASS" if all_ok and overall["pending"] == 0 else "FAIL",
+        f"— LLM verdicts: {overall['success']}/{len(PROJECTS) * PER} success",
+    )
     return 0 if all_ok and overall["pending"] == 0 else 1
 
 

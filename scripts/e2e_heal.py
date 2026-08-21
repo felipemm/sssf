@@ -11,6 +11,7 @@ Sets up a fresh project, then runs three deterministic scenarios through
 
 Run: uv run python scripts/e2e_heal.py
 """
+
 from __future__ import annotations
 
 import shutil
@@ -54,12 +55,20 @@ def main() -> int:
     data = root / "adws" / "adw_data"
     data.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db(root)), isolation_level=None, timeout=10)
-    conn.execute("CREATE TABLE IF NOT EXISTS sessions (adw_id TEXT PRIMARY KEY, status TEXT, started_at TEXT, ended_at TEXT)")
-    conn.execute("CREATE TABLE IF NOT EXISTS phases (phase_id TEXT PRIMARY KEY, adw_id TEXT, status TEXT, error TEXT, ended_at TEXT)")
-    conn.execute("CREATE TABLE IF NOT EXISTS tickets (id TEXT PRIMARY KEY, provider TEXT, external_id TEXT, title TEXT, description TEXT, status TEXT, prompt_file TEXT, adw_id TEXT, source_url TEXT, created_at TEXT, updated_at TEXT)")
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS sessions (adw_id TEXT PRIMARY KEY, status TEXT, started_at TEXT, ended_at TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS phases (phase_id TEXT PRIMARY KEY, adw_id TEXT, status TEXT, error TEXT, ended_at TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS tickets (id TEXT PRIMARY KEY, provider TEXT, external_id TEXT, title TEXT, description TEXT, status TEXT, prompt_file TEXT, adw_id TEXT, source_url TEXT, created_at TEXT, updated_at TEXT)"
+    )
 
     # ── scenario 1: dead run ───────────────────────────────────────────────
-    conn.execute("INSERT INTO sessions (adw_id, status, started_at) VALUES ('dead1', 'running', datetime('now'))")
+    conn.execute(
+        "INSERT INTO sessions (adw_id, status, started_at) VALUES ('dead1', 'running', datetime('now'))"
+    )
     conn.commit()
     actions = heal_once()
     s = conn.execute("SELECT status FROM sessions WHERE adw_id='dead1'").fetchone()[0]
@@ -67,8 +76,8 @@ def main() -> int:
     results.append(("dead run finalized", ok1, f"status={s} actions={actions}"))
 
     # ── scenario 2: monitor crash — container gone, worktree + per-run db stay
-    import os
     import sssf.sandbox as sb
+
     wt = sb.sandbox_dir(root, "mon1")
     (wt / "adws/adw_data").mkdir(parents=True, exist_ok=True)
     pr = wt / "adws/adw_data/sssf.db"
@@ -77,19 +86,33 @@ def main() -> int:
     pconn.execute("INSERT INTO sessions VALUES ('mon1', 'success', datetime('now'))")
     pconn.commit()
     pconn.close()
-    conn.execute("INSERT INTO sessions (adw_id, status, started_at) VALUES ('mon1', 'running', datetime('now'))")
+    conn.execute(
+        "INSERT INTO sessions (adw_id, status, started_at) VALUES ('mon1', 'running', datetime('now'))"
+    )
     conn.commit()
     conn.close()
     actions = heal_once()
-    ok2 = wt.exists() is False and conn is not None and (
-        sqlite3.connect(str(db(root)), isolation_level=None).execute(
-            "SELECT status FROM sessions WHERE adw_id='mon1'").fetchone()[0] == "success")
+    ok2 = (
+        wt.exists() is False
+        and conn is not None
+        and (
+            sqlite3.connect(str(db(root)), isolation_level=None)
+            .execute("SELECT status FROM sessions WHERE adw_id='mon1'")
+            .fetchone()[0]
+            == "success"
+        )
+    )
     conn = sqlite3.connect(str(db(root)), isolation_level=None, timeout=10)
-    results.append(("monitor-crash recovered", ok2, f"worktree_removed={not wt.exists()} actions={actions}"))
+    results.append(
+        ("monitor-crash recovered", ok2, f"worktree_removed={not wt.exists()} actions={actions}")
+    )
 
     # ── scenario 3: ticket stuck 'starting' past the threshold ─────────────
     old = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - 60 * 30))
-    conn.execute("INSERT INTO tickets (id, provider, title, status, adw_id, updated_at) VALUES ('internal:stuck1','internal','x','starting','tkt1',?)", (old,))
+    conn.execute(
+        "INSERT INTO tickets (id, provider, title, status, adw_id, updated_at) VALUES ('internal:stuck1','internal','x','starting','tkt1',?)",
+        (old,),
+    )
     conn.commit()
     conn.close()
     actions = heal_once()

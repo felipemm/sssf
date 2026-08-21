@@ -1,4 +1,5 @@
 """`sssf heal` — the self-healing monitor daemon (start / stop / status)."""
+
 from __future__ import annotations
 
 from sssf import healer

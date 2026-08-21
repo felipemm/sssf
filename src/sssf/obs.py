@@ -1,4 +1,5 @@
 """Read-only trace queries over a project's WAL sssf.db."""
+
 from __future__ import annotations
 
 import sqlite3

@@ -4,6 +4,8 @@ Every function here is plain Python — no agents, no ad-hoc steps. Creation
 and teardown are idempotent so a crash mid-teardown leaves re-runnable
 cleanup.
 """
+
+import contextlib
 import os
 import shutil
 import sqlite3
@@ -20,7 +22,9 @@ class SandboxError(RuntimeError):
 def _run_git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", "-C", str(root), *args],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
 
 
@@ -61,7 +65,7 @@ def _worktree_registered(wt_dir: Path) -> bool:
             return admin.exists()
     except OSError:
         pass
-    return True   # unknown — don't delete
+    return True  # unknown — don't delete
 
 
 def remove_worktree(wt_dir: Path) -> None:
@@ -73,16 +77,27 @@ def remove_worktree(wt_dir: Path) -> None:
         return
     r = subprocess.run(
         ["git", "-C", str(wt_dir), "rev-parse", "--show-toplevel"],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if r.returncode == 0:
         root = Path(r.stdout.strip())
-        subprocess.run(["git", "-C", str(root), "worktree", "remove", "--force", str(wt_dir)],
-                       capture_output=True, text=True, check=False)
-        subprocess.run(["git", "-C", str(root), "worktree", "prune"],
-                       capture_output=True, text=True, check=False)
+        subprocess.run(
+            ["git", "-C", str(root), "worktree", "remove", "--force", str(wt_dir)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        subprocess.run(
+            ["git", "-C", str(root), "worktree", "prune"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
     if wt_dir.exists() and not _worktree_registered(wt_dir):
         import shutil
+
         shutil.rmtree(wt_dir, ignore_errors=True)
 
 
@@ -96,7 +111,9 @@ def _docker(*args: str, timeout_s: int = 300) -> subprocess.CompletedProcess[str
     # Resolve per call (not at import): the fake-docker tests swap PATH after
     # import, and shutil.which at module level would pin the real binary.
     docker = shutil.which("docker") or "docker"
-    return subprocess.run([docker, *args], capture_output=True, text=True, check=False, timeout=timeout_s)
+    return subprocess.run(
+        [docker, *args], capture_output=True, text=True, check=False, timeout=timeout_s
+    )
 
 
 def docker_available() -> bool:
@@ -107,8 +124,7 @@ def docker_available() -> bool:
 def build_image(image: str, dockerfile: Path, context: Path | None = None) -> None:
     # -t is mandatory: an untagged build leaves the image dangling and every
     # run keeps using the stale sssf-runner:latest.
-    r = _docker("build", "-t", image, "-f", str(dockerfile),
-                str(context or dockerfile.parent))
+    r = _docker("build", "-t", image, "-f", str(dockerfile), str(context or dockerfile.parent))
     if r.returncode != 0:
         raise SandboxError(f"docker build failed: {r.stderr.strip()[:500]}")
 
@@ -135,10 +151,16 @@ def run_sandbox(
     the shared object store — that is the point).
     """
     args = [
-        "run", "-d", "--name", name,
-        "-v", f"{worktree}:/work",
-        "-w", "/work",
-        "-v", f"{pi_home}:/opt/pi-agent-host:ro",
+        "run",
+        "-d",
+        "--name",
+        name,
+        "-v",
+        f"{worktree}:/work",
+        "-w",
+        "/work",
+        "-v",
+        f"{pi_home}:/opt/pi-agent-host:ro",
     ]
     if git_dir is not None:
         args += ["-v", f"{git_dir}:{git_dir}:rw"]
@@ -147,9 +169,9 @@ def run_sandbox(
         # HOME=/tmp in the image, mount the host config read-only at /tmp/.config.
         args += ["-v", f"{config_dir}:/tmp/.config:ro"]
     args += ["--user", f"{uid}:{gid}"]
-    for k, v in env.items():
+    for k, v in (env or {}).items():
         args += ["-e", f"{k}={v}"]
-    args += [image, *cmd]
+    args += [image, *(cmd or [])]
     # Docker Desktop can hiccup under concurrent container creation — retry
     # the run a few times before giving up.
     last: subprocess.CompletedProcess[str] | None = None
@@ -181,13 +203,29 @@ _FINGERPRINT_PATH = "/opt/sssf-fingerprint"
 _fingerprint_cache: dict[str, str | None] = {}
 
 
+def enabled(root: Path, *, command: str) -> bool:
+    """The single sandbox decision (audit A1, C2). NEVER silently degrades to a
+    local run: a missing config or a bug here is printed, not swallowed."""
+    try:
+        from sssf.adw_modules import paths
+        from sssf.adw_modules.agents import load_config
+        cfg = load_config(str(paths.config_file(root)))
+        return cfg.sandbox.enabled
+    except Exception as error:
+        print(f"sssf: sandbox decision failed for {command} ({error}) — "
+              f"running unsandboxed", file=sys.stderr)
+        return False
+
+
 def _engine_fingerprint() -> str:
     """Fingerprint of the LOCAL sssf engine source — the CLI side of the
     staleness check. The runner image bakes the same fingerprint at build time
     (docker/sssf-runner.Dockerfile); a mismatch means the image predates local
     engine changes and every sandboxed run would die cryptically."""
     import hashlib
+
     import sssf
+
     root = Path(sssf.__file__).resolve().parent
     # Same algorithm as the Dockerfile's marker build: one sha256 per file
     # (in sorted-path order), then sha256 of the newline-joined hex digests.
@@ -196,10 +234,13 @@ def _engine_fingerprint() -> str:
     # frontend-only changes must not stale the runner image.
     _SKIP_DIRS = {"node_modules", ".venv", ".git", "__pycache__", "visualizer"}
     files = sorted(
-        p for p in root.rglob("*")
-        if p.is_file() and not p.is_symlink()
+        p
+        for p in root.rglob("*")
+        if p.is_file()
+        and not p.is_symlink()
         and p.suffix != ".pyc"
-        and not _SKIP_DIRS.intersection(p.parts))
+        and not _SKIP_DIRS.intersection(p.parts)
+    )
     digests = [hashlib.sha256(p.read_bytes()).hexdigest() for p in files]
     return hashlib.sha256(("\n".join(digests) + "\n").encode()).hexdigest()
 
@@ -224,35 +265,51 @@ def ensure_image_current(image: str) -> None:
     if have is None:
         raise SandboxError(
             f"runner image '{image}' is missing or unreadable — "
-            f"run `sssf sandbox build` to build it")
+            f"run `sssf sandbox build` to build it"
+        )
     if have != want:
         raise SandboxError(
             f"runner image '{image}' is stale (image fingerprint {have[:12]} "
-            f"≠ CLI {want[:12]}) — run `sssf sandbox build` to rebuild it")
+            f"≠ CLI {want[:12]}) — run `sssf sandbox build` to rebuild it"
+        )
 
 
-def spawn_sandbox(project_root: Path, adw_id: str, *, cmd: list[str],
-                  image: str, data_dir: Path, pi_home: Path,
-                  env: dict[str, str] | None = None,
-                  uid: int | None = None, gid: int | None = None,
-                  attach: bool = False,
-                  worktree: Path | None = None) -> dict:
+def spawn_sandbox(
+    project_root: Path,
+    adw_id: str,
+    *,
+    cmd: list[str],
+    image: str,
+    data_dir: Path,
+    pi_home: Path,
+    env: dict[str, str] | None = None,
+    uid: int | None = None,
+    gid: int | None = None,
+    attach: bool = False,
+    worktree: Path | None = None,
+) -> dict:
     """Start the container in a (created) worktree. Deterministic; returns the
     sandbox record (worktree, name). attach=True reuses the run's existing
     branch (a restart). `worktree` supplies an ALREADY-created worktree (the
     ticket path creates one first to write the prompt) — never create twice."""
     ensure_image_current(image)
     wt = worktree or create_worktree(project_root, adw_id, attach=attach)
-    stamp_adw_template(wt)   # deterministic: the installed template, not a stale init stamp
+    stamp_adw_template(wt)  # deterministic: the installed template, not a stale init stamp
     uid = uid if uid is not None else os.getuid()
     gid = gid if gid is not None else os.getgid()
-    env = {**(env or {}), "SSSF_IN_SANDBOX": "1"}   # tracer uses rollback journal (mount-visible)
+    env = {**(env or {}), "SSSF_IN_SANDBOX": "1"}  # tracer uses rollback journal (mount-visible)
     run_sandbox(
-        image, container_name(adw_id),
-        worktree=wt, data_dir=data_dir, pi_home=pi_home,
+        image,
+        container_name(adw_id),
+        worktree=wt,
+        data_dir=data_dir,
+        pi_home=pi_home,
         git_dir=project_root / ".git",
         config_dir=Path.home() / ".config",
-        uid=uid, gid=gid, env=env, cmd=cmd,
+        uid=uid,
+        gid=gid,
+        env=env,
+        cmd=cmd,
     )
     return {"worktree": str(wt), "name": container_name(adw_id)}
 
@@ -273,8 +330,9 @@ def teardown_sandbox(project_root: Path, adw_id: str) -> int:
     return 0
 
 
-def _forward_merge(conn: sqlite3.Connection, src: sqlite3.Connection,
-                  table: str, adw_id: str) -> None:
+def _forward_merge(
+    conn: sqlite3.Connection, src: sqlite3.Connection, table: str, adw_id: str
+) -> None:
     """Merge one row-table (sessions/phases) forward-only: INSERT rows the
     project lacks, and UPDATE a row's status only while the project row is
     still un-ended (ended_at IS NULL). A stale mid-run copy can never
@@ -291,8 +349,10 @@ def _forward_merge(conn: sqlite3.Connection, src: sqlite3.Connection,
             return
         q = ",".join("?" * len(cols))
         # insert missing rows (by PK)
-        existing = {r[cols.index(pk)] for r in
-                    conn.execute(f"SELECT {pk} FROM {table} WHERE adw_id=?", (adw_id,)).fetchall()}
+        existing = {
+            r[cols.index(pk)]
+            for r in conn.execute(f"SELECT {pk} FROM {table} WHERE adw_id=?", (adw_id,)).fetchall()
+        }
         insert_cols = ",".join(cols)
         for row in rows:
             if row[cols.index(pk)] not in existing:
@@ -305,7 +365,8 @@ def _forward_merge(conn: sqlite3.Connection, src: sqlite3.Connection,
                     sets = [f"{c}=?" for c in cols if c not in (pk, "adw_id")]
                     conn.execute(
                         f"UPDATE {table} SET {','.join(sets)} WHERE {pk}=? AND ended_at IS NULL",
-                        [row[cols.index(c)] for c in cols if c not in (pk, "adw_id")] + [pk_val])
+                        [row[cols.index(c)] for c in cols if c not in (pk, "adw_id")] + [pk_val],
+                    )
         # live totals: tokens/cost only accumulate, so a max-merge on every
         # sync never regresses — a torn mid-run copy carries fewer tokens than
         # the previous sync, and MAX is safe in both directions. This is what
@@ -317,7 +378,8 @@ def _forward_merge(conn: sqlite3.Connection, src: sqlite3.Connection,
                     conn.execute(
                         f"UPDATE {table} SET {col}=MAX(COALESCE({col},0), COALESCE(?,0)) "
                         f"WHERE {pk}=?",
-                        (row[cols.index(col)], pk_val))
+                        (row[cols.index(col)], pk_val),
+                    )
     except sqlite3.Error:
         pass
 
@@ -331,6 +393,7 @@ def sync_run_db(conn: sqlite3.Connection, per_run_db: Path, adw_id: str) -> None
     is skipped; the next sync catches up. DELETE the run's previous rows then
     INSERT the current ones, per table, so repeated syncs never duplicate."""
     import shutil
+
     if not per_run_db.exists():
         return
     tmp = per_run_db.with_suffix(".sync-copy.db")
@@ -350,29 +413,117 @@ def sync_run_db(conn: sqlite3.Connection, per_run_db: Path, adw_id: str) -> None
             # downgrade a terminal state the project already recorded.
             _forward_merge(conn, src, "sessions", adw_id)
             _forward_merge(conn, src, "phases", adw_id)
-            for table in ("events", "envelopes", "gate_results",
-                          "processes", "agent_sessions"):
+            for table in ("events", "envelopes", "gate_results", "processes", "agent_sessions"):
                 try:
                     cols = [r[1] for r in src.execute(f"PRAGMA table_info({table})")]
                     if not cols or "adw_id" not in cols:
                         continue
                     conn.execute(f"DELETE FROM {table} WHERE adw_id=?", (adw_id,))
-                    rows = src.execute(f"SELECT * FROM {table} WHERE adw_id=?", (adw_id,)).fetchall()
+                    rows = src.execute(
+                        f"SELECT * FROM {table} WHERE adw_id=?", (adw_id,)
+                    ).fetchall()
                     if rows:
                         q = ",".join("?" * len(cols))
                         conn.executemany(
-                            f"INSERT INTO {table} ({','.join(cols)}) VALUES ({q})", rows)
+                            f"INSERT INTO {table} ({','.join(cols)}) VALUES ({q})", rows
+                        )
                 except sqlite3.Error:
-                    continue   # a table missing in one of the dbs — skip
+                    continue  # a table missing in one of the dbs — skip
         finally:
             src.close()
     except sqlite3.Error:
-        pass   # torn copy — the next sync catches up
+        pass  # torn copy — the next sync catches up
     finally:
-        try:
+        with contextlib.suppress(OSError):
             tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
+
+
+def _container_gone(docker_fn, name: str) -> bool:
+    """True only when the container is actually gone. A docker hiccup is NOT
+    'gone' — treat it as a retry, never as the run finishing (audit A2)."""
+    try:
+        r = docker_fn("ps", "--filter", f"name={name}",
+                      "--format", "{{.Status}}", timeout_s=30)
+        return not r.stdout.strip()
+    except Exception as error:      # docker is down/glitchy
+        print(f"sssf: teardown poll docker error ({error}) — retrying", file=sys.stderr)
+        return False
+
+
+def record_never_started(project_root: Path, adw_id: str, tracer, per_run_db: Path) -> None:
+    """A run whose container exited before the ADW ever wrote a session row
+    (spawn-death: missing entry file, stale/broken image, import error). The
+    monitor used to erase the only evidence — container and worktree — so a
+    dead spawn looked like it 'never started' (issue #21; the 2026-08-18
+    ticket stuck at 'starting' with no session row). Record the failure:
+    exit code + container log tail become a failed session with an 'error'
+    event, and any ticket linked to this run flips to failed. Best-effort:
+    teardown must still run even when docker/sqlite hiccups."""
+    # The ADW did start if EITHER db has a session row (a previous sync may
+    # already have merged the per-run copy into the project db).
+    for db in (per_run_db, tracer.conn):
+        try:
+            if isinstance(db, Path):
+                if not db.exists():
+                    continue
+                conn = sqlite3.connect(str(db), isolation_level=None)
+                row = conn.execute(
+                    "SELECT 1 FROM sessions WHERE adw_id=?", (adw_id,)
+                ).fetchone()
+                conn.close()
+            else:
+                row = db.execute(
+                    "SELECT 1 FROM sessions WHERE adw_id=?", (adw_id,)
+                ).fetchone()
+            if row:
+                return
+        except sqlite3.Error:
+            continue
+    name = container_name(adw_id)
+    exit_code, log_tail = "", ""
+    try:
+        r = _docker("inspect", "--format", "{{.State.ExitCode}}", name, timeout_s=15)
+        exit_code = r.stdout.strip()
+    except Exception:
+        pass
+    try:
+        r = _docker("logs", "--tail", "40", name, timeout_s=15)
+        log_tail = (r.stdout + r.stderr).strip()
+    except Exception:
+        pass
+    from sssf.adw_modules.data_types import EventRecord
+    from sssf.adw_modules.utils import now_iso
+
+    now = now_iso()
+    tracer.conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, request, status, engineer,"
+        " started_at, ended_at) VALUES (?,?,?,?,?,?,?)",
+        (
+            adw_id,
+            "adw_simple_sdlc (never started)",
+            "sandboxed run died before the ADW started — see the error event"
+            " for container output",
+            "fail",
+            "sssf",
+            now,
+            now,
+        ),
+    )
+    tracer.event(
+        EventRecord(
+            adw_id=adw_id,
+            type="error",
+            name="sandbox spawn failure",
+            payload={
+                "exit_code": exit_code,
+                "container_log_tail": log_tail[-2000:],
+            },
+        )
+    )
+    tracer.conn.execute(
+        "UPDATE tickets SET status='failed', updated_at=? WHERE adw_id=?",
+        (now, adw_id),
+    )
 
 
 def monitor_run(project_root: Path, adw_id: str) -> int:
@@ -382,25 +533,27 @@ def monitor_run(project_root: Path, adw_id: str) -> int:
     connection is reused (the host owns the project db — WAL, host filesystem —
     so concurrent monitors serialize through busy_timeout). Spawned by
     `sssf run`/`ticket run` right after the container starts."""
-    import sqlite3
     from sssf.adw_modules.tracer import Tracer
+
     data_dir, _pi, _env = sandbox_env(project_root)
     project_db = project_db_path(data_dir)
     per_run_db = sandbox_dir(project_root, adw_id) / "adws" / "data" / "sssf.db"
     tracer = Tracer(str(project_db), str(project_db.parent / "sessions" / adw_id / "events.jsonl"))
     try:
         while True:
-            try:
-                r = _docker("ps", "--filter", f"name={container_name(adw_id)}",
-                            "--format", "{{.Status}}", timeout_s=30)
-                if not r.stdout.strip():
-                    break   # container gone — the run is done
-            except Exception:
-                break
+            if _container_gone(_docker, container_name(adw_id)):
+                break  # container gone — the run is done
             sync_run_db(tracer.conn, per_run_db, adw_id)
             time.sleep(3)
     finally:
-        sync_run_db(tracer.conn, per_run_db, adw_id)   # final merge
+        # Evidence first (logs are read while the container still exists),
+        # then the final merge, then teardown. A spawn-death must leave a
+        # visible failed session — never look like it 'never started'.
+        try:
+            record_never_started(project_root, adw_id, tracer, per_run_db)
+        except Exception as error:  # evidence is best-effort; teardown must still run
+            print(f"sssf: could not record spawn failure ({error})", file=sys.stderr)
+        sync_run_db(tracer.conn, per_run_db, adw_id)  # final merge
         teardown_sandbox(project_root, adw_id)
     return 0
 
@@ -416,7 +569,9 @@ def spawn_monitor(project_root: Path, adw_id: str) -> None:
     subprocess.Popen(
         [sys.executable, "-c", code, str(project_root), adw_id],
         start_new_session=True,
-        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
 
@@ -434,10 +589,16 @@ def _git_identity(project_root: Path) -> tuple[str, str]:
     repo-local and global config work. Empty strings when unset — the
     container then has no identity and git fails loudly instead of silently
     attributing the commit."""
+
     def get(key: str) -> str:
-        r = subprocess.run(["git", "-C", str(project_root), "config", key],
-                           capture_output=True, text=True, check=False)
+        r = subprocess.run(
+            ["git", "-C", str(project_root), "config", key],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
         return r.stdout.strip() if r.returncode == 0 else ""
+
     return get("user.name"), get("user.email")
 
 
@@ -446,6 +607,7 @@ def sandbox_env(project_root: Path) -> tuple[Path, Path, dict[str, str]]:
     mount), and the env passed to the container: credentials + git identity
     only — never project files."""
     from sssf.adw_modules import paths
+
     data_dir = paths.data_dir(project_root)
     pi_home = Path(os.environ.get("PI_HOME", Path.home() / ".pi" / "agent"))
     env: dict[str, str] = {}
@@ -466,16 +628,21 @@ def sandbox_env(project_root: Path) -> tuple[Path, Path, dict[str, str]]:
         # Author AND committer — git needs both pairs inside the container, or
         # `git commit` dies with "Committer identity unknown". ENGINEER_NAME is
         # how engineer_name() resolves the run's engineer label in the sandbox.
-        env.update({
-            "GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email,
-            "GIT_COMMITTER_NAME": name, "GIT_COMMITTER_EMAIL": email,
-            "ENGINEER_NAME": name,
-        })
+        env.update(
+            {
+                "GIT_AUTHOR_NAME": name,
+                "GIT_AUTHOR_EMAIL": email,
+                "GIT_COMMITTER_NAME": name,
+                "GIT_COMMITTER_EMAIL": email,
+                "ENGINEER_NAME": name,
+            }
+        )
     return data_dir, pi_home, env
 
 
 def _session_status(data_dir: Path, adw_id: str) -> str | None:
     import sqlite3
+
     db_path = project_db_path(data_dir)
     if not db_path.exists():
         return None
@@ -488,8 +655,9 @@ def _session_status(data_dir: Path, adw_id: str) -> str | None:
         return None
 
 
-def stop_run(project_root: Path, adw_id: str, data_dir: Path,
-             reason: str = "stopped by the engineer") -> int:
+def stop_run(
+    project_root: Path, adw_id: str, data_dir: Path, reason: str = "stopped by the engineer"
+) -> int:
     """Terminate a run: kill the container and remove the worktree. If the
     session is still marked running afterwards (a stale run whose ADW died
     without its failsafe — e.g. SIGKILL teardown), finalize it as failed so it
@@ -503,15 +671,19 @@ def stop_run(project_root: Path, adw_id: str, data_dir: Path,
     status = _session_status(data_dir, adw_id)
     if status is not None and status not in ("success", "fail"):
         import datetime
+
         from sssf.adw_modules.tracer import Tracer
-        tracer = Tracer(str(project_db_path(data_dir)),
-                        str(data_dir / "sessions" / adw_id / "events.jsonl"))
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+        tracer = Tracer(
+            str(project_db_path(data_dir)), str(data_dir / "sessions" / adw_id / "events.jsonl")
+        )
+        now = datetime.datetime.now(datetime.UTC).isoformat()
         tracer.conn.execute(
             "UPDATE phases SET status='fail', error=?, ended_at=? "
             "WHERE adw_id=? AND status IN ('running','queued')",
-            (reason, now, adw_id))
-        tracer.session_finish(adw_id, ok=False)   # a cancelled run is failed
+            (reason, now, adw_id),
+        )
+        tracer.session_finish(adw_id, ok=False)  # a cancelled run is failed
     return 0
 
 
@@ -522,7 +694,9 @@ def stamp_adw_template(wt: Path) -> None:
     upgrade) — sandboxed runs must use the installed templates so the run
     matches the installed sssf exactly."""
     import shutil
+
     import sssf
+
     templates = Path(sssf.__file__).parent / "templates"
     adw = templates / "adws" / "adw_simple_sdlc.py"
     if adw.exists():

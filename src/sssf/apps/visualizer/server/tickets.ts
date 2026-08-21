@@ -33,17 +33,7 @@ const TICKET_RUNS_DDL = `CREATE TABLE IF NOT EXISTS ticket_runs (
   PRIMARY KEY (ticket_id, adw_id))`;
 
 /** The feature is on when ticketing.yaml exists with an uncommented providers: line. */
-export function isEnabled(root: string): boolean {
-  const path = resolve(root, "adws", "config", "ticketing.yaml");
-  if (!existsSync(path)) return false;
-  try {
-    return readFileSync(path, "utf8")
-      .split("\n")
-      .some((line) => /^\s*providers\s*:/.test(line));
-  } catch {
-    return false;
-  }
-}
+export { ticketingEnabled as isEnabled } from "./ticketing";
 
 export function readTickets(dbPath: string): Ticket[] {
   const db = new Database(dbPath);
