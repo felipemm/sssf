@@ -272,6 +272,7 @@ def backlog(ticket_id: str, project: str | None = None) -> int:
 
 def _sandbox_enabled(root: Path) -> bool:
     from sssf import sandbox
+
     return sandbox.enabled(root, command="ticket")
 
 

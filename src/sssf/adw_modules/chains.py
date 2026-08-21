@@ -33,6 +33,10 @@ MAX_FIX_LOOPS = 3
 DESIGN_SURFACE = "site/"
 
 
+class ChainFailure(RuntimeError):
+    """Raise from a code phase to end the chain with a clean failed finish."""
+
+
 # ── phase specs ───────────────────────────────────────────────────────────────
 
 
@@ -46,8 +50,11 @@ class AgentPhase:
     owner: str
     output_type: type[EnvelopeBase]
     description: str = ""
+
     gates: list = field(default_factory=list)
     retries: int = 0
+    previous: str | None = None  # phase name whose envelope feeds this call
+    when: Callable[[object], bool] | None = None  # run-only condition
 
 
 @dataclass
@@ -59,6 +66,7 @@ class CodePhase:
     owner: str
     fn: Callable
     description: str = ""
+    when: Callable[[object], bool] | None = None  # run-only condition
 
 
 @dataclass
@@ -68,6 +76,14 @@ class QualityLoop:
 
     name: str = "verify"
     description: str = "Run every quality gate — known commands, no rediscovery"
+
+
+@dataclass
+class ReviewLoop:
+    """The reviewer/revise loop: review until approved (bounded)."""
+
+    max_loops: int = 3
+    description: str = "Confirm the build matches the plan"
 
 
 @dataclass
@@ -103,7 +119,7 @@ def run_quality_phase(run, phase) -> QualityResult:
     return result
 
 
-def run_quality_or_raise(run, phase) -> None:
+def run_quality_or_raise(run, phase, previous=None) -> None:
     result = run_quality_phase(run, phase)
     if not result.passed:
         raise RuntimeError("quality failed: " + "; ".join(result.failures))
@@ -118,7 +134,15 @@ def commit_all(run, phase, message: str) -> None:
 
 def run_chain(cfg, run, prompt: str, chain: Chain) -> int:
     """Execute a declared chain. Returns run.finish()'s code (0 accepted)."""
+    try:
+        return _run_phases(cfg, run, prompt, chain)
+    except ChainFailure as failure:
+        return run.finish(accepted=False, reason=str(failure))
+
+
+def _run_phases(cfg, run, prompt: str, chain: Chain) -> int:
     previous: EnvelopeBase | None = None
+    outputs: dict[str, EnvelopeBase] = {}
 
     with run.phase(
         PhaseParams(
@@ -132,6 +156,9 @@ def run_chain(cfg, run, prompt: str, chain: Chain) -> int:
 
     for spec in chain.phases:
         if isinstance(spec, AgentPhase):
+            if spec.when is not None and not spec.when(run):
+                continue
+            prev = outputs.get(spec.previous, previous) if spec.previous else previous
             with run.phase(
                 PhaseParams(
                     name=spec.name,
@@ -145,24 +172,30 @@ def run_chain(cfg, run, prompt: str, chain: Chain) -> int:
                     AgentCall(
                         output_type=spec.output_type,
                         prompt=prompt,
-                        previous=previous,
+                        previous=prev,
                         gates=spec.gates,
                     )
                 )
+            outputs[spec.name] = previous
 
         elif isinstance(spec, QualityLoop):
             verified, reason, previous = _quality_loop(run, prompt, chain, previous)
             if not verified:
                 return run.finish(accepted=False, reason=reason)
 
+        elif isinstance(spec, ReviewLoop):
+            verified, previous = _review_loop(run, prompt, spec.max_loops, previous)
+            if not verified:
+                return run.finish(
+                    accepted=False,
+                    reason=f"review was not approved after {spec.max_loops} attempt(s)",
+                )
+
         elif isinstance(spec, CommitPhase):
             if previous is None:
-                return run.finish(
-                    accepted=False, reason="nothing produced before the commit phase"
-                )
+                return run.finish(accepted=False, reason="nothing produced before the commit phase")
             with run.phase(
-                PhaseParams(name=spec.name, kind="code", owner="git",
-                            description=spec.description)
+                PhaseParams(name=spec.name, kind="code", owner="git", description=spec.description)
             ) as ph:
                 message = getattr(previous, "commit_message", None) or (
                     f"sssf({run.adw_id}): {getattr(previous, 'summary', 'chain')}"
@@ -170,11 +203,17 @@ def run_chain(cfg, run, prompt: str, chain: Chain) -> int:
                 commit_all(run, ph, message)
 
         elif isinstance(spec, CodePhase):
+            if spec.when is not None and not spec.when(run):
+                continue
             with run.phase(
-                PhaseParams(name=spec.name, kind="code", owner=spec.owner,
-                            description=spec.description)
+                PhaseParams(
+                    name=spec.name, kind="code", owner=spec.owner, description=spec.description
+                )
             ) as ph:
-                spec.fn(run, ph, previous)
+                out = spec.fn(run, ph, previous)
+                if out is not None:
+                    outputs[spec.name] = out
+                    previous = out
 
         else:
             raise TypeError(f"unknown phase spec: {spec!r}")
@@ -182,6 +221,49 @@ def run_chain(cfg, run, prompt: str, chain: Chain) -> int:
     return run.finish()
 
 
+def _review_loop(run, prompt: str, max_loops: int, previous):
+    """review_i / revise_i until approved. Returns (approved, latest_build)."""
+    from sssf.adw_modules.data_types import ReviewOutput
+
+    latest = previous
+    for i in range(1, max_loops + 1):
+        with run.phase(
+            PhaseParams(
+                name=f"review_{i}",
+                kind="agent",
+                owner="reviewer",
+                description="Confirm the build matches the plan",
+            )
+        ) as ph:
+            review = ph.call(
+                AgentCall(
+                    output_type=ReviewOutput,
+                    prompt=prompt,
+                    previous=latest,
+                    gates=[gates.artifacts_exist, gates.verdict_consistent],
+                )
+            )
+        run._review_approved = review.approved
+        if review.approved or i == max_loops:
+            break
+        with run.phase(
+            PhaseParams(
+                name=f"revise_{i}",
+                kind="agent",
+                owner="builder",
+                retries=1,
+                description="Close the reviewer's blocking findings",
+            )
+        ) as ph:
+            latest = ph.call(
+                AgentCall(
+                    output_type=BuildOutput,
+                    prompt=prompt,
+                    previous=review,
+                    gates=[gates.diff_matches_claims],
+                )
+            )
+    return review.approved, latest
 
 
 def _quality_loop(run, prompt: str, chain: Chain, previous):
@@ -190,11 +272,16 @@ def _quality_loop(run, prompt: str, chain: Chain, previous):
     latest = previous
     for i in range(1, MAX_FIX_LOOPS + 1):
         with run.phase(
-            PhaseParams(name=f"verify_{i}", kind="code", owner="quality",
-                        description="Run every quality gate — known commands, no rediscovery")
+            PhaseParams(
+                name=f"verify_{i}",
+                kind="code",
+                owner="quality",
+                description="Run every quality gate — known commands, no rediscovery",
+            )
         ) as ph:
             result = run_quality_phase(run, ph)
 
+        run._quality_result = result
         if result.passed:
             return True, "", latest
 
@@ -205,8 +292,13 @@ def _quality_loop(run, prompt: str, chain: Chain, previous):
             break
 
         with run.phase(
-            PhaseParams(name=f"fix_{i}", kind="agent", owner="builder", retries=1,
-                        description="Resolve the reported gate failures")
+            PhaseParams(
+                name=f"fix_{i}",
+                kind="agent",
+                owner="builder",
+                retries=1,
+                description="Resolve the reported gate failures",
+            )
         ) as ph:
             latest = ph.call(
                 AgentCall(

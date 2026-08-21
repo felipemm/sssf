@@ -4,44 +4,38 @@
 Usage:
     uv run adws/adw_scout.py "<prompt or path/to/prompt.md>" [--config adws/config/sssf.config.yaml] [--adw-id a1b2c3d4]
 
-Phases: engineer(request) -> scout
-"""
+Phases: engineer(request) -> scout"""
 
 import argparse
 import sys
 
-from sssf.adw_modules import agents, gates, session, utils
-from sssf.adw_modules.data_types import AgentCall, PhaseParams, ScoutOutput
+from sssf.adw_modules import agents, chains, gates, session, utils
+from sssf.adw_modules.chains import (
+    AgentPhase,
+    Chain,
+)
+from sssf.adw_modules.data_types import ScoutOutput
 
-REQUIRED_AGENTS = ["scout"]
+CHAIN = Chain(
+    name="scout",
+    required_agents=["scout"],
+    phases=[
+        AgentPhase(
+            "scout",
+            "scout",
+            ScoutOutput,
+            description="Find and report where things live — change nothing",
+            gates=[gates.artifacts_exist],
+        ),
+    ],
+)
 
 
 def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> int:
     cfg = agents.load_config(config or agents.default_config_path())
-    agents.validate(cfg, REQUIRED_AGENTS)
+    agents.validate(cfg, CHAIN.required_agents)
     run = session.ensure(cfg, adw_id)
-
-    with run.phase(
-        PhaseParams(
-            name="request",
-            kind="engineer",
-            owner=run.engineer,
-            description="Capture the incoming ask",
-        )
-    ) as ph:
-        ph.log(input=prompt)
-
-    with run.phase(
-        PhaseParams(
-            name="scout",
-            kind="agent",
-            owner="scout",
-            description="Find and report where things live — change nothing",
-        )
-    ) as ph:
-        ph.call(AgentCall(output_type=ScoutOutput, prompt=prompt, gates=[gates.artifacts_exist]))
-
-    return run.finish()
+    return chains.run_chain(cfg, run, prompt, CHAIN)
 
 
 if __name__ == "__main__":

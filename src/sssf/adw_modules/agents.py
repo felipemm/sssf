@@ -45,6 +45,7 @@ def default_config_path() -> str:
     (the ADW runs with cwd=project root). One place instead of 13 copies
     (audit C3)."""
     from sssf.adw_modules import paths
+
     return str(paths.config_file(Path.cwd()))
 
 

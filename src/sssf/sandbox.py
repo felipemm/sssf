@@ -209,11 +209,14 @@ def enabled(root: Path, *, command: str) -> bool:
     try:
         from sssf.adw_modules import paths
         from sssf.adw_modules.agents import load_config
+
         cfg = load_config(str(paths.config_file(root)))
         return cfg.sandbox.enabled
     except Exception as error:
-        print(f"sssf: sandbox decision failed for {command} ({error}) — "
-              f"running unsandboxed", file=sys.stderr)
+        print(
+            f"sssf: sandbox decision failed for {command} ({error}) — running unsandboxed",
+            file=sys.stderr,
+        )
         return False
 
 
@@ -442,10 +445,9 @@ def _container_gone(docker_fn, name: str) -> bool:
     """True only when the container is actually gone. A docker hiccup is NOT
     'gone' — treat it as a retry, never as the run finishing (audit A2)."""
     try:
-        r = docker_fn("ps", "--filter", f"name={name}",
-                      "--format", "{{.Status}}", timeout_s=30)
+        r = docker_fn("ps", "--filter", f"name={name}", "--format", "{{.Status}}", timeout_s=30)
         return not r.stdout.strip()
-    except Exception as error:      # docker is down/glitchy
+    except Exception as error:  # docker is down/glitchy
         print(f"sssf: teardown poll docker error ({error}) — retrying", file=sys.stderr)
         return False
 
@@ -467,14 +469,10 @@ def record_never_started(project_root: Path, adw_id: str, tracer, per_run_db: Pa
                 if not db.exists():
                     continue
                 conn = sqlite3.connect(str(db), isolation_level=None)
-                row = conn.execute(
-                    "SELECT 1 FROM sessions WHERE adw_id=?", (adw_id,)
-                ).fetchone()
+                row = conn.execute("SELECT 1 FROM sessions WHERE adw_id=?", (adw_id,)).fetchone()
                 conn.close()
             else:
-                row = db.execute(
-                    "SELECT 1 FROM sessions WHERE adw_id=?", (adw_id,)
-                ).fetchone()
+                row = db.execute("SELECT 1 FROM sessions WHERE adw_id=?", (adw_id,)).fetchone()
             if row:
                 return
         except sqlite3.Error:
@@ -501,8 +499,7 @@ def record_never_started(project_root: Path, adw_id: str, tracer, per_run_db: Pa
         (
             adw_id,
             "adw_simple_sdlc (never started)",
-            "sandboxed run died before the ADW started — see the error event"
-            " for container output",
+            "sandboxed run died before the ADW started — see the error event for container output",
             "fail",
             "sssf",
             now,

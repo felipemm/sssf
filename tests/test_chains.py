@@ -83,13 +83,16 @@ def _make_run(tmp: Path, checks=None) -> _ChainRun:
 
 
 def test_agent_phases_chain_envelopes(tmp_path):
-    run = _make_run(tmp_path, checks=[QualityCheckSpec(
-        name="test", area="backend", operation="build", argv=["true"])])
+    run = _make_run(
+        tmp_path,
+        checks=[QualityCheckSpec(name="test", area="backend", operation="build", argv=["true"])],
+    )
     calls: list[str] = []
 
     def record_calls(name: str):
         def fn(run_, phase, previous):
             calls.append((name, previous.summary if previous else None))
+
         return fn
 
     chain = Chain(
@@ -104,6 +107,7 @@ def test_agent_phases_chain_envelopes(tmp_path):
         ],
     )
     import sssf.adw_modules.git_helper as gh
+
     gh_orig = gh.commit_all
     gh.commit_all = lambda message: "abc123"  # type: ignore[assignment]
     try:
@@ -119,16 +123,23 @@ def test_agent_phases_chain_envelopes(tmp_path):
 @pytest.fixture
 def fake_commit(monkeypatch):
     import sssf.adw_modules.git_helper as gh
+
     monkeypatch.setattr(gh, "commit_all", lambda message: "abc123")
 
 
 def test_quality_loop_breaks_on_pass(tmp_path, fake_commit):
-    run = _make_run(tmp_path, checks=[QualityCheckSpec(
-        name="test", area="backend", operation="build", argv=["true"])])
-    chain = Chain(name="bt", phases=[
-        AgentPhase("build", "builder", GenericOutput, description="b"),
-        QualityLoop(), CommitPhase(),
-    ])
+    run = _make_run(
+        tmp_path,
+        checks=[QualityCheckSpec(name="test", area="backend", operation="build", argv=["true"])],
+    )
+    chain = Chain(
+        name="bt",
+        phases=[
+            AgentPhase("build", "builder", GenericOutput, description="b"),
+            QualityLoop(),
+            CommitPhase(),
+        ],
+    )
     assert chains.run_chain(run.cfg, run, "x", chain) == 0
     # only verify_1 ran — no fix phase, no env failure
     names = [p.params.name for p in run.phases]
@@ -138,13 +149,21 @@ def test_quality_loop_breaks_on_pass(tmp_path, fake_commit):
 
 def test_quality_loop_breaks_on_env_failure(tmp_path, fake_commit):
     """An env failure never reaches the builder (audit B5 in the executor)."""
-    run = _make_run(tmp_path, checks=[QualityCheckSpec(
-        name="test", area="backend", operation="build",
-        argv=["definitely-not-a-binary"])])
-    chain = Chain(name="bt", phases=[
-        AgentPhase("build", "builder", GenericOutput, description="b"),
-        QualityLoop(),
-    ])
+    run = _make_run(
+        tmp_path,
+        checks=[
+            QualityCheckSpec(
+                name="test", area="backend", operation="build", argv=["definitely-not-a-binary"]
+            )
+        ],
+    )
+    chain = Chain(
+        name="bt",
+        phases=[
+            AgentPhase("build", "builder", GenericOutput, description="b"),
+            QualityLoop(),
+        ],
+    )
     assert chains.run_chain(run.cfg, run, "x", chain) == 1
     names = [p.params.name for p in run.phases]
     assert "verify_1" in names
@@ -155,13 +174,24 @@ def test_quality_loop_breaks_on_env_failure(tmp_path, fake_commit):
 
 def test_quality_loop_exhausts_then_fails(tmp_path, fake_commit):
     """A plain code failure burns the loop, then fails with the standard reason."""
-    run = _make_run(tmp_path, checks=[QualityCheckSpec(
-        name="test", area="backend", operation="build",
-        argv=["python3", "-c", "import sys; sys.exit(3)"])])
-    chain = Chain(name="bt", phases=[
-        AgentPhase("build", "builder", GenericOutput, description="b"),
-        QualityLoop(),
-    ])
+    run = _make_run(
+        tmp_path,
+        checks=[
+            QualityCheckSpec(
+                name="test",
+                area="backend",
+                operation="build",
+                argv=["python3", "-c", "import sys; sys.exit(3)"],
+            )
+        ],
+    )
+    chain = Chain(
+        name="bt",
+        phases=[
+            AgentPhase("build", "builder", GenericOutput, description="b"),
+            QualityLoop(),
+        ],
+    )
     assert chains.run_chain(run.cfg, run, "x", chain) == 1
     names = [p.params.name for p in run.phases]
     # MAX_FIX_LOOPS verifies, but the loop breaks before the final fix
