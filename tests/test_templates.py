@@ -151,7 +151,6 @@ def test_fix_loop_adws_break_on_env_failure():
 def test_spec_interviewer_templates_exist():
     """The three product-manager templates ship with the output contract and
     the pre-loaded skill routing (the user never invokes a skill)."""
-    import re
     for mode, skills in (("idea", ("grilling", "brainstorming")),
                          ("bug", ("grill-me", "grill-with-docs")),
                          ("feature", ("grilling",))):
