@@ -232,3 +232,50 @@ def test_teardown_poll_gone_only_on_empty_output(monkeypatch):
         return subprocess.CompletedProcess(a, 0, stdout="Up 2 minutes", stderr="")
 
     assert _container_gone(up, "sssf-x") is False
+
+
+# ── runner image upkeep helpers (auto-rebuild path) ────────────────────────
+
+
+def test_image_is_current_real_fingerprint(fake_docker, monkeypatch):
+    """A baked marker matching the local engine reports current — the real
+    fingerprint path, mirroring test_ensure_image_current_real_fingerprint."""
+    from sssf.sandbox import _engine_fingerprint
+
+    sandbox._fingerprint_cache.clear()  # never leak a cached marker between tests
+    real = _engine_fingerprint() + "\n"
+
+    def fake(*args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, stdout=real, stderr="")
+
+    monkeypatch.setattr(sandbox, "_docker", fake)
+    assert sandbox.image_is_current("sssf-current") is True
+
+
+def test_image_is_current_stale(monkeypatch):
+    monkeypatch.setattr(sandbox, "_engine_fingerprint", lambda: "FPWANT")
+    monkeypatch.setattr(sandbox, "image_engine_fingerprint", lambda image: "OLDHASH")
+    assert sandbox.image_is_current("sssf-stale") is False
+
+
+def test_image_is_current_missing(monkeypatch):
+    monkeypatch.setattr(sandbox, "_engine_fingerprint", lambda: "FPWANT")
+    monkeypatch.setattr(sandbox, "image_engine_fingerprint", lambda image: None)
+    assert sandbox.image_is_current("sssf-missing") is False
+
+
+def test_build_runner_image_clears_fingerprint_cache(fake_docker):
+    """After a rebuild the in-process fingerprint cache must not keep reporting
+    the OLD marker — otherwise the next guard would still refuse the fresh
+    image (and the healer would rebuild it on every pass)."""
+    sandbox._fingerprint_cache["sssf-runner"] = "stale-marker"
+    sandbox.build_runner_image("sssf-runner")
+    assert "sssf-runner" not in sandbox._fingerprint_cache
+    calls = fake_docker.read_text().splitlines()
+    assert any("build" in c and "sssf-runner.Dockerfile" in c for c in calls)
+
+
+def test_build_runner_image_missing_dockerfile_raises(monkeypatch):
+    monkeypatch.setattr(sandbox, "runner_dockerfile", lambda: None)
+    with pytest.raises(SandboxError, match=r"sssf-runner\.Dockerfile"):
+        sandbox.build_runner_image("sssf-runner")

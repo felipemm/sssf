@@ -103,6 +103,10 @@ is stuck:
   finalizes it.
 - **Spawn-failed ticket** (a ticket stuck in `starting`) → return it to the
   backlog and clean up the sandbox.
+- **Stale runner image** (the sandbox image's baked engine fingerprint no
+  longer matches the local sssf) → rebuild it automatically with
+  `docker build`; failed builds are remembered in state and retried after a
+  cooldown so the daemon never hammers docker.
 
 ```bash
 sssf heal start    # daemon, logs to the heal log (interval 30s)

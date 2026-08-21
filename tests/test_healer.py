@@ -3,6 +3,8 @@
 import json
 import sqlite3
 
+import pytest
+
 from sssf.healer import NO_PROGRESS_MIN, diagnose
 
 
@@ -151,8 +153,10 @@ def test_restart_budget_exhausts_then_finalizes(tmp_path, monkeypatch):
     """Restart bumps the budget; at the cap the session is finalized instead."""
     import subprocess
 
+    import sssf.healer as h
     import sssf.sandbox as sb
 
+    monkeypatch.setattr(h, "STATE_DIR", tmp_path)  # never touch the real state file
     root = tmp_path / "proj2"
     root.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
@@ -283,3 +287,135 @@ def test_recover_records_and_prunes_healed_state(tmp_path, monkeypatch):
     state["healed"].append({"adw_id": "ancient", "ts": old})
     h.recover(root, "stuck2", "running", None, "finalize", state)
     assert {x["adw_id"] for x in state["healed"]} == {"stuck1", "stuck2"}
+
+
+# ── runner image upkeep (auto-rebuild when stale) ──────────────────────────
+
+
+def _sandbox_proj(tmp_path, name="proj", image="sssf-runner", enabled=True):
+    """A scratch project root with a v2 config declaring a sandbox image."""
+    root = tmp_path / name
+    (root / "adws" / "config").mkdir(parents=True)
+    (root / "adws" / "config" / "sssf.config.yaml").write_text(
+        f"sandbox:\n  enabled: {'true' if enabled else 'false'}\n  image: {image}\n"
+    )
+    return root
+
+
+def test_heal_runner_images_rebuilds_stale_image(tmp_path, monkeypatch):
+    import sssf.healer as h
+
+    root = _sandbox_proj(tmp_path)
+    monkeypatch.setattr(h, "registry_projects", lambda: [("proj", root)])
+    monkeypatch.setattr(h, "docker_available", lambda: True)
+    monkeypatch.setattr(h, "image_is_current", lambda image: False)
+    built: list[str] = []
+    monkeypatch.setattr(h, "build_runner_image", lambda image: built.append(image))
+    st = {"builds": {}}
+    actions = h._heal_runner_images(st)
+    assert built == ["sssf-runner"]
+    assert len(actions) == 1 and "sssf-runner" in actions[0] and "rebuilt" in actions[0]
+    assert "sssf-runner" not in st.get("builds", {})  # success clears the record
+
+
+def test_heal_runner_images_skips_current_image(tmp_path, monkeypatch):
+    import sssf.healer as h
+
+    root = _sandbox_proj(tmp_path)
+    monkeypatch.setattr(h, "registry_projects", lambda: [("proj", root)])
+    monkeypatch.setattr(h, "docker_available", lambda: True)
+    monkeypatch.setattr(h, "image_is_current", lambda image: True)
+    monkeypatch.setattr(h, "build_runner_image", lambda image: pytest.fail("must not build"))
+    assert h._heal_runner_images({"builds": {}}) == []
+
+
+def test_heal_runner_images_skips_without_docker(tmp_path, monkeypatch):
+    import sssf.healer as h
+
+    root = _sandbox_proj(tmp_path)
+    monkeypatch.setattr(h, "registry_projects", lambda: [("proj", root)])
+    monkeypatch.setattr(h, "docker_available", lambda: False)
+    monkeypatch.setattr(h, "build_runner_image", lambda image: pytest.fail("must not build"))
+    assert h._heal_runner_images({"builds": {}}) == []
+
+
+def test_heal_runner_images_skips_disabled_sandbox(tmp_path, monkeypatch):
+    import sssf.healer as h
+
+    root = _sandbox_proj(tmp_path, enabled=False)
+    monkeypatch.setattr(h, "registry_projects", lambda: [("proj", root)])
+    monkeypatch.setattr(h, "docker_available", lambda: True)
+    monkeypatch.setattr(h, "image_is_current", lambda image: False)
+    monkeypatch.setattr(h, "build_runner_image", lambda image: pytest.fail("must not build"))
+    assert h._heal_runner_images({"builds": {}}) == []
+
+
+def test_heal_runner_images_dedupes_image_across_projects(tmp_path, monkeypatch):
+    """Two projects sharing one image rebuild it once, not per project."""
+    import sssf.healer as h
+
+    root_a = _sandbox_proj(tmp_path, "a")
+    root_b = _sandbox_proj(tmp_path, "b")
+    monkeypatch.setattr(h, "registry_projects", lambda: [("a", root_a), ("b", root_b)])
+    monkeypatch.setattr(h, "docker_available", lambda: True)
+    monkeypatch.setattr(h, "image_is_current", lambda image: False)
+    built: list[str] = []
+    monkeypatch.setattr(h, "build_runner_image", lambda image: built.append(image))
+    h._heal_runner_images({"builds": {}})
+    assert built == ["sssf-runner"]
+
+
+def test_heal_runner_images_failed_build_cooldowns(tmp_path, monkeypatch):
+    """A failed build is remembered in state so the daemon doesn't hammer
+    docker on every 30s pass."""
+    import sssf.healer as h
+
+    root = _sandbox_proj(tmp_path)
+    monkeypatch.setattr(h, "registry_projects", lambda: [("proj", root)])
+    monkeypatch.setattr(h, "docker_available", lambda: True)
+    monkeypatch.setattr(h, "image_is_current", lambda image: False)
+    calls: list[str] = []
+
+    def boom(image):
+        calls.append(image)
+        raise RuntimeError("docker daemon down")
+
+    monkeypatch.setattr(h, "build_runner_image", boom)
+    st = {"builds": {}}
+    actions = h._heal_runner_images(st)
+    assert calls == ["sssf-runner"]
+    assert "sssf-runner" in st["builds"]  # cooldown armed
+    assert "failed" in actions[0]
+    h._heal_runner_images(st)  # second pass inside the cooldown
+    assert calls == ["sssf-runner"]  # no retry
+
+
+def test_heal_runner_images_cooldown_expiry_retries(tmp_path, monkeypatch):
+    """Once the cooldown lapses a still-stale image is rebuilt again."""
+    import datetime
+
+    import sssf.healer as h
+
+    root = _sandbox_proj(tmp_path)
+    monkeypatch.setattr(h, "registry_projects", lambda: [("proj", root)])
+    monkeypatch.setattr(h, "docker_available", lambda: True)
+    monkeypatch.setattr(h, "image_is_current", lambda image: False)
+    calls: list[str] = []
+    monkeypatch.setattr(h, "build_runner_image", lambda image: calls.append(image))
+    old = (
+        datetime.datetime.now(datetime.UTC) - datetime.timedelta(minutes=h.BUILD_COOLDOWN_MIN + 5)
+    ).isoformat()
+    st = {"builds": {"sssf-runner": old}}
+    h._heal_runner_images(st)
+    assert calls == ["sssf-runner"]  # cooldown lapsed — retried
+
+
+def test_heal_summary_includes_builds(tmp_path, monkeypatch):
+    """heal_summary() exposes recent image-rebuild attempts."""
+    import sssf.healer as h
+
+    monkeypatch.setattr(h, "STATE_DIR", tmp_path)
+    (tmp_path / "heal-state.json").write_text(
+        '{"builds": {"sssf-runner": "2026-08-21T12:00:00+00:00"}}'
+    )
+    assert h.heal_summary()["builds"] == {"sssf-runner": "2026-08-21T12:00:00+00:00"}

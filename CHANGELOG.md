@@ -5,6 +5,27 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Visualizer ticket actions** — the kanban Run/Backlog/Sync buttons threw
+  `ReferenceError: runTicket is not defined` (the handlers were never imported
+  after the `ticketRoutes.ts` extraction) and the spawned CLI's exit code was
+  read before the process exited, so every action reported failure. Both are
+  fixed; a boot-level regression test now drives the real server against a
+  fake `sssf` CLI.
+
+### Added
+
+- **Auto-rebuild of the runner image** — `sssf heal` now rebuilds the sandbox
+  image when its baked engine fingerprint no longer matches the local sssf
+  (previously every sandboxed run died on spawn until someone ran
+  `sssf sandbox build` by hand). Images are deduped across projects, skipped
+  when docker is unavailable or sandbox is disabled, and failed builds are
+  retried after a 30-minute cooldown. `sssf sandbox build` reuses the same
+  build path.
+
 ## [1.0.0] - 2026-08-16
 
 First release — the full feature set as of the GitHub import.

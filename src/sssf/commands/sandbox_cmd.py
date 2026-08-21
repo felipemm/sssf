@@ -14,7 +14,7 @@ def _root(explicit: str | None) -> Path | None:
 
 
 def build(explicit: str | None) -> int:
-    from sssf.sandbox import SandboxError, build_image, docker_available
+    from sssf.sandbox import SandboxError, build_runner_image, docker_available
 
     root = _root(explicit)
     if root is None:
@@ -28,20 +28,6 @@ def build(explicit: str | None) -> int:
             "sssf: docker is not available — install/start Docker Desktop first.", file=sys.stderr
         )
         return 1
-    dockerfile = root / ".." / ".." / "docker" / "sssf-runner.Dockerfile"
-    # The Dockerfile + build context (the sssf repo root, whose COPY lines the
-    # Dockerfile expects) live in the sssf source tree — resolve them from the
-    # installed package's location.
-    sssf_src = Path(__file__).resolve().parents[3]
-    candidates = [
-        sssf_src / "docker" / "sssf-runner.Dockerfile",
-        dockerfile.resolve(),
-    ]
-    df = next((c for c in candidates if c.exists()), None)
-    if df is None:
-        print("sssf: docker/sssf-runner.Dockerfile not found.", file=sys.stderr)
-        return 1
-    context = sssf_src if (sssf_src / "pyproject.toml").exists() else df.parent
     try:
         from sssf.adw_modules import paths
         from sssf.adw_modules.agents import load_config
@@ -55,7 +41,7 @@ def build(explicit: str | None) -> int:
                 file=sys.stderr,
             )
             return 1
-        build_image(cfg.sandbox.image, df, context)
+        build_runner_image(cfg.sandbox.image)
     except SandboxError as e:
         print(f"sssf: image build failed: {e}", file=sys.stderr)
         return 1
