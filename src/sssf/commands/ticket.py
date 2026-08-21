@@ -29,7 +29,8 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
-def add(title: str, project: str | None = None) -> int:
+def add(title: str, project: str | None = None, *, description: str = "",
+        prompt_file: str | None = None) -> int:
     root = _root(project)
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
@@ -45,10 +46,14 @@ def add(title: str, project: str | None = None) -> int:
     ticket_id = f"internal:{uuid.uuid4().hex[:12]}"
     now = _now()
     conn = _db(root)
+    rel_prompt = ""
+    if prompt_file:
+        rel_prompt = str(Path(prompt_file).resolve().relative_to(root))
     conn.execute(
         "INSERT INTO tickets (id, provider, external_id, title, description, status,"
-        " source_url, created_at, updated_at) VALUES (?,?,'',?,'','backlog','',?,?)",
-        (ticket_id, "internal", title, now, now),
+        " source_url, prompt_file, created_at, updated_at)"
+        " VALUES (?,?,'',?,?,'backlog','',?,?,?)",
+        (ticket_id, "internal", title, description, rel_prompt, now, now),
     )
     conn.commit()
     conn.close()
@@ -117,15 +122,15 @@ def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) ->
         return 1
     conn = _db(root)
     row = conn.execute(
-        "SELECT id, title, description, status, provider, external_id, source_url"
-        " FROM tickets WHERE id=?",
+        "SELECT id, title, description, status, provider, external_id, source_url,"
+        " prompt_file FROM tickets WHERE id=?",
         (ticket_id,),
     ).fetchone()
     if row is None:
         conn.close()
         print(f"sssf ticket: no ticket {ticket_id}", file=sys.stderr)
         return 1
-    tid, title, description, status, provider, external_id, source_url = row
+    tid, title, description, status, provider, external_id, source_url, prompt_file = row
     if status == "running":
         conn.close()
         print(f"sssf ticket: {ticket_id} is already running", file=sys.stderr)
@@ -194,6 +199,30 @@ def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) ->
         spawn_monitor(root, adw_id)
         rel_prompt = Path("adws") / "prompts" / prompt_path.name
     else:
+        # The interview flow pre-writes the spec and links it as prompt_file —
+        # honor it verbatim; only generate a thin prompt when none exists.
+        if prompt_file and (root / prompt_file).exists():
+            rel_prompt = Path(prompt_file)
+            subprocess.Popen(
+                [sys.executable, str(adw_file), f"run prompt {rel_prompt}", "--adw-id", adw_id],
+                cwd=root,
+                start_new_session=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            conn.execute(
+                "UPDATE tickets SET status='starting', adw_id=?, prompt_file=?, updated_at=? WHERE id=?",
+                (adw_id, str(rel_prompt), _now(), tid),
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO ticket_runs (ticket_id, adw_id, created_at) VALUES (?,?,?)",
+                (tid, adw_id, _now()),
+            )
+            conn.commit()
+            conn.close()
+            print(f"sssf ticket: run spawned for {tid} — prompt adws/prompts/{rel_prompt.name} (existing prompt_file)")
+            return 0
         prompt_path = ticketing.next_prompt_name(root, slug)
         prompt_path.write_text(
             f"# {title}\n\n{description}\n\n---\n"
