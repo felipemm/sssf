@@ -1,5 +1,4 @@
 #!/usr/bin/env -S uv run
-
 """ADW Document — write up the work that was just done, from the diff.
 
 Usage:
@@ -11,54 +10,27 @@ This runs AFTER a build, and the guard is structural rather than advisory: the
 change capture is a code phase, and an empty diff raises there — before the
 documenter is ever spawned. There is nothing to document until something was
 built, and the phase says so instead of paying an agent to discover it.
-
-`git diff` against `--base` (main by default) is what "the latest changes"
-means here; see adw_modules/changes.py for how the base commit is resolved on a
-branch, on main, and on a clean tree right after a chain committed.
 """
 
 import argparse
 import sys
 
-from sssf.adw_modules import agents, changes, gates, git_helper, session, utils
-from sssf.adw_modules.data_types import AgentCall, ChangeCapture, DocumentOutput, PhaseParams
+from sssf.adw_modules import agents, chains, changes, gates, session, utils
+from sssf.adw_modules.chains import AgentPhase, Chain, CodePhase, CommitPhase
+from sssf.adw_modules.data_types import ChangeCapture, DocumentOutput
 
 REQUIRED_AGENTS = ["documenter"]
 
 DOCUMENT_NOTES = (
     "Read diff_path in full before writing. Document only what the "
-    "diff shows, then copy the write-up into adws/kb/ as your task "
-    "describes."
+    "diff shows, then copy the write-up into adws/kb/ as your task describes."
 )
 
 
-def main(
-    prompt: str, base: str = "main", config: str | None = None, adw_id: str | None = None
-) -> int:
-    cfg = agents.load_config(config or agents.default_config_path())
-    agents.validate(cfg, REQUIRED_AGENTS)
-    run = session.ensure(cfg, adw_id)
-
-    with run.phase(
-        PhaseParams(
-            name="request",
-            kind="engineer",
-            owner=run.engineer,
-            description="Capture the incoming ask",
-        )
-    ) as ph:
-        ph.log(input=prompt)
-
-    with run.phase(
-        PhaseParams(
-            name="changes",
-            kind="code",
-            owner="git",
-            description=f"Diff the working tree against {base} — the change to be written up",
-        )
-    ) as ph:
+def _capture_changes(base: str):
+    def fn(run, phase, previous=None):
         changeset = changes.capture(run, ChangeCapture(base=base))
-        ph.log(
+        phase.log(
             base=f"{changeset.base.label} @ {changeset.base.commit[:7]}",
             reason=changeset.base.reason,
             files=len(changeset.files) + len(changeset.untracked),
@@ -71,37 +43,45 @@ def main(
                 f"— documenting runs after a build. Build something first, or point "
                 f"--base at the ref the work should be measured from."
             )
+        return changes.as_envelope(changeset, DOCUMENT_NOTES)
 
-    with run.phase(
-        PhaseParams(
-            name="document",
-            kind="agent",
-            owner="documenter",
-            retries=1,
-            description="Turn the captured diff into a write-up an engineer can read",
-        )
-    ) as ph:
-        document = ph.call(
-            AgentCall(
-                output_type=DocumentOutput,
-                prompt=prompt,
-                previous=changes.as_envelope(changeset, DOCUMENT_NOTES),
+    return fn
+
+
+def _make_chain(base: str) -> Chain:
+    return Chain(
+        name="document",
+        required_agents=REQUIRED_AGENTS,
+        phases=[
+            CodePhase(
+                "changes",
+                "git",
+                _capture_changes(base),
+                description=f"Diff the working tree against {base} — the change to be written up",
+            ),
+            AgentPhase(
+                "document",
+                "documenter",
+                DocumentOutput,
+                retries=1,
+                description="Turn the captured diff into a write-up an engineer can read",
                 gates=[gates.artifacts_exist, gates.files_non_empty],
-            )
-        )
+            ),
+            CommitPhase(
+                name="commit_docs",
+                description="Ship the write-up in its own commit, beside the code it describes",
+            ),
+        ],
+    )
 
-    with run.phase(
-        PhaseParams(
-            name="commit_docs",
-            kind="code",
-            owner="git",
-            description="Ship the write-up in its own commit, beside the code it describes",
-        )
-    ) as ph:
-        message = document.commit_message or f"sssf({run.adw_id}): {document.summary}"
-        ph.log(sha=git_helper.commit_all(message), message=message)
 
-    return run.finish()
+def main(
+    prompt: str, base: str = "main", config: str | None = None, adw_id: str | None = None
+) -> int:
+    cfg = agents.load_config(config or agents.default_config_path())
+    agents.validate(cfg, REQUIRED_AGENTS)
+    run = session.ensure(cfg, adw_id)
+    return chains.run_chain(cfg, run, prompt, _make_chain(base))
 
 
 if __name__ == "__main__":

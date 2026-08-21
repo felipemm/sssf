@@ -1,107 +1,45 @@
 #!/usr/bin/env -S uv run
-
 """ADW Build Test — implement, then verify; failures flow back into the builder.
 
 Usage:
     uv run adws/adw_build_test.py "<prompt or path/to/prompt.md>" [--config adws/config/sssf.config.yaml] [--adw-id a1b2c3d4]
 
-Phases: engineer(request) -> builder -> code(test) [-> builder(fix) -> code(test) ... bounded]
-
-Testing is CODE. The suite's command is written down in adw_modules/quality.py,
-so running it needs no judgement — only repairing it does. Failures reach the
-builder as an envelope through `quality.as_envelope`, which is the same door an
-agent's report came through, so the repair loop is unchanged.
-
-A failing suite does NOT fail its phase: the runner did its job, the code is
-what failed. It fails the run, checked at the end, after the bounded fix loop
-has had its chances.
-"""
+Phases: engineer(request) -> builder -> code(test) [-> builder(fix) -> code(test) ... bounded]"""
 
 import argparse
 import sys
 
-from sssf.adw_modules import agents, gates, quality, session, utils
-from sssf.adw_modules.data_types import AgentCall, BuildOutput, PhaseParams
+from sssf.adw_modules import agents, chains, gates, session, utils
+from sssf.adw_modules.chains import (
+    AgentPhase,
+    Chain,
+    CommitPhase,
+    QualityLoop,
+)
+from sssf.adw_modules.data_types import BuildOutput
 
-REQUIRED_AGENTS = ["builder"]
-MAX_FIX_LOOPS = 3
+CHAIN = Chain(
+    name="build_test",
+    required_agents=["builder"],
+    phases=[
+        AgentPhase(
+            "build",
+            "builder",
+            BuildOutput,
+            description="Implement the request",
+            gates=[gates.diff_matches_claims],
+        ),
+        QualityLoop(),
+        CommitPhase(),
+    ],
+)
 
 
 def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> int:
     cfg = agents.load_config(config or agents.default_config_path())
-    agents.validate(cfg, REQUIRED_AGENTS)
+    agents.validate(cfg, CHAIN.required_agents)
     run = session.ensure(cfg, adw_id)
-
-    def record(ph, result) -> None:
-        passed = sum(1 for check in result.checks if check.passed)
-        ph.log(
-            passed=result.passed,
-            checks=f"{passed}/{len(result.checks)}",
-            artifacts=", ".join(result.artifacts),
-        )
-
-    with run.phase(
-        PhaseParams(
-            name="request",
-            kind="engineer",
-            owner=run.engineer,
-            description="Capture the incoming ask",
-        )
-    ) as ph:
-        ph.log(input=prompt)
-
-    with run.phase(
-        PhaseParams(
-            name="build", kind="agent", owner="builder", description="Implement the request"
-        )
-    ) as ph:
-        ph.call(
-            AgentCall(output_type=BuildOutput, prompt=prompt, gates=[gates.diff_matches_claims])
-        )
-
-    test = None
-    env_reason = None
-    for i in range(1, MAX_FIX_LOOPS + 1):
-        with run.phase(
-            PhaseParams(
-                name=f"test_{i}",
-                kind="code",
-                owner="quality",
-                description="Run every quality gate — known commands, so code "
-                "runs them and no agent has to rediscover them",
-            )
-        ) as ph:
-            test = quality.run_quality(run)
-            record(ph, test)
-
-        if test.passed:
-            break
-        env_reason = quality.env_failure(test)
-        if env_reason:
-            break
-
-        with run.phase(
-            PhaseParams(
-                name=f"fix_{i}",
-                kind="agent",
-                owner="builder",
-                retries=1,
-                description="Repair what the gates reported, from their verbatim output",
-            )
-        ) as ph:
-            ph.call(
-                AgentCall(
-                    output_type=BuildOutput,
-                    prompt=prompt,
-                    previous=quality.as_envelope(test, "quality gates"),
-                    gates=[gates.diff_matches_claims],
-                )
-            )
-
-    return run.finish(
-        accepted=test is not None and test.passed,
-        reason=env_reason or f"the suite still failed after {MAX_FIX_LOOPS} fix attempt(s)",
-    )
+    return chains.run_chain(cfg, run, prompt, CHAIN)
 
 
 if __name__ == "__main__":

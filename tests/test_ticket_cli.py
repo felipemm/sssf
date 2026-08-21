@@ -238,7 +238,8 @@ def test_ticket_sandbox_failure_is_loud(tmp_path, monkeypatch, capsys):
     """A config error in the sandbox decision must be visible — never silently
     unsandboxed (audit A1)."""
     root = tmp_path / "proj"
-    (root / "adws" / "config").mkdir(parents=True)   # no sssf.config.yaml
+    (root / "adws" / "config").mkdir(parents=True)  # no sssf.config.yaml
     from sssf.commands import ticket
+
     assert ticket._sandbox_enabled(root) is False
     assert "sandbox decision failed" in capsys.readouterr().err

@@ -63,12 +63,13 @@ def test_builder_prompt_forbids_committing():
 def test_quality_design_variant_has_impeccable_phases():
     text = (TEMPLATES / "adws" / "modules" / "adw_design_sdlc.py").read_text()
     for needle in (
-        'name="init"',
-        'name="design"',
-        'owner="designer"',
-        'owner="documenter"',
-        'name="document"',
+        '"init"',
+        '"design"',
+        '"designer"',
+        '"documenter"',
+        '"document"',
         "impeccable",
+        "QualityLoop",
     ):
         assert needle in text, f"variant missing {needle}"
 
@@ -96,7 +97,7 @@ def test_document_chain_ends_in_commit():
     wrote adws/app_docs/<id>.md but never committed it.)"""
     text = (TEMPLATES / "adws" / "modules" / "adw_document.py").read_text()
     assert "commit_docs" in text
-    assert "git_helper.commit_all" in text
+    assert "CommitPhase" in text  # the commit lives in the shared executor
 
 
 def test_template_ships_default_checks():
@@ -129,7 +130,13 @@ def test_fix_loop_adws_break_on_env_failure():
     """Every ADW with a builder fix loop must break on an environment failure
     (missing binary / missing target) instead of handing it to the builder —
     no code edit can fix a missing binary, and the loop would burn all
-    MAX_FIX_LOOPS iterations on it (issue #16)."""
+    MAX_FIX_LOOPS iterations on it (issue #16). The break lives in the shared
+    chains.QualityLoop; each fix-loop ADW must declare it."""
+    import inspect
+
+    import sssf.adw_modules.chains as chains_mod
+
+    assert "quality.env_failure" in inspect.getsource(chains_mod._quality_loop)
     for name in (
         "adw_simple_sdlc",
         "adw_build_test",
@@ -138,4 +145,4 @@ def test_fix_loop_adws_break_on_env_failure():
         "adw_design_sdlc",
     ):
         text = (TEMPLATES / "adws" / "modules" / f"{name}.py").read_text()
-        assert "quality.env_failure" in text, f"{name} missing env-failure break"
+        assert "QualityLoop" in text, f"{name} missing the shared quality loop"

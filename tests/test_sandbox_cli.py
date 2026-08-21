@@ -105,10 +105,10 @@ def test_sandbox_build_reads_v2_config(tmp_path, monkeypatch, fake_docker):
     crash (audit B1, PR #28)."""
     root = tmp_path / "proj"
     (root / "adws" / "config").mkdir(parents=True)
-    (root / "adws" / "config" / "sssf.config.yaml").write_text(
-        "sandbox:\n  image: sssf-runner\n")
+    (root / "adws" / "config" / "sssf.config.yaml").write_text("sandbox:\n  image: sssf-runner\n")
     monkeypatch.chdir(root)
     from sssf.commands import sandbox_cmd
+
     assert sandbox_cmd.build(None) == 0
     # a v1-only project fails loudly (legacy banner + readable message),
     # never with a raw traceback (audit B1)

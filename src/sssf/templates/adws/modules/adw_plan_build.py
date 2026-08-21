@@ -1,78 +1,50 @@
 #!/usr/bin/env -S uv run
-"""ADW Plan Build — two-agent chain: planner -> envelope -> builder.
+"""ADW Plan Build — plan first, then implement exactly that plan.
 
 Usage:
     uv run adws/adw_plan_build.py "<prompt or path/to/prompt.md>" [--config adws/config/sssf.config.yaml] [--adw-id a1b2c3d4]
 
-Phases: engineer(request) -> planner -> builder -> git(commit)
-"""
+Phases: engineer(request) -> planner -> builder -> git(commit)"""
 
 import argparse
 import sys
 
-from sssf.adw_modules import agents, gates, git_helper, session, utils
-from sssf.adw_modules.data_types import AgentCall, BuildOutput, PhaseParams, PlanOutput
+from sssf.adw_modules import agents, chains, gates, session, utils
+from sssf.adw_modules.chains import (
+    AgentPhase,
+    Chain,
+    CommitPhase,
+)
+from sssf.adw_modules.data_types import BuildOutput, PlanOutput
 
-REQUIRED_AGENTS = ["planner", "builder"]
+CHAIN = Chain(
+    name="plan_build",
+    required_agents=["planner", "builder"],
+    phases=[
+        AgentPhase(
+            "plan",
+            "planner",
+            PlanOutput,
+            description="Turn the request into an implementable plan",
+            gates=[gates.artifacts_exist, gates.files_non_empty],
+        ),
+        AgentPhase(
+            "build",
+            "builder",
+            BuildOutput,
+            description="Implement the plan exactly",
+            gates=[gates.diff_matches_claims],
+        ),
+        CommitPhase(),
+    ],
+)
 
 
 def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> int:
     cfg = agents.load_config(config or agents.default_config_path())
-    agents.validate(cfg, REQUIRED_AGENTS)
+    agents.validate(cfg, CHAIN.required_agents)
     run = session.ensure(cfg, adw_id)
-
-    with run.phase(
-        PhaseParams(
-            name="request",
-            kind="engineer",
-            owner=run.engineer,
-            description="Capture the incoming ask",
-        )
-    ) as ph:
-        ph.log(input=prompt)
-
-    with run.phase(
-        PhaseParams(
-            name="plan",
-            kind="agent",
-            owner="planner",
-            description="Turn the request into an implementable plan",
-        )
-    ) as ph:
-        plan = ph.call(
-            AgentCall(
-                output_type=PlanOutput,
-                prompt=prompt,
-                gates=[gates.artifacts_exist, gates.files_non_empty],
-            )
-        )
-
-    with run.phase(
-        PhaseParams(
-            name="build", kind="agent", owner="builder", description="Implement the plan exactly"
-        )
-    ) as ph:
-        build = ph.call(
-            AgentCall(
-                output_type=BuildOutput,
-                prompt=prompt,
-                previous=plan,
-                gates=[gates.diff_matches_claims],
-            )
-        )
-
-    with run.phase(
-        PhaseParams(
-            name="commit",
-            kind="code",
-            owner="git",
-            description="Land the builder's changes, using the message it wrote",
-        )
-    ) as ph:
-        message = build.commit_message or f"sssf({run.adw_id}): {build.summary}"
-        ph.log(sha=git_helper.commit_all(message), message=message)
-
-    return run.finish()
+    return chains.run_chain(cfg, run, prompt, CHAIN)
 
 
 if __name__ == "__main__":

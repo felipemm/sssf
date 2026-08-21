@@ -144,7 +144,9 @@ def test_record_never_started_leaves_evidence(monkeypatch, tmp_path):
     from sssf.adw_modules.tracer import Tracer
 
     db = tmp_path / "proj" / "adws" / "data" / "sssf.db"
-    tracer = Tracer(db, tmp_path / "proj" / "adws" / "data" / "sessions" / "abc123" / "events.jsonl")
+    tracer = Tracer(
+        db, tmp_path / "proj" / "adws" / "data" / "sessions" / "abc123" / "events.jsonl"
+    )
     tracer.conn.execute(
         "INSERT INTO tickets (id, provider, title, status, adw_id) VALUES (?,?,?,?,?)",
         ("internal:x", "internal", "boom", "starting", "abc123"),
@@ -157,8 +159,10 @@ def test_record_never_started_leaves_evidence(monkeypatch, tmp_path):
             return subprocess.CompletedProcess(
                 args,
                 0,
-                stdout=("python: can't open file 'adws/modules/adw_simple_sdlc.py':"
-                        " [Errno 2] No such file or directory\n"),
+                stdout=(
+                    "python: can't open file 'adws/modules/adw_simple_sdlc.py':"
+                    " [Errno 2] No such file or directory\n"
+                ),
                 stderr="",
             )
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
@@ -177,9 +181,7 @@ def test_record_never_started_leaves_evidence(monkeypatch, tmp_path):
     assert ev[0] == "sandbox spawn failure"
     assert "1" in ev[1]  # exit code captured
     assert "No such file or directory" in ev[1]  # log tail captured
-    status = tracer.conn.execute(
-        "SELECT status FROM tickets WHERE id='internal:x'"
-    ).fetchone()[0]
+    status = tracer.conn.execute("SELECT status FROM tickets WHERE id='internal:x'").fetchone()[0]
     assert status == "failed"
 
 
@@ -190,10 +192,10 @@ def test_record_never_started_skips_when_adw_started(monkeypatch, tmp_path):
     from sssf.adw_modules.tracer import Tracer
 
     db = tmp_path / "proj" / "adws" / "data" / "sssf.db"
-    tracer = Tracer(db, tmp_path / "proj" / "adws" / "data" / "sessions" / "abc123" / "events.jsonl")
-    tracer.conn.execute(
-        "INSERT INTO sessions (adw_id, status) VALUES ('abc123', 'running')"
+    tracer = Tracer(
+        db, tmp_path / "proj" / "adws" / "data" / "sessions" / "abc123" / "events.jsonl"
     )
+    tracer.conn.execute("INSERT INTO sessions (adw_id, status) VALUES ('abc123', 'running')")
 
     def fake_docker(*args, **kwargs):
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
@@ -202,9 +204,7 @@ def test_record_never_started_skips_when_adw_started(monkeypatch, tmp_path):
     per_run = tmp_path / "proj" / ".worktrees" / "abc123" / "adws" / "data" / "sssf.db"
     sandbox.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
 
-    rows = tracer.conn.execute(
-        "SELECT count(*) FROM sessions WHERE adw_id='abc123'"
-    ).fetchone()[0]
+    rows = tracer.conn.execute("SELECT count(*) FROM sessions WHERE adw_id='abc123'").fetchone()[0]
     assert rows == 1  # still just the ADW's own row
 
 
