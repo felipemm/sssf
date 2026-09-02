@@ -146,3 +146,18 @@ def test_fix_loop_adws_break_on_env_failure():
     ):
         text = (TEMPLATES / "adws" / "modules" / f"{name}.py").read_text()
         assert "QualityLoop" in text, f"{name} missing the shared quality loop"
+
+
+def test_spec_interviewer_templates_exist():
+    """The three product-manager templates ship with the output contract and
+    the pre-loaded skill routing (the user never invokes a skill)."""
+    for mode, skills in (("idea", ("grilling", "brainstorming")),
+                         ("bug", ("grill-me", "grill-with-docs")),
+                         ("feature", ("grilling",))):
+        text = (TEMPLATES / "spec_interviewer" / f"{mode}.md").read_text()
+        assert "PRODUCT MANAGER" in text
+        assert "OUTPUT CONTRACT" in text
+        assert "adws/prompts/" in text and "ticket add" in text
+        assert "never" in text and "invokes a skill" in text
+        for skill in skills:
+            assert skill in text
