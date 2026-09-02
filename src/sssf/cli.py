@@ -80,9 +80,22 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument(
         "--auto", action="store_true", help="--refresh without prompts (accept all — scripting)"
     )
+    p_init.add_argument(
+        "--design-quality",
+        metavar="SURFACE",
+        nargs="?",
+        const="site/dist",
+        default=None,
+        help="configure the impeccable design gate + designer for a design surface "
+        "(default: site/dist) — e.g. `sssf init --design-quality src/public`",
+    )
     p_init.set_defaults(
         func=lambda a: init.run(
-            Path(a.project or ".").resolve(), refresh=a.refresh, force=a.force, auto=a.auto
+            Path(a.project or ".").resolve(),
+            refresh=a.refresh,
+            force=a.force,
+            auto=a.auto,
+            design_quality=a.design_quality,
         )
     )
 

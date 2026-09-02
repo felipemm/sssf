@@ -28,6 +28,18 @@ def test_impeccable_skill_vendored():
     assert "impeccable" in text.lower()
 
 
+def test_impeccable_cli_pin_is_latest_3_6_x():
+    """The deterministic gate runs the npm CLI (`impeccable detect`). The pin
+    tracks the 3.6.x line that ships `detect`; the vendored skill (4.1.1, the
+    pi-skill version) calls detect/doctor/ignores on it."""
+    text = DOCKERFILE.read_text()
+    for pin in ("impeccable@3.6.1", "impeccable@3.6.0"):
+        if pin in text:
+            assert pin == "impeccable@3.6.1", f"stale impeccable pin {pin} in Dockerfile"
+            return
+    raise AssertionError("no impeccable npm pin found in the Dockerfile")
+
+
 def test_dockerfile_references_impeccable_payload():
     text = DOCKERFILE.read_text()
     assert "COPY docker/impeccable-pi /opt/impeccable-pi" in text

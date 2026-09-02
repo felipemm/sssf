@@ -72,12 +72,16 @@ quality:
     # Shipped configured by default: the runner image provides both binaries
     # (snyk since PR #13, impeccable via the design-quality change). Projects
     # without a design surface or snyk setup remove the entry.
+    #
+    # `surface` is the per-project knob: the engine derives argv/requires
+    # (impeccable detect <surface>) from it. Point it at the built design
+    # surface (site/dist by default; src/public, web/, ... per project).
+    # Re-run `sssf init --design-quality <surface>` to configure it.
     - name: design
       area: frontend
       operation: lint
-      argv: ["impeccable", "detect", "site/dist"]
+      surface: site/dist
       timeout_seconds: 300
-      requires: site/dist        # missing target = fail fast (127), never a silent green
     - name: snyk
       area: backend
       operation: security

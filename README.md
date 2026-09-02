@@ -27,8 +27,9 @@ Three principles:
 - **Observable** — every run, phase, envelope, gate, and process streams into
   `adws/data/sssf.db` (WAL, so reads never block writers). Watch live in
   `sssf viz` or from the terminal with `sssf sessions / phases / tail / procs`.
-- **Design quality** — deterministic `impeccable detect` gate (shipped configured) + an opt-in
-  agentic design pass (`adw_design_sdlc`) — see the site's Design quality docs.
+- **Design quality** — deterministic `impeccable detect` gate (shipped configured, per-project
+  surface via `sssf init --design-quality <surface>`) + the full agentic chain
+  (`sssf run sdlc_full`) — see the site's Design quality docs.
 - **Customizable** — `sssf init` stamps only the customization surface: your
   chains (`adws/modules/adw_*.py`), your roster (`adws/config/sssf.config.yaml`),
   your prompts (`adws/data/prompt_engineering/`). The engine is package code

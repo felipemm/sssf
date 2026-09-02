@@ -35,7 +35,7 @@ RUN ARCH=$(uname -m); [ "$ARCH" = "x86_64" ] && SUF=linux || SUF=linux-arm64; \
 # init, document). npm lands in /usr/local (world-readable for the runtime uid,
 # like bun). The skill is vendored under docker/impeccable-pi/ and copied into
 # the pi home by entrypoint.sh — skills are otherwise excluded from the sandbox.
-RUN npm install -g impeccable@3.6.0
+RUN npm install -g impeccable@3.6.1
 COPY docker/impeccable-pi /opt/impeccable-pi
 
 # sssf itself (the build context is the sssf repo root)

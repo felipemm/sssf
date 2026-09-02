@@ -36,13 +36,22 @@ const description =
         exist at. Missing target = fail fast with exit 127 and a clear message — a check
         whose target is absent must never silently pass. This is what keeps the shipped
         <code>design</code> check honest on projects without a site.</li>
+    <li><code>surface</code> — the per-project design-gate knob. A check declaring
+        <code>surface</code> (and no explicit <code>argv</code>) expands to
+        <code>argv: ["impeccable", "detect", &lt;surface&gt;]</code> +
+        <code>requires: &lt;surface&gt;</code>. Configure it once per project with
+        <code>sssf init --design-quality &lt;surface&gt;</code>; explicit <code>argv</code>
+        always wins over surface expansion.</li>
   </ul>
 
   <h2>Shipped by default</h2>
-  <pre><code>- name: design     # impeccable detect site/dist — the 59-rule design gate
+  <pre><code>- name: design     # impeccable detect &lt;surface&gt; — the 59-rule design gate
+  surface: site/dist  # the per-project knob; sssf init --design-quality moves it
 - name: snyk       # snyk test — security; needs SNYK_TOKEN (forwarded into the sandbox)</code></pre>
   <p>Both ship configured because the runner image provides the binaries. Projects without a
-     design surface remove <code>design</code>; projects without snyk setup remove <code>snyk</code>.</p>
+     design surface remove <code>design</code>; projects without snyk setup remove <code>snyk</code>.
+     Per-project rule control (rule/ignore overrides) lives in the committed
+     <code>.impeccable/config.json</code> — advisory findings never fail the gate.</p>
 
   <h2>Placeholders</h2>
   <p>Unwired defaults run an honest <code>echo PLACEHOLDER ...</code> that exits 0 — it never

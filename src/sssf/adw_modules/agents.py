@@ -113,6 +113,8 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
     }
     system_text = prompts.render(agent.prompt_engineering.system, variables)
     user_text = prompts.render(agent.prompt_engineering.user, variables)
+    if call.user_directive:
+        user_text = f"{user_text}\n\n## Phase directive\n\n{call.user_directive}\n"
     prompts.save(agent_dir / "prompts", "system.md", system_text)
     prompts.save(agent_dir / "prompts", "user.md", user_text)
 

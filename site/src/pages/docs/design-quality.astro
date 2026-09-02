@@ -19,27 +19,36 @@ const description =
 
   <h2>The deterministic gate</h2>
   <p>
-    <code>impeccable detect site/dist</code> ships configured by default as the
+    <code>impeccable detect &lt;surface&gt;</code> ships configured by default as the
     <code>design</code> quality check. It exits 0 on a clean scan and 2 on hard anti-patterns —
     so the gate is pass/fail exactly like every other check. One advisory is a known false
     positive: the em-dash saturation rule counts <code>--</code> in CLI flags (e.g.
-    <code>--adw-id</code>); it is advisory-only and never fails the gate.
+    <code>--adw-id</code>); it is advisory-only and never fails the gate. Per-project rule
+    control lives in <code>.impeccable/config.json</code> (ignoreRules / ignoreFiles /
+    ignoreValues) — committed, so the sandbox honors it.
   </p>
 
   <h2>The agentic pass</h2>
   <p>
-    <code>adws/modules/adw_design_sdlc.py</code> adds three phases to the standard
-    build-test chain: <code>init</code> (documenter runs <code>/impeccable init</code> →
-    PRODUCT.md), <code>design</code> (designer runs audit → critique → polish → optimize on
-    <code>site/</code>), and <code>document</code> (documenter runs <code>/impeccable document</code>
-    → DESIGN.md). The deterministic gates — including <code>design</code> — verify the agent's
-    work before anything commits.
+    <code>sssf run sdlc_full "..."</code> runs the standard simple-sdlc chain with the
+    designer in the middle: build → <code>design</code> (the designer runs the impeccable
+    audit → critique → polish → optimize pass on the declared surface) → quality gates →
+    review → commit. Two design-context phases are conditional: <code>init</code> (documenter
+    runs <code>/impeccable init</code> → PRODUCT.md, once per project) and
+    <code>document_design</code> (<code>/impeccable document</code> → DESIGN.md, when the
+    design world changed). The deterministic gates — including <code>design</code> — verify the
+    designer's work before anything commits.
   </p>
 
-  <h2>Opting in</h2>
+  <h2>Opting in (per project)</h2>
   <ul>
-    <li>Run the variant ADW instead of the standard one.</li>
-    <li>Point <code>design</code>'s argv at your real surface (default <code>site/dist</code>).</li>
+    <li>Run <code>sssf init --design-quality &lt;surface&gt;</code> — it declares the surface
+        once (default <code>site/dist</code>) and wires the <code>design</code> check + the
+        designer's scope to it.</li>
+    <li>Run the full flow with <code>sssf run sdlc_full "..."</code> (or keep simple_sdlc — the
+        gate still runs in any chain's quality loop).</li>
+    <li>Per-project rule control: <code>.impeccable/config.json</code> ignores; advisory
+        findings never fail the gate.</li>
     <li>Rebuild the runner image after any Dockerfile change — stale images keep failing the
         gates with exit 127.</li>
     <li>Full field reference: <a href="/docs/quality-checks">Quality checks</a>.</li>
