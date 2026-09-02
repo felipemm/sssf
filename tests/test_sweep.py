@@ -74,6 +74,29 @@ def test_sweep_empty_registry_is_friendly(tmp_path, monkeypatch, capsys):
     assert "no projects registered" in capsys.readouterr().out
 
 
+def test_sweep_clears_sandbox_resources(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "proj"
+    (root / "adws/data").mkdir(parents=True)
+    db = root / "adws" / "data" / "sssf.db"
+    _make_db(db)
+    cleared = []
+    monkeypatch.setattr(sweep, "_clear_sandbox", lambda r, a: cleared.append((r, a)))
+    assert sweep.run(str(root)) == 0
+    assert sorted(a for _, a in cleared) == ["old-fail", "old-success"]
+
+
+def test_clear_sandbox_removes_container_and_worktree(tmp_path, monkeypatch):
+    from sssf import sandbox
+
+    root = tmp_path / "proj"
+    (root / ".worktrees").mkdir(parents=True)
+    stopped = []
+    monkeypatch.setattr(sandbox, "stop_remove", lambda name: stopped.append(name))
+    monkeypatch.setattr(sandbox, "remove_worktree", lambda wt: wt)
+    sweep._clear_sandbox(root, "abc123")
+    assert stopped == ["sssf-abc123"]
+
+
 def test_sweep_days_flag(tmp_path, monkeypatch, capsys):
     root = tmp_path / "proj"
     (root / "adws/data").mkdir(parents=True)
