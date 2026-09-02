@@ -47,11 +47,28 @@ const description =
   <h2>Shipped by default</h2>
   <pre><code>- name: design     # impeccable detect &lt;surface&gt; — the 59-rule design gate
   surface: site/dist  # the per-project knob; sssf init --design-quality moves it
-- name: snyk       # snyk test — security; needs SNYK_TOKEN (forwarded into the sandbox)</code></pre>
+- name: snyk       # snyk test — security; authenticates via OAuth or SNYK_TOKEN</code></pre>
   <p>Both ship configured because the runner image provides the binaries. Projects without a
      design surface remove <code>design</code>; projects without snyk setup remove <code>snyk</code>.
      Per-project rule control (rule/ignore overrides) lives in the committed
      <code>.impeccable/config.json</code> — advisory findings never fail the gate.</p>
+
+  <h3>snyk authentication</h3>
+  <p>Two paths, both handled by the sandbox with no per-project wiring:</p>
+  <ul>
+    <li><strong>OAuth on the operator machine</strong> (default): the host's
+        <code>~/.config</code> — where the snyk CLI keeps its OAuth session
+        (<code>configstore/snyk.json</code>) — is mounted read-only into the sandbox at
+        <code>/tmp/.config</code> (HOME=/tmp in the image). An OAuth-authed CLI works in the
+        gate unchanged; no token is ever stored in the project. Verify locally with
+        <code>snyk whoami</code>.</li>
+    <li><strong><code>SNYK_TOKEN</code> env</strong> (service accounts / CI): when the var is
+        set on the operator machine it is forwarded into the sandbox and outranks OAuth.
+        Keep it to a valid production token — a stale or UAT token (e.g.
+        <code>snyk_uat.*</code>) shadows the OAuth session and the gate fails with
+        <code>SNYK-0005</code> (401) even though <code>snyk whoami</code> succeeds with the
+        var unset.</li>
+  </ul>
 
   <h2>Placeholders</h2>
   <p>Unwired defaults run an honest <code>echo PLACEHOLDER ...</code> that exits 0 — it never

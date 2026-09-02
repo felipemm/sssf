@@ -694,8 +694,11 @@ def sandbox_env(project_root: Path) -> tuple[Path, Path, dict[str, str]]:
     if os.environ.get("OPENAI_BASE_URL"):
         env["OPENAI_BASE_URL"] = os.environ["OPENAI_BASE_URL"]
     if os.environ.get("SNYK_TOKEN"):
-        # snyk auth is an env token on the operator machine (or a configstore
-        # token); the container gets it the same way.
+        # SNYK_TOKEN (service accounts / CI) is forwarded when set. OAuth-authed
+        # CLIs need nothing here: spawn_sandbox mounts the operator's ~/.config
+        # (where snyk keeps its OAuth session) read-only at /tmp/.config. A stale
+        # SNYK_TOKEN overrides that session (snyk env precedence) — the gate then
+        # fails SNYK-0005 even though `snyk whoami` succeeds with the var unset.
         env["SNYK_TOKEN"] = os.environ["SNYK_TOKEN"]
     name, email = _git_identity(project_root)
     if name and email:
