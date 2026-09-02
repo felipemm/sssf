@@ -9,6 +9,7 @@ import {
   Layers,
   ListChecks,
   MessageSquareText,
+  Palette,
   Radar,
   ShieldCheck,
   Workflow,
@@ -19,6 +20,7 @@ import type { Component } from 'vue'
 // first ADW's icon, anything unknown falls back to Bot.
 export const ADW_ICONS: Record<string, Component> = {
   adw_simple_sdlc: Workflow,
+  adw_sdlc_full: Palette, // simple_sdlc + the impeccable design pass
   adw_plan: ClipboardList,
   adw_build: Hammer,
   adw_build_test: FlaskConical,
