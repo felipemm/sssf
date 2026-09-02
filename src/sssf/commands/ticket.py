@@ -121,6 +121,12 @@ def _prompt_text(
     return text + f"\n---\nGenerated from {provider} ticket {external_id or ''} ({source_url})\n"
 
 
+def _is_generated_prompt(prompt: Path, provider: str) -> bool:
+    """True for a prompt written by a previous `sssf ticket run` (it carries
+    the provenance trailer); False for an interview-flow spec."""
+    return f"Generated from {provider} ticket" in prompt.read_text()
+
+
 def ticket_context(ticket_id: str, project: str | None = None, set_text: str | None = None) -> int:
     """Read (print) or set the persisted extra context of a ticket."""
     root = _root(project)
@@ -214,10 +220,22 @@ def run(
         from sssf.sandbox import create_worktree
 
         wt = create_worktree(root, adw_id)
-        prompt_path = ticketing.next_prompt_name(wt, slug)
-        prompt_path.write_text(
-            _prompt_text(title, description, context, provider, external_id, source_url)
-        )
+        # The interview flow's spec is an input artifact, like the prompt: the
+        # worktree checked out origin/main and may not carry a spec that is
+        # only committed locally or not yet pushed, so copy it verbatim.
+        # Run-generated prompts (provenance trailer) are regenerated so the
+        # current --context / stored context is baked in.
+        if prompt_file and (root / prompt_file).exists() and not _is_generated_prompt(
+            root / prompt_file, provider
+        ):
+            spec_path = ticketing.next_prompt_name(wt, slug)
+            spec_path.write_text((root / prompt_file).read_text())
+            prompt_path = spec_path
+        else:
+            prompt_path = ticketing.next_prompt_name(wt, slug)
+            prompt_path.write_text(
+                _prompt_text(title, description, context, provider, external_id, source_url)
+            )
         cfg = _config_for_sandbox(root)
         data_dir, pi_home, env = sandbox_env(root)
         try:
@@ -252,32 +270,34 @@ def run(
         # A prompt_file left by a PREVIOUS run is a generated thin prompt (it
         # carries the provenance trailer) — regenerate it so the current
         # --context / stored context is baked in.
-        if prompt_file and (root / prompt_file).exists():
-            existing = (root / prompt_file).read_text()
-            if f"Generated from {provider} ticket" not in existing:
-                rel_prompt = Path(prompt_file)
-                subprocess.Popen(
-                    [sys.executable, str(adw_file), f"run prompt {rel_prompt}", "--adw-id", adw_id],
-                    cwd=root,
-                    start_new_session=True,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                conn.execute(
-                    "UPDATE tickets SET status='starting', adw_id=?, prompt_file=?, updated_at=? WHERE id=?",
-                    (adw_id, str(rel_prompt), _now(), tid),
-                )
-                conn.execute(
-                    "INSERT OR IGNORE INTO ticket_runs (ticket_id, adw_id, created_at) VALUES (?,?,?)",
-                    (tid, adw_id, _now()),
-                )
-                conn.commit()
-                conn.close()
-                print(
-                    f"sssf ticket: run spawned for {tid} — prompt adws/prompts/{rel_prompt.name} (existing prompt_file)"
-                )
-                return 0
+        if (
+            prompt_file
+            and (root / prompt_file).exists()
+            and not _is_generated_prompt(root / prompt_file, provider)
+        ):
+            rel_prompt = Path(prompt_file)
+            subprocess.Popen(
+                [sys.executable, str(adw_file), f"run prompt {rel_prompt}", "--adw-id", adw_id],
+                cwd=root,
+                start_new_session=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            conn.execute(
+                "UPDATE tickets SET status='starting', adw_id=?, prompt_file=?, updated_at=? WHERE id=?",
+                (adw_id, str(rel_prompt), _now(), tid),
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO ticket_runs (ticket_id, adw_id, created_at) VALUES (?,?,?)",
+                (tid, adw_id, _now()),
+            )
+            conn.commit()
+            conn.close()
+            print(
+                f"sssf ticket: run spawned for {tid} — prompt adws/prompts/{rel_prompt.name} (existing prompt_file)"
+            )
+            return 0
         prompt_path = ticketing.next_prompt_name(root, slug)
         prompt_path.write_text(
             _prompt_text(title, description, context, provider, external_id, source_url)
