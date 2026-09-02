@@ -39,8 +39,16 @@ export async function syncTickets(root: string, spawnFn: SpawnFn = bunSpawn): Pr
   return { ok: exitCode === 0, output };
 }
 
-export async function runTicket(root: string, id: string, spawnFn: SpawnFn = bunSpawn): Promise<TicketActionResult> {
-  const { exitCode, output } = await runCli(["sssf", "ticket", "run", id, "--project", root], spawnFn);
+export async function runTicket(
+  root: string,
+  id: string,
+  context?: string,
+  spawnFn: SpawnFn = bunSpawn,
+): Promise<TicketActionResult> {
+  const args = ["sssf", "ticket", "run", id];
+  if (context) args.push("--context", context);
+  args.push("--project", root);
+  const { exitCode, output } = await runCli(args, spawnFn);
   if (exitCode !== 0) return { ok: false, output };
   const adwId = output.match(/adw_id ([a-f0-9]+)/)?.[1] ?? null;
   return { ok: true, adwId: adwId ?? undefined, output };
@@ -48,5 +56,18 @@ export async function runTicket(root: string, id: string, spawnFn: SpawnFn = bun
 
 export async function backlogTicket(root: string, id: string, spawnFn: SpawnFn = bunSpawn): Promise<TicketActionResult> {
   const { exitCode, output } = await runCli(["sssf", "ticket", "backlog", id, "--project", root], spawnFn);
+  return { ok: exitCode === 0, output };
+}
+
+export async function setTicketContext(
+  root: string,
+  id: string,
+  context: string,
+  spawnFn: SpawnFn = bunSpawn,
+): Promise<TicketActionResult> {
+  const { exitCode, output } = await runCli(
+    ["sssf", "ticket", "context", id, "--set", context, "--project", root],
+    spawnFn,
+  );
   return { ok: exitCode === 0, output };
 }

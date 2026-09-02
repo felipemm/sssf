@@ -11,6 +11,7 @@ const glyph: Record<string, string> = {
   running: '◐',
   queued: '○',
   fail: '✗',
+  not_passed: '!',
 }
 </script>
 
@@ -42,6 +43,10 @@ const glyph: Record<string, string> = {
 
 .d.fail {
   color: var(--red);
+}
+
+.d.not_passed {
+  color: var(--amber, #fbbf24);
 }
 
 .d.running {

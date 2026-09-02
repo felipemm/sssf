@@ -236,6 +236,7 @@ export interface Ticket {
   external_id: string | null
   title: string
   description: string
+  context: string
   status: string
   prompt_file: string | null
   adw_id: string | null
@@ -252,14 +253,28 @@ export async function fetchTickets(): Promise<TicketsResponse> {
   return getJson(`${base()}/tickets`) as Promise<TicketsResponse>
 }
 
-export async function runTicket(id: string): Promise<{ ok: boolean; adwId?: string; output?: string }> {
-  const res = await fetch(`${base()}/tickets/${encodeURIComponent(id)}/run`, { method: 'POST' })
+export async function runTicket(id: string, context = ""): Promise<{ ok: boolean; adwId?: string; output?: string }> {
+  const res = await fetch(`${base()}/tickets/${encodeURIComponent(id)}/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ context }),
+  })
   const data = (await res.json().catch(() => ({}))) as { ok?: boolean; adwId?: string; output?: string }
   return { ok: data.ok ?? res.ok, adwId: data.adwId, output: data.output }
 }
 
 export async function syncTickets(): Promise<{ ok: boolean; output?: string }> {
   const res = await fetch(`${base()}/tickets/sync`, { method: 'POST' })
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; output?: string }
+  return { ok: data.ok ?? res.ok, output: data.output }
+}
+
+export async function saveTicketContext(id: string, context: string): Promise<{ ok: boolean; output?: string }> {
+  const res = await fetch(`${base()}/tickets/${encodeURIComponent(id)}/context`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ context }),
+  })
   const data = (await res.json().catch(() => ({}))) as { ok?: boolean; output?: string }
   return { ok: data.ok ?? res.ok, output: data.output }
 }

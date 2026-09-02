@@ -103,6 +103,29 @@ describe("readTickets", () => {
     db.close();
     expect(readTickets(dbPath)[0]!.status).toBe("failed");
   });
+
+  test("context round-trips through readTickets", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sssf-tickets-"));
+    const dbPath = join(dir, "sssf.db");
+    const db = makeDb(dbPath);
+    db.run("ALTER TABLE tickets ADD COLUMN context TEXT NOT NULL DEFAULT ''");
+    db.query("INSERT INTO tickets (id, provider, external_id, title, status, context) VALUES (?,?,?,?,?,?)")
+      .run("internal:g", "internal", "", "steered", "backlog", "focus on OAuth");
+    db.close();
+    const t = readTickets(dbPath)[0]!;
+    expect(t.context).toBe("focus on OAuth");
+  });
+
+  test("pre-context db is migrated with a default column", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sssf-tickets-"));
+    const dbPath = join(dir, "sssf.db");
+    const db = makeDb(dbPath);  // no context column — the old schema
+    db.query("INSERT INTO tickets (id, provider, external_id, title, status) VALUES (?,?,?,?,?)")
+      .run("internal:h", "internal", "", "old schema", "backlog");
+    db.close();
+    const t = readTickets(dbPath)[0]!;
+    expect(t.context).toBe("");
+  });
 });
 
 

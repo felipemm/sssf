@@ -16,6 +16,7 @@ export interface Ticket {
   external_id: string | null;
   title: string;
   description: string;
+  context: string;
   status: string;
   prompt_file: string | null;
   adw_id: string | null;
@@ -26,7 +27,8 @@ export interface Ticket {
 const TICKETS_DDL = `CREATE TABLE IF NOT EXISTS tickets (
   id TEXT PRIMARY KEY, provider TEXT NOT NULL, external_id TEXT,
   title TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'backlog',
-  prompt_file TEXT, adw_id TEXT, source_url TEXT, created_at TEXT, updated_at TEXT)`;
+  prompt_file TEXT, adw_id TEXT, source_url TEXT, context TEXT NOT NULL DEFAULT '',
+  created_at TEXT, updated_at TEXT)`;
 
 const TICKET_RUNS_DDL = `CREATE TABLE IF NOT EXISTS ticket_runs (
   ticket_id TEXT NOT NULL, adw_id TEXT NOT NULL, created_at TEXT,
@@ -35,13 +37,21 @@ const TICKET_RUNS_DDL = `CREATE TABLE IF NOT EXISTS ticket_runs (
 /** The feature is on when ticketing.yaml exists with an uncommented providers: line. */
 export { ticketingEnabled as isEnabled } from "./ticketing";
 
+function ensureContextColumn(db: Database) {
+  const cols = db.query<{ name: string }, []>("PRAGMA table_info(tickets)").all();
+  if (!cols.some((c) => c.name === "context")) {
+    db.run("ALTER TABLE tickets ADD COLUMN context TEXT NOT NULL DEFAULT ''");
+  }
+}
+
 export function readTickets(dbPath: string): Ticket[] {
   const db = new Database(dbPath);
   try {
     db.run(TICKETS_DDL);
     db.run(TICKET_RUNS_DDL);
+    ensureContextColumn(db);
     const rows = db.query<any, []>(
-      "SELECT id, provider, external_id, title, description, status, prompt_file, adw_id, source_url"
+      "SELECT id, provider, external_id, title, description, context, status, prompt_file, adw_id, source_url"
       + " FROM tickets ORDER BY created_at DESC, rowid DESC",
     ).all();
     return rows.map((row) => {

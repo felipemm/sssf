@@ -5,9 +5,9 @@
  * the only HTML in the output is what this module writes. No raw-HTML
  * passthrough, links restricted to http(s).
  *
- * Supported: #–#### headings, fenced code blocks, inline code, bold, links,
- * unordered/ordered lists, blockquotes, horizontal rules, paragraphs
- * (pre-wrap preserves intra-paragraph line breaks).
+ * Supported: #–#### headings, fenced code blocks, inline code, bold,
+ * italic, links, unordered/ordered lists, blockquotes, horizontal rules,
+ * paragraphs (pre-wrap preserves intra-paragraph line breaks).
  */
 
 import { escapeHtml, highlightJsonText } from './highlight'
@@ -20,6 +20,7 @@ function inline(escaped: string): string {
       if (i % 2 === 1) return `<code>${part.slice(1, -1)}</code>`
       return part
         .replaceAll(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+        .replaceAll(/\*([^*\n]+)\*/g, '<em>$1</em>')
         .replaceAll(
           /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,
           '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',

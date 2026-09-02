@@ -10,7 +10,7 @@
 export type SessionStatus = "running" | "success" | "fail";
 
 /** phases.status — queued only for manifest-declared phases not yet entered. */
-export type PhaseStatus = "queued" | "running" | "success" | "fail";
+export type PhaseStatus = "queued" | "running" | "success" | "fail" | "not_passed";
 
 /** phases.kind — decides which lane a block renders in. */
 export type PhaseKind = "engineer" | "code" | "agent";
