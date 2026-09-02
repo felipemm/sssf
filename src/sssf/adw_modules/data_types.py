@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 PhaseKind = Literal["engineer", "agent", "code"]
 PhaseStatus = Literal["queued", "running", "success", "fail", "not_passed"]
@@ -140,18 +140,40 @@ QualityOperation = Literal["lint", "typecheck", "build", "security"]
 
 
 class QualityCheckSpec(BaseModel):
-    """One deterministic quality command."""
+    """One deterministic quality command.
+
+    A check may declare `surface` instead of `argv`: the target directory/file
+    the check scans. The engine then derives argv (and requires) from it — the
+    per-project design-gate knob (impeccable detect <surface>). Explicit argv
+    always wins over surface expansion.
+    """
 
     name: str
     area: QualityArea
     operation: QualityOperation
-    argv: list[str]
+    argv: list[str] = Field(default_factory=list)
     timeout_seconds: int = 120
+    # The design surface (dir/file the check scans) — the per-project knob.
+    # Expands to argv=["impeccable", "detect", <surface>] + requires=<surface>
+    # when argv is not given explicitly.
+    surface: str | None = None
     # A path (relative to the repo root) the check's target must exist at. A
     # missing target is an ENVIRONMENT failure, not a code failure: the check
     # fails fast with exit 127 and a clear message instead of letting the
     # command silently scan nothing and pass.
     requires: str | None = None
+
+    @model_validator(mode="after")
+    def _expand_surface(self):
+        if self.surface and not self.argv:
+            self.argv = ["impeccable", "detect", self.surface]
+            if self.requires is None:
+                self.requires = self.surface
+        if not self.argv and not self.surface:
+            raise ValueError(
+                f"quality check '{self.name}' must declare argv or surface"
+            )
+        return self
 
 
 class QualityCheckResult(BaseModel):
@@ -317,6 +339,10 @@ class AgentCall(BaseModel):
     prompt: str
     previous: EnvelopeBase | None = None
     gates: list[Callable] = Field(default_factory=list)  # gate(envelope, run) -> list[str]
+    # Phase-specific instruction appended to the agent's rendered user prompt —
+    # the channel a phase uses to redirect a shared roster agent (e.g. the
+    # documenter's kb write-up default -> an impeccable init/document task).
+    user_directive: str = ""
 
 
 # ── Config ───────────────────────────────────────────────────────────────────

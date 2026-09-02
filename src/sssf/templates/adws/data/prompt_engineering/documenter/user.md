@@ -18,6 +18,10 @@
 
 Document the completed work described by `previous_envelope`, using `prompt` for what was originally asked.
 
+If the prompt carries a `## Phase directive` that names a different task (an
+impeccable `init`/`document` command, or any other override), follow the
+directive instead of the steps below — it replaces this default.
+
 1. Read the full diff at `previous_envelope.diff_path`, plus any changed file that needs context.
 2. Write the write-up to `<context_handoff_dir>/document.md`. Cover: what changed and why it matters, the files that carry it, and how to use or verify it.
 3. Copy that file into the repo under `adws/kb/`:

@@ -85,6 +85,8 @@ def _copy_tree(
 
     def walk(trav, rel: Path) -> None:
         for item in trav.iterdir():
+            if item.name == "__pycache__" or item.suffix == ".pyc":
+                continue  # compiled noise must never be stamped into projects
             if item.is_dir():
                 walk(item, rel / item.name)
                 continue
@@ -147,7 +149,14 @@ def _migrate_legacy(root: Path) -> None:
         gitignore.write_text(entry + "\n")
 
 
-def run(root: Path, *, refresh: bool = False, force: bool = False, auto: bool = False) -> int:
+def run(
+    root: Path,
+    *,
+    refresh: bool = False,
+    force: bool = False,
+    auto: bool = False,
+    design_quality: str | None = None,
+) -> int:
     templates = resources.files("sssf.templates")
     root.mkdir(parents=True, exist_ok=True)
 
@@ -189,6 +198,15 @@ def run(root: Path, *, refresh: bool = False, force: bool = False, auto: bool = 
         gitignore.write_text("\n".join(GITIGNORE_ENTRIES) + "\n")
 
     registry.register_project(root, paths.data_dir(root) / "sssf.db", __version__, added=True)
+
+    # Design quality (impeccable gate + designer scope), per-project — surgical
+    # config edits, idempotent; only when the flag is given.
+    if design_quality is not None:
+        from sssf.commands import design_quality as dq
+
+        rc = dq.configure(root, design_quality)
+        if rc != 0:
+            return rc
 
     # Interview skills — project-local (.pi/skills/), never global. A fetch
     # failure doesn't fail init; `sssf doctor` reports it.

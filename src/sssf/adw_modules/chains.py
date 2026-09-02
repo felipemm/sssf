@@ -44,7 +44,11 @@ class ChainFailure(RuntimeError):
 class AgentPhase:
     """An agent phase: ph.call() with an output type, gates, and optional
     retries. `previous` names the phase whose envelope feeds this call
-    (default: the previous agent/code phase's output)."""
+    (default: the previous agent/code phase's output).
+
+    `user_directive` is appended to the agent's rendered user prompt for THIS
+    phase only — how a phase redirects a shared roster agent.
+    """
 
     name: str
     owner: str
@@ -55,6 +59,7 @@ class AgentPhase:
     retries: int = 0
     previous: str | None = None  # phase name whose envelope feeds this call
     when: Callable[[object], bool] | None = None  # run-only condition
+    user_directive: str = ""  # appended to the agent's user prompt this phase
 
 
 @dataclass
@@ -182,6 +187,7 @@ def _run_phases(cfg, run, prompt: str, chain: Chain) -> int:
                         prompt=prompt,
                         previous=prev,
                         gates=spec.gates,
+                        user_directive=spec.user_directive,
                     )
                 )
             outputs[spec.name] = previous

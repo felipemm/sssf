@@ -61,17 +61,28 @@ def test_builder_prompt_forbids_committing():
 
 
 def test_quality_design_variant_has_impeccable_phases():
-    text = (TEMPLATES / "adws" / "modules" / "adw_design_sdlc.py").read_text()
+    """sdlc_full = simple_sdlc + designer: the design phases, their conditionals
+    and directives are all wired into the chain."""
+    text = (TEMPLATES / "adws" / "modules" / "adw_sdlc_full.py").read_text()
     for needle in (
         '"init"',
         '"design"',
         '"designer"',
         '"documenter"',
-        '"document"',
+        '"document_design"',
         "impeccable",
         "QualityLoop",
+        "ReviewLoop",
+        "user_directive",
+        "_design_world_changed",
+        "PRODUCT.md",
+        "DESIGN.md",
     ):
-        assert needle in text, f"variant missing {needle}"
+        assert needle in text, f"sdlc_full missing {needle}"
+    # the simple_sdlc tail is present (review -> retest -> commit_build)
+    for needle in ('"commit_plan"', '"commit_build"', '"retest"', "_commit_build"):
+        assert needle in text, f"sdlc_full missing simple_sdlc tail {needle}"
+    assert 'name="simple_sdlc"' not in text
 
 
 def test_template_scaffolds_prompts_specs_kb():
@@ -103,7 +114,7 @@ def test_document_chain_ends_in_commit():
 def test_template_ships_default_checks():
     cfg = (TEMPLATES / "adws" / "config" / "sssf.config.yaml").read_text()
     assert "- name: design" in cfg
-    assert '"impeccable", "detect", "site/dist"' in cfg
+    assert "surface: site/dist" in cfg  # the per-project knob — argv/requires derive from it
     assert "- name: snyk" in cfg
     assert '"snyk", "test"' in cfg
     # runners stay honest placeholders — never defaulted
@@ -142,7 +153,7 @@ def test_fix_loop_adws_break_on_env_failure():
         "adw_build_test",
         "adw_plan_build_test",
         "adw_plan_build_test_quality",
-        "adw_design_sdlc",
+        "adw_sdlc_full",
     ):
         text = (TEMPLATES / "adws" / "modules" / f"{name}.py").read_text()
         assert "QualityLoop" in text, f"{name} missing the shared quality loop"
