@@ -3,7 +3,6 @@ interview prerequisites (provider, pi, skills presence + freshness)."""
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from sssf.adw_modules import skills_install
@@ -22,7 +21,10 @@ def _project(tmp_path, monkeypatch, ticketing_yaml: str | None = None) -> Path:
 
 def test_doctor_project_checks_healthy(tmp_path, monkeypatch, capsys):
     _project(tmp_path, monkeypatch, "providers:\n  - internal\n")
-    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    # misc binds `which = shutil.which` at import time — patch the alias the
+    # doctor actually calls, not shutil, or the tests depend on the runner's
+    # real PATH (pi/bun absent on CI).
+    monkeypatch.setattr(misc, "which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setattr(skills_install, "check_skills", lambda r: {
         s: {"present": True, "pinned": "a" * 7, "latest": "a" * 7, "stale": False}
         for s in skills_install.SOURCES})
@@ -33,7 +35,7 @@ def test_doctor_project_checks_healthy(tmp_path, monkeypatch, capsys):
 
 def test_doctor_project_reports_missing_and_stale(tmp_path, monkeypatch, capsys):
     _project(tmp_path, monkeypatch, "providers:\n  - internal\n")
-    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(misc, "which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setattr(skills_install, "check_skills", lambda r: {
         "brainstorming": {"present": False, "pinned": None, "latest": "a" * 7, "stale": False},
         "grilling": {"present": True, "pinned": "b" * 7, "latest": "c" * 7, "stale": True},
@@ -47,5 +49,7 @@ def test_doctor_project_reports_missing_and_stale(tmp_path, monkeypatch, capsys)
 
 def test_doctor_no_project_skips_project_checks(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
+    # hermetic: global tool checks must not depend on the runner's PATH
+    monkeypatch.setattr(misc, "which", lambda name: f"/usr/bin/{name}")
     assert misc.doctor() == 0
     assert "no project here" in capsys.readouterr().out
