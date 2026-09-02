@@ -1,5 +1,6 @@
 import datetime
 import sqlite3
+import subprocess
 from pathlib import Path
 
 from sssf import ticketing
@@ -404,3 +405,67 @@ def test_run_rehonors_spec_prompt_file_after_runs(tmp_path, monkeypatch):
     assert ticket.run("internal:x", None) == 0  # first run honors the spec
     assert ticket.run("internal:x", None) == 0  # re-run still honors it
     assert sorted(p.name for p in (root / "adws" / "prompts").glob("*.md")) == ["01-x.md"]
+
+
+def _sandbox_project(tmp_path, monkeypatch) -> Path:
+    """A remote-backed git repo with sandbox enabled — the sandboxed run path
+    creates a worktree from origin/main, so the fixture mirrors a real project."""
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
+    root = tmp_path / "proj"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "T"], cwd=root, check=True)
+    (root / "adws" / "config").mkdir(parents=True)
+    (root / "adws" / "data").mkdir(parents=True)
+    (root / "adws" / "prompts").mkdir(parents=True)
+    (root / "adws" / "modules").mkdir(parents=True)
+    (root / "adws" / "modules" / "adw_simple_sdlc.py").write_text("print('adw stub')\n")
+    (root / "adws" / "config" / "ticketing.yaml").write_text(INTERNAL_YAML)
+    (root / "adws" / "config" / "sssf.config.yaml").write_text("sandbox:\n  enabled: true\n")
+    (root / "f.txt").write_text("x\n")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
+    subprocess.run(["git", "remote", "add", "origin", str(origin)], cwd=root, check=True)
+    subprocess.run(["git", "push", "-q", "-u", "origin", "main"], cwd=root, check=True)
+    monkeypatch.chdir(root)
+    return root
+
+
+def test_run_sandboxed_copies_interview_spec_into_worktree(tmp_path, monkeypatch):
+    """Sandboxed runs must execute the interview spec verbatim — copied into
+    the worktree (origin/main never carries an unpushed/uncommitted spec) —
+    not a thin generated prompt."""
+    import sssf.sandbox as sandbox
+
+    root = _sandbox_project(tmp_path, monkeypatch)
+    # the interview spec exists ONLY in the main tree — never committed/pushed
+    spec = root / "adws" / "prompts" / "01-spec.md"
+    spec.write_text("# The spec\n\nAgent-written requirements.\n")
+    conn = _db(root)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, title, description, status, prompt_file)"
+        " VALUES ('internal:x','internal','X','','backlog','adws/prompts/01-spec.md')"
+    )
+    conn.commit()
+    conn.close()
+
+    calls = {}
+    monkeypatch.setattr(sandbox, "docker_available", lambda: True)
+    monkeypatch.setattr(sandbox, "spawn_monitor", lambda root, adw_id: None)
+
+    def fake_spawn(root, adw_id, cmd, image, data_dir, pi_home, env, worktree):
+        calls["cmd"] = cmd
+        calls["worktree"] = Path(worktree)
+        return {"worktree": str(worktree), "name": f"sssf-{adw_id}"}
+
+    monkeypatch.setattr(sandbox, "spawn_sandbox", fake_spawn)
+
+    assert ticket.run("internal:x", None) == 0
+    assert any(a.startswith("run prompt adws/prompts/") for a in calls["cmd"])
+    wt_prompts = list((calls["worktree"] / "adws" / "prompts").glob("*.md"))
+    # the container runs the spec verbatim — even though it was never pushed
+    assert len(wt_prompts) == 1
+    assert wt_prompts[0].read_text() == "# The spec\n\nAgent-written requirements.\n"
+    assert "Generated from" not in wt_prompts[0].read_text()
