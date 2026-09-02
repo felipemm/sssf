@@ -42,6 +42,15 @@ class PhaseHandle:
             if self.phase.params.name == "request":
                 self.run.tracer.session_request(self.run.adw_id, str(payload["input"]))
 
+    def mark_not_passed(self, reason: str = "") -> None:
+        """Mark the phase as not_passed WITHOUT failing it: the block ran, but
+        its result was not green (e.g. quality checks failed). Visual only —
+        never a hard stop, so the repair loop can still hand the builder the
+        envelope. A later phase may still succeed and the run may be accepted.
+        """
+        self.phase.status = "not_passed"
+        self.phase.error = reason or self.phase.error
+
     def call(self, call: AgentCall) -> EnvelopeBase:
         if self.phase.params.kind != "agent":
             raise RuntimeError("ph.call() is only valid inside an agent phase")
@@ -145,15 +154,20 @@ class Run:
             self.console.session_finished(False, self.tokens, self.cost, self.cfg.observability.db)
             raise
         else:
-            phase.status = "success"
+            # A body may have marked the phase (not_passed) — honor it.
+            status = phase.status if phase.status != "running" else "success"
+            phase.status = status
             phase.ended_at = now_iso()
+            payload: dict = {"status": status}
+            if status == "not_passed" and phase.error:
+                payload["reason"] = phase.error
             self.tracer.event(
                 EventRecord(
                     adw_id=self.adw_id,
                     phase_id=phase.phase_id,
                     type="phase_end",
                     name=params.name,
-                    payload={"status": "success"},
+                    payload=payload,
                 )
             )
             self.tracer.phase_upsert(phase)
@@ -165,8 +179,10 @@ class Run:
 
         Two criteria, not one. Every phase must have passed, AND the ADW's own
         acceptance test must hold. They are different questions on purpose: a
-        test phase that ran the suite did its job even when the suite came back
-        red, so the PHASE succeeds while the RUN must not.
+        quality phase whose checks came back red is marked not_passed (visual
+        truth) rather than success, but that flag is NOT a hard stop — the
+        repair loop decides the run's fate via `accepted`, so an accepted run
+        whose earlier check-failures were fixed still passes here.
 
         This replaces a `succeeded` property that answered only the first
         question — and, being a property with side effects, wrote the session
@@ -177,7 +193,13 @@ class Run:
         now settles the db, the banner, and the exit code together, so the three
         cannot disagree.
         """
-        phases_ok = bool(self.phases) and all(p.status == "success" for p in self.phases)
+        phases_ok = bool(self.phases) and all(
+            p.status in ("success", "not_passed") for p in self.phases
+        )
+        # not_passed is a visual flag only (quality checks came back red): the
+        # repair loop may have fixed them in a later iteration, and the loop's
+        # own `accepted` decides the run's fate — a phase that marked not_passed
+        # must not silently fail an otherwise-accepted run.
         ok = phases_ok and accepted
         if phases_ok and not accepted:
             note = reason or "the run's acceptance criterion was not met"

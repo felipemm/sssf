@@ -116,6 +116,14 @@ def record_quality(phase, result: QualityResult) -> None:
 def run_quality_phase(run, phase) -> QualityResult:
     result = quality.run_quality(run)
     record_quality(phase, result)
+    if not result.passed:
+        # Visual truth, not a hard stop: the phase RAN (kind=code) but its
+        # checks came back red — record it as not_passed in the db + events so
+        # the trace never claims a failed gate was a success. The loop still
+        # hands the builder the envelope to repair.
+        phase.mark_not_passed(
+            f"{len(result.failures)} of {len(result.checks)} check(s) failed"
+        )
     return result
 
 

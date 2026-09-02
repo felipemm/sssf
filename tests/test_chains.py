@@ -44,6 +44,10 @@ class _FakePhase:
     def log(self, **kw):
         pass
 
+    def mark_not_passed(self, reason: str = ""):
+        self.status = "not_passed"
+        self.error = reason
+
     def call(self, call):
         env = GenericOutput(status="success", summary=f"{self.params.name} done")
         self.output = env
@@ -145,6 +149,8 @@ def test_quality_loop_breaks_on_pass(tmp_path, fake_commit):
     names = [p.params.name for p in run.phases]
     assert "verify_1" in names and not any(n.startswith("fix_") for n in names)
     assert run.accepted is True
+    # all checks passed — no not_passed flag anywhere
+    assert not any(getattr(p, "status", None) == "not_passed" for p in run.phases)
 
 
 def test_quality_loop_breaks_on_env_failure(tmp_path, fake_commit):
@@ -199,3 +205,6 @@ def test_quality_loop_exhausts_then_fails(tmp_path, fake_commit):
     assert sum(1 for n in names if n.startswith("verify_")) == chains.MAX_FIX_LOOPS
     assert run.accepted is False
     assert "never came back clean" in run.reason
+    # every red verify phase is marked not_passed — the trace never claims success
+    not_passed = [p for p in run.phases if getattr(p, "status", None) == "not_passed"]
+    assert len(not_passed) == chains.MAX_FIX_LOOPS
