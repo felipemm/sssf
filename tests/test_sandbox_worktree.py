@@ -13,6 +13,10 @@ from sssf.sandbox import (
 
 @pytest.fixture
 def repo(tmp_path):
+    # A bare origin with main pushed — the sandbox contract is origin/main,
+    # so the fixture mirrors a real remote.
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
     root = tmp_path / "proj"
     root.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
@@ -21,6 +25,8 @@ def repo(tmp_path):
     (root / "f.txt").write_text("x\n")
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
     subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
+    subprocess.run(["git", "remote", "add", "origin", str(origin)], cwd=root, check=True)
+    subprocess.run(["git", "push", "-q", "-u", "origin", "main"], cwd=root, check=True)
     return root
 
 
@@ -36,6 +42,46 @@ def test_sandbox_dir_location(repo, tmp_path):
     assert d.name == "abc123"
     assert "proj" in d.parts
     assert d.is_absolute()
+
+
+def test_sandbox_dir_is_repo_worktrees(repo, tmp_path):
+    d = sandbox_dir(repo, "abc123")
+    assert d == repo / ".worktrees" / "abc123"
+
+
+def test_worktree_created_inside_repo_and_excluded(repo, tmp_path):
+    wt = create_worktree(repo, "wtloc1")
+    assert wt == repo / ".worktrees" / "wtloc1"
+    assert wt.is_dir()
+    # the main tree must not show .worktrees/ as untracked noise
+    status = subprocess.run(
+        ["git", "status", "--short"], cwd=repo, capture_output=True, text=True
+    ).stdout
+    assert status.strip() == ""
+
+
+def test_teardown_keeps_container_and_worktree(repo, tmp_path, monkeypatch):
+    """After a run NEITHER the container nor the worktree is deleted — both
+    are the debugging surface. Cleanup is explicit (sweep / sandbox prune)."""
+    import sssf.sandbox as sandbox
+
+    wt = create_worktree(repo, "keep1")
+    called = []
+    monkeypatch.setattr(sandbox, "stop_remove", lambda name: called.append(name))
+    assert sandbox.teardown_sandbox(repo, "keep1") == 0
+    assert called == []  # container is KEPT
+    assert wt.is_dir()  # worktree survives
+
+
+def test_abort_keeps_worktree_for_manual_debug(repo, tmp_path, monkeypatch):
+    import sssf.sandbox as sandbox
+
+    wt = create_worktree(repo, "abrt1")
+    removed = []
+    monkeypatch.setattr(sandbox, "stop_remove", lambda name: removed.append(name))
+    sandbox.abort_sandbox(repo, "abrt1")
+    assert removed == ["sssf-abrt1"]
+    assert wt.is_dir()  # failed spawns leave the worktree too
 
 
 def test_create_remove_branch_survives(repo, tmp_path):
@@ -82,6 +128,58 @@ def test_delete_branch_idempotent(repo, tmp_path):
         ["git", "branch", "--list", "sssf/ghi789"], cwd=repo, capture_output=True, text=True
     ).stdout
     assert branches.strip() == ""
+
+
+def test_worktree_runs_from_origin_main_not_dirty_local(repo, tmp_path):
+    """The sandbox contract: fresh runs check out origin/main — never local
+    main, which may carry commits that were never pushed."""
+    (repo / "f.txt").write_text("x\nlocal dirty\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "dirty local"], cwd=repo, check=True)
+    wt = create_worktree(repo, "orig1")
+    assert (wt / "f.txt").read_text() == "x\n"  # origin/main state, not local
+
+
+def test_worktree_ignores_uncommitted_local_edits(repo, tmp_path):
+    (repo / "f.txt").write_text("x\nuncommitted\n")
+    wt = create_worktree(repo, "orig2")
+    assert (wt / "f.txt").read_text() == "x\n"
+
+
+def test_worktree_fetches_latest_origin_main(repo, tmp_path):
+    """A commit pushed to origin AFTER the local clone must be picked up by
+    the fresh run — create_worktree fetches origin/main, so the sandbox sees
+    the remote state even when local main has moved on with unpushed work."""
+    (repo / "f.txt").write_text("x\nremote state\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "remote update"], cwd=repo, check=True)
+    subprocess.run(["git", "push", "-q", "origin", "main"], cwd=repo, check=True)
+    # local main now diverges with an unpushed commit
+    (repo / "f.txt").write_text("x\nlocal only\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "local only"], cwd=repo, check=True)
+    wt = create_worktree(repo, "orig3")
+    assert (wt / "f.txt").read_text() == "x\nremote state\n"
+
+
+def test_worktree_without_origin_falls_back_to_local_main(tmp_path):
+    """A repo with NO remote (no origin) must not crash on `git fetch origin`
+    — fall back to local main. Uncommitted edits stay out either way."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "T"], cwd=root, check=True)
+    (root / "f.txt").write_text("x\nlocal\n")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
+    wt = create_worktree(root, "noorigin1")
+    assert (wt / "f.txt").read_text() == "x\nlocal\n"
+
+    # uncommitted local edits must not leak into the sandbox even with no remote
+    (root / "f.txt").write_text("x\nlocal\nuncommitted\n")
+    wt2 = create_worktree(root, "noorigin2")
+    assert (wt2 / "f.txt").read_text() == "x\nlocal\n"
 
 
 def test_create_duplicate_raises(repo, tmp_path):

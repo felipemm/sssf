@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { CircleCheck, CircleX, ExternalLink, LoaderCircle, Play, X } from 'lucide-vue-next'
-import { runTicket } from '../lib/api'
+import { runTicket, saveTicketContext } from '../lib/api'
 import { notify } from '../lib/toast'
+import { renderMarkdown } from '../lib/markdown'
 import type { Ticket, TicketRun } from '../lib/api'
 
 const props = defineProps<{ ticket: Ticket }>()
@@ -13,13 +14,32 @@ const emit = defineEmits<{ close: []; ran: [] }>()
 // (including stderr) so a stale-image or env error is visible, not silent.
 const running = ref(false)
 const error = ref('')
+// Prefilled from the persisted ticket context — survives failures and closes.
+const steer = ref(props.ticket.context ?? '')
+let saveTimer: ReturnType<typeof setTimeout> | undefined
 const runnable = computed(() => props.ticket.status === 'backlog')
+
+function saveSteer() {
+  void saveTicketContext(props.ticket.id, steer.value.trim())
+}
+
+function scheduleSave() {
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(saveSteer, 600)
+}
+
+onBeforeUnmount(() => {
+  clearTimeout(saveTimer)
+  saveSteer()  // flush any pending edit — closing the modal must not lose it
+})
 
 async function run() {
   running.value = true
   error.value = ''
   try {
-    const res = await runTicket(props.ticket.id)
+    clearTimeout(saveTimer)
+    saveSteer()  // persist before spawning so a failed run keeps the context
+    const res = await runTicket(props.ticket.id, steer.value)
     if (!res.ok) {
       error.value = res.output || 'run failed'
       notify(res.output || 'run failed')
@@ -32,6 +52,9 @@ async function run() {
 }
 
 const BADGE: Record<string, string> = { jira: 'J', linear: 'L', internal: '⚙' }
+
+// Safe for v-html: renderMarkdown escapes all input before producing tags.
+const bodyHtml = computed(() => renderMarkdown(props.ticket.description || ''))
 
 function runStatus(run: TicketRun): { label: string; cls: string } {
   if (run.status === 'success') return { label: 'success', cls: 'ok' }
@@ -57,7 +80,20 @@ function runStatus(run: TicketRun): { label: string; cls: string } {
         </a>
       </p>
 
-      <div class="m-body">{{ ticket.description || 'no description' }}</div>
+      <div v-if="ticket.description" class="m-body md" v-html="bodyHtml" />
+      <p v-else class="m-body dim">no description</p>
+
+      <div v-if="runnable" class="m-steer">
+        <label class="steer-label" for="steer-input">Extra context for this run (appended to the description)</label>
+        <textarea
+          id="steer-input"
+          v-model="steer"
+          class="steer-input"
+          rows="4"
+          placeholder="e.g. focus on the OAuth flow only, keep the change minimal, don't touch the exporter…"
+          @input="scheduleSave"
+        />
+      </div>
 
       <p v-if="ticket.prompt_file" class="m-link dim">prompt: <code>{{ ticket.prompt_file }}</code></p>
 
@@ -113,7 +149,7 @@ function runStatus(run: TicketRun): { label: string; cls: string } {
   justify-content: center;
 }
 .modal {
-  width: min(560px, 92vw);
+  width: min(880px, 94vw);
   max-height: 80vh;
   overflow: auto;
   background: #0b0f18;
@@ -164,9 +200,34 @@ function runStatus(run: TicketRun): { label: string; cls: string } {
 }
 .m-body {
   margin-top: 14px;
+}
+.m-steer {
+  margin-top: 16px;
+  display: grid;
+  gap: 6px;
+}
+.steer-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+}
+.steer-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
   font-size: 14px;
-  line-height: 1.6;
-  white-space: pre-wrap;
+  line-height: 1.5;
+  padding: 8px 10px;
+}
+.steer-input:focus {
+  outline: none;
+  border-color: rgba(232, 182, 74, 0.5);
 }
 .m-link {
   margin-top: 8px;

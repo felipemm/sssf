@@ -23,7 +23,7 @@ import { SssfDb, resolveDbPath } from "./db.ts";
 import { ProjectRegistry } from "./registry.ts";
 import { sweepAll } from "./sweep.ts";
 import { isEnabled, readTickets } from "./tickets.ts";
-import { syncTickets, runTicket, backlogTicket } from "./ticketRoutes.ts";
+import { syncTickets, runTicket, backlogTicket, setTicketContext } from "./ticketRoutes.ts";
 import { computeStatus } from "./status.ts";
 import { computeCockpit, computeCockpitContributions, containerLogs, defaultSpawnCli, handleControl } from "./cockpit.ts";
 import type { AgentPrompts, ApiError, ControlResult, HealthResponse } from "../shared/types.ts";
@@ -413,7 +413,29 @@ const server = Bun.serve({
       const root = projectRoot(name);
       const id = param(req, "id");
       if (!root || !isEnabled(root)) return json({ error: "ticketing not configured" }, 400);
-      const res = await runTicket(root, id);
+      let context = "";
+      try {
+        const body = await req.json();
+        if (typeof body?.context === "string") context = body.context;
+      } catch {
+        /* no body — plain run */
+      }
+      const res = await runTicket(root, id, context);
+      return res.ok ? json(res) : json(res, 409);
+    }),
+    "/api/projects/:project/tickets/:id/context": scoped(async (req) => {
+      const name = param(req, "project");
+      const root = projectRoot(name);
+      const id = param(req, "id");
+      if (!root || !isEnabled(root)) return json({ error: "ticketing not configured" }, 400);
+      let context = "";
+      try {
+        const body = await req.json();
+        if (typeof body?.context === "string") context = body.context;
+      } catch {
+        return json({ error: "context required" }, 400);
+      }
+      const res = await setTicketContext(root, id, context);
       return res.ok ? json(res) : json(res, 409);
     }),
     "/api/projects/:project/tickets/:id/backlog": scoped(async (req) => {

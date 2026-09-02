@@ -15,7 +15,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 PhaseKind = Literal["engineer", "agent", "code"]
-PhaseStatus = Literal["queued", "running", "success", "fail"]
+PhaseStatus = Literal["queued", "running", "success", "fail", "not_passed"]
 
 
 # ── Phases ────────────────────────────────────────────────────────────────────

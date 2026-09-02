@@ -96,6 +96,23 @@ def test_run_sandbox_flags(fake_docker, tmp_path):
     stop_remove("sssf-abc")
 
 
+def test_run_sandbox_removes_stale_container_first(fake_docker, tmp_path):
+    """Containers are kept after a run, so a retry/restart finds an Exited
+    container with the same name — run_sandbox must clear it before running."""
+    run_sandbox(
+        "sssf-runner",
+        "sssf-abc",
+        worktree=tmp_path / "wt",
+        data_dir=tmp_path / "data",
+        pi_home=tmp_path / "pi",
+    )
+    calls = fake_docker.read_text().splitlines()
+    rm = next(c for c in calls if c.startswith("rm -f"))
+    run = next(c for c in calls if c.startswith("run"))
+    assert "sssf-abc" in rm
+    assert calls.index(rm) < calls.index(run)
+
+
 def test_ensure_image_current_real_fingerprint(fake_docker, monkeypatch):
     """Exercises the REAL _engine_fingerprint (not a stub) — regression for the
     missing-import bug that made it crash with NameError."""

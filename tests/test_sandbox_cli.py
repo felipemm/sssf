@@ -6,6 +6,10 @@ from sssf.commands import misc  # noqa: F401  (CLI registration smoke)
 
 
 def _make_repo(tmp_path) -> Path:
+    # Bare origin + pushed main: sandbox runs fetch origin/main, so a repo
+    # without a remote can no longer spawn fresh worktrees.
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
     root = tmp_path / "proj"
     root.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
@@ -14,6 +18,8 @@ def _make_repo(tmp_path) -> Path:
     (root / "f.txt").write_text("x\n")
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
     subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
+    subprocess.run(["git", "remote", "add", "origin", str(origin)], cwd=root, check=True)
+    subprocess.run(["git", "push", "-q", "-u", "origin", "main"], cwd=root, check=True)
     return root
 
 

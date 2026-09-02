@@ -28,22 +28,58 @@ def _run_git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _has_remote(root: Path, name: str) -> bool:
+    """True if the repo has a git remote under `name` (e.g. origin)."""
+    return _run_git(root, "config", "--get", f"remote.{name}.url").returncode == 0
+
+
 def sandbox_dir(project_root: Path, adw_id: str) -> Path:
-    """~/.sssf/sandboxes/<project-basename>/<adw_id> — the repo tree stays clean."""
-    home = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf"))
-    return home / "sandboxes" / project_root.name / adw_id
+    """<repo>/.worktrees/<adw_id> — the worktree lives next to the code so
+    the operator can inspect or re-run it manually after a run. Ignored via
+    .git/info/exclude (never committed); cleanup is `sssf sandbox prune`."""
+    return project_root / ".worktrees" / adw_id
+
+
+def _exclude_worktrees(project_root: Path) -> None:
+    """Keep `.worktrees/` out of `git status` — a LOCAL ignore, never committed."""
+    exclude = project_root / ".git" / "info" / "exclude"
+    try:
+        if exclude.exists() and ".worktrees/" in exclude.read_text():
+            return
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        with exclude.open("a") as f:
+            f.write("\n.worktrees/\n")
+    except OSError:
+        pass  # best-effort — a repo without writable .git still runs
 
 
 def create_worktree(project_root: Path, adw_id: str, attach: bool = False) -> Path:
-    """git worktree add -q <dir> -b sssf/<adw_id>. The branch is unique per
+    """git worktree add -q <dir> -b sssf/<adw_id> — the branch is unique per
     adw_id; worktrees are structurally isolated (a branch lives in one).
+
+    Fresh runs check out origin/main, never local main: the sandbox must run
+    what was actually merged, so unpushed local commits and uncommitted edits
+    stay out (the snyk-gate incident). origin/main is fetched first so the
+    run always sees the latest remote state. Repos with no origin remote
+    (local-only) fall back to committed local main.
 
     attach=True attaches to the EXISTING sssf/<adw_id> branch (a restart reuses
     the previous run's branch — the ADW joins and reaps the old state)."""
     branch = f"sssf/{adw_id}"
     wt = sandbox_dir(project_root, adw_id)
     wt.parent.mkdir(parents=True, exist_ok=True)
-    args = ["worktree", "add", "-q", str(wt)] + (["-b", branch] if not attach else [branch])
+    _exclude_worktrees(project_root)
+    if attach:
+        args = ["worktree", "add", "-q", str(wt), branch]
+    elif _has_remote(project_root, "origin"):
+        r = _run_git(project_root, "fetch", "origin", "main")
+        if r.returncode != 0:
+            raise SandboxError(f"git fetch origin main failed: {r.stderr.strip()}")
+        args = ["worktree", "add", "-q", str(wt), "-b", branch, "origin/main"]
+    else:
+        # No remote (a local-only repo): the origin/main source of truth
+        # doesn't exist, so the committed local main is the ground truth.
+        args = ["worktree", "add", "-q", str(wt), "-b", branch, "main"]
     r = _run_git(project_root, *args)
     if r.returncode != 0:
         raise SandboxError(f"worktree add failed: {r.stderr.strip()}")
@@ -172,6 +208,9 @@ def run_sandbox(
     for k, v in (env or {}).items():
         args += ["-e", f"{k}={v}"]
     args += [image, *(cmd or [])]
+    # Containers are KEPT after a run for debugging, so a retry/restart may
+    # find an Exited container with this name — remove it before running.
+    _docker("rm", "-f", name)  # no-op when absent (docker prints an error we ignore)
     # Docker Desktop can hiccup under concurrent container creation — retry
     # the run a few times before giving up.
     last: subprocess.CompletedProcess[str] | None = None
@@ -359,17 +398,15 @@ def spawn_sandbox(
 
 def abort_sandbox(project_root: Path, adw_id: str) -> None:
     """Clean up after a FAILED spawn: remove the (possibly 'Created'-stuck)
-    container and the worktree, keeping the branch. Deterministic."""
+    container. The worktree stays under .worktrees/ for inspection."""
     stop_remove(container_name(adw_id))
-    remove_worktree(sandbox_dir(project_root, adw_id))
 
 
 def teardown_sandbox(project_root: Path, adw_id: str) -> int:
-    """Remove the container + worktree once the run is done (success or fail).
-    The branch sssf/<adw_id> survives as the deliverable — the engineer merges
-    or PRs it; prune deletes it afterwards. Idempotent."""
-    stop_remove(container_name(adw_id))
-    remove_worktree(sandbox_dir(project_root, adw_id))
+    """No-op by design: after a run, NEITHER the container nor the worktree
+    is deleted — they are the operator's debugging surface (docker logs, the
+    .worktrees/<adw_id> checkout, its adws/data/sessions artifacts). Cleanup is
+    explicit: `sssf sandbox prune <adw_id>` or `sssf sweep`."""
     return 0
 
 

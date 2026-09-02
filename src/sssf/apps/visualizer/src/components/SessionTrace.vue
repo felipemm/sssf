@@ -393,7 +393,9 @@ function blockStyle(p: Phase, lane: Lane): Record<string, string> | undefined {
     left: geom.left,
     width: geom.width,
     background: `linear-gradient(180deg, ${hexAlpha(lane.color, 0.2)}, ${hexAlpha(lane.color, 0.05)})`,
-    borderColor: p.status === 'fail' ? 'rgba(255, 111, 103, 0.8)' : hexAlpha(lane.color, 0.55),
+    borderColor: p.status === 'fail' || p.status === 'not_passed'
+      ? 'rgba(255, 111, 103, 0.8)'
+      : hexAlpha(lane.color, 0.55),
     '--lane-glow': hexAlpha(lane.color, 0.28),
   }
 }
@@ -411,6 +413,7 @@ const STATUS_GLYPH: Record<string, string> = {
   fail: '✗',
   running: '●',
   queued: '○',
+  not_passed: '!',
 }
 
 // Tool-call tick marks inside a phase block, positioned within the block's own span.
@@ -967,6 +970,10 @@ function selectPhase(p: Phase) {
 
 .b-status.fail {
   color: var(--red);
+}
+
+.b-status.not_passed {
+  color: var(--amber, #fbbf24);
 }
 
 .b-status.running {

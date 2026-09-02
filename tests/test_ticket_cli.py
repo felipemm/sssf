@@ -49,6 +49,109 @@ def test_not_configured_is_friendly(tmp_path, monkeypatch, capsys):
     assert "not configured" in capsys.readouterr().err
 
 
+def test_run_appends_context_to_prompt(tmp_path, monkeypatch):
+    """Operator context is added as its own section, after the description."""
+    root = _project(tmp_path, monkeypatch, CONFIG)
+    conn = _db(root)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, external_id, title, description, status)"
+        " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'backlog')"
+    )
+    conn.commit()
+    conn.close()
+    (root / "adws" / "modules").mkdir(parents=True, exist_ok=True)
+    (root / "adws" / "modules" / "adw_simple_sdlc.py").write_text("print('adw stub')\n")
+    monkeypatch.setattr(ticket.subprocess, "Popen", lambda argv, **kw: type("P", (), {"pid": 1})())
+    assert ticket.run("internal:abc", None, context="focus on the OAuth flow only") == 0
+    prompt = sorted((root / "adws" / "prompts").glob("*.md"))
+    text = prompt[0].read_text()
+    assert "Make it dark" in text
+    assert "## Run context" in text
+    assert "focus on the OAuth flow only" in text
+    # context comes after the description, before the provenance footer
+    assert text.index("Make it dark") < text.index("## Run context") < text.index("Generated from")
+
+
+def test_run_without_context_keeps_plain_prompt(tmp_path, monkeypatch):
+    root = _project(tmp_path, monkeypatch, CONFIG)
+    conn = _db(root)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, external_id, title, description, status)"
+        " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'backlog')"
+    )
+    conn.commit()
+    conn.close()
+    (root / "adws" / "modules").mkdir(parents=True, exist_ok=True)
+    (root / "adws" / "modules" / "adw_simple_sdlc.py").write_text("print('adw stub')\n")
+    monkeypatch.setattr(ticket.subprocess, "Popen", lambda argv, **kw: type("P", (), {"pid": 1})())
+    assert ticket.run("internal:abc", None) == 0
+    text = sorted((root / "adws" / "prompts").glob("*.md"))[0].read_text()
+    assert "## Run context" not in text
+
+
+def test_context_set_get_roundtrip(tmp_path, monkeypatch, capsys):
+    root = _project(tmp_path, monkeypatch, CONFIG)
+    conn = _db(root)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, external_id, title, description, status)"
+        " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'backlog')"
+    )
+    conn.commit()
+    conn.close()
+    assert ticket.ticket_context("internal:abc", None, set_text="focus on the OAuth flow") == 0
+    capsys.readouterr()  # consume the "context saved" line
+    conn = _db(root)
+    saved = conn.execute("SELECT context FROM tickets WHERE id='internal:abc'").fetchone()[0]
+    conn.close()
+    assert saved == "focus on the OAuth flow"
+    assert ticket.ticket_context("internal:abc", None) == 0
+    assert capsys.readouterr().out.strip() == "focus on the OAuth flow"
+
+
+def test_run_persists_context_and_reuses_stored(tmp_path, monkeypatch):
+    root = _project(tmp_path, monkeypatch, CONFIG)
+    conn = _db(root)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, external_id, title, description, status)"
+        " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'backlog')"
+    )
+    conn.commit()
+    conn.close()
+    (root / "adws" / "modules").mkdir(parents=True, exist_ok=True)
+    (root / "adws" / "modules" / "adw_simple_sdlc.py").write_text("print('adw stub')\n")
+    monkeypatch.setattr(ticket.subprocess, "Popen", lambda argv, **kw: type("P", (), {"pid": 1})())
+
+    # run with --context: persisted to the row AND used in the prompt
+    assert ticket.run("internal:abc", None, context="steer for attempt 1") == 0
+    conn = _db(root)
+    stored = conn.execute("SELECT context FROM tickets WHERE id='internal:abc'").fetchone()[0]
+    conn.close()
+    assert stored == "steer for attempt 1"
+
+    # a later run WITHOUT --context reuses the stored context
+    assert ticket.run("internal:abc", None) == 0
+    prompts = sorted((root / "adws" / "prompts").glob("*.md"))
+    assert len(prompts) == 2
+    assert "steer for attempt 1" in prompts[1].read_text()
+
+
+def test_schema_migration_adds_context_column(tmp_path):
+    """Pre-context databases (no column) get it added, not re-created."""
+    conn = sqlite3.connect(tmp_path / "old.db")
+    conn.execute(
+        "CREATE TABLE tickets (id TEXT PRIMARY KEY, provider TEXT NOT NULL,"
+        " title TEXT NOT NULL, description TEXT, status TEXT DEFAULT 'backlog')"
+    )
+    conn.execute("INSERT INTO tickets (id, provider, title) VALUES ('a', 'internal', 't')")
+    conn.commit()
+    ticketing.ensure_schema(conn)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(tickets)")}
+    assert "context" in cols
+    row = conn.execute("SELECT id, context FROM tickets WHERE id='a'").fetchone()
+    assert row == ("a", "")  # existing row backfilled to ''
+    conn.close()
+
+
 def test_run_creates_prompt_and_spawns(tmp_path, monkeypatch, capsys):
     root = _project(tmp_path, monkeypatch, CONFIG)
     conn = _db(root)
@@ -277,3 +380,27 @@ def test_run_honors_existing_prompt_file(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(ticket.subprocess, "Popen", lambda argv, **kw: P())
     assert ticket.run("internal:x", None) == 0
     assert list((root / "adws" / "prompts").glob("*.md")) == [prompt]
+
+
+def test_run_rehonors_spec_prompt_file_after_runs(tmp_path, monkeypatch):
+    """An interview spec (no provenance trailer) stays the prompt across
+    re-runs — the trailer check must not mistake it for a run-generated
+    prompt, even once the ticket has been run."""
+    root = _project(tmp_path, monkeypatch, INTERNAL_YAML)
+    prompt = root / "adws" / "prompts" / "01-x.md"
+    prompt.parent.mkdir(parents=True, exist_ok=True)
+    prompt.write_text("# The spec\n\nAgent-written requirements.\n")
+    (root / "adws" / "modules").mkdir(parents=True, exist_ok=True)
+    (root / "adws" / "modules" / "adw_simple_sdlc.py").write_text("print('adw stub')\n")
+    monkeypatch.setattr(ticket.subprocess, "Popen", lambda argv, **kw: type("P", (), {"pid": 1})())
+    conn = _db(root)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, title, description, status, prompt_file)"
+        " VALUES ('internal:x','internal','X','','backlog','adws/prompts/01-x.md')"
+    )
+    conn.commit()
+    conn.close()
+
+    assert ticket.run("internal:x", None) == 0  # first run honors the spec
+    assert ticket.run("internal:x", None) == 0  # re-run still honors it
+    assert sorted(p.name for p in (root / "adws" / "prompts").glob("*.md")) == ["01-x.md"]
