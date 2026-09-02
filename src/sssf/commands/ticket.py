@@ -20,8 +20,7 @@ def _root(explicit: str | None) -> Path | None:
 
 def _db(root: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(paths.data_dir(root) / "sssf.db"))
-    conn.execute(ticketing.TICKETS_DDL)
-    conn.execute(ticketing.TICKET_RUNS_DDL)
+    ticketing.ensure_schema(conn)
     return conn
 
 
@@ -102,7 +101,49 @@ def list_tickets(project: str | None = None) -> int:
     return 0
 
 
-def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) -> int:
+def _prompt_text(
+    title: str,
+    description: str,
+    context: str,
+    provider: str,
+    external_id: str,
+    source_url: str,
+) -> str:
+    """The prompt body: title, description, optional operator context, provenance."""
+    text = f"# {title}\n\n{description}\n"
+    if context:
+        text += f"\n## Run context\n\n{context}\n"
+    return text + f"\n---\nGenerated from {provider} ticket {external_id or ''} ({source_url})\n"
+
+
+def ticket_context(ticket_id: str, project: str | None = None, set_text: str | None = None) -> int:
+    """Read (print) or set the persisted extra context of a ticket."""
+    root = _root(project)
+    if root is None:
+        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    conn = _db(root)
+    row = conn.execute("SELECT context FROM tickets WHERE id=?", (ticket_id,)).fetchone()
+    if row is None:
+        conn.close()
+        print(f"sssf ticket: no ticket {ticket_id}", file=sys.stderr)
+        return 1
+    if set_text is None:
+        print(row[0] or "")
+        conn.close()
+        return 0
+    conn.execute(
+        "UPDATE tickets SET context=?, updated_at=? WHERE id=?", (set_text, _now(), ticket_id)
+    )
+    conn.commit()
+    conn.close()
+    print(f"sssf ticket: context saved for {ticket_id}")
+    return 0
+
+
+def run(
+    ticket_id: str, project: str | None = None, no_sandbox: bool = False, context: str = ""
+) -> int:
     root = _root(project)
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
@@ -117,7 +158,7 @@ def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) ->
         return 1
     conn = _db(root)
     row = conn.execute(
-        "SELECT id, title, description, status, provider, external_id, source_url"
+        "SELECT id, title, description, context, status, provider, external_id, source_url"
         " FROM tickets WHERE id=?",
         (ticket_id,),
     ).fetchone()
@@ -125,7 +166,15 @@ def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) ->
         conn.close()
         print(f"sssf ticket: no ticket {ticket_id}", file=sys.stderr)
         return 1
-    tid, title, description, status, provider, external_id, source_url = row
+    tid, title, description, stored_context, status, provider, external_id, source_url = row
+    if context:
+        # --context wins for this run and is persisted for later ones.
+        conn.execute(
+            "UPDATE tickets SET context=?, updated_at=? WHERE id=?", (context, _now(), tid)
+        )
+        conn.commit()
+    else:
+        context = stored_context or ""
     if status == "running":
         conn.close()
         print(f"sssf ticket: {ticket_id} is already running", file=sys.stderr)
@@ -162,8 +211,7 @@ def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) ->
         wt = create_worktree(root, adw_id)
         prompt_path = ticketing.next_prompt_name(wt, slug)
         prompt_path.write_text(
-            f"# {title}\n\n{description}\n\n---\n"
-            f"Generated from {provider} ticket {external_id or ''} ({source_url})\n"
+            _prompt_text(title, description, context, provider, external_id, source_url)
         )
         cfg = _config_for_sandbox(root)
         data_dir, pi_home, env = sandbox_env(root)
@@ -196,8 +244,7 @@ def run(ticket_id: str, project: str | None = None, no_sandbox: bool = False) ->
     else:
         prompt_path = ticketing.next_prompt_name(root, slug)
         prompt_path.write_text(
-            f"# {title}\n\n{description}\n\n---\n"
-            f"Generated from {provider} ticket {external_id or ''} ({source_url})\n"
+            _prompt_text(title, description, context, provider, external_id, source_url)
         )
         rel_prompt = prompt_path.relative_to(root)
         subprocess.Popen(

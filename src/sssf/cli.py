@@ -18,7 +18,9 @@ def _dispatch_ticket(a) -> int:
     if action == "list":
         return ticket.list_tickets(a.project)
     if action == "run":
-        return ticket.run(a.ticket_id, a.project, a.no_sandbox)
+        return ticket.run(a.ticket_id, a.project, a.no_sandbox, a.context or "")
+    if action == "context":
+        return ticket.ticket_context(a.ticket_id, a.project, a.set_text)
     if action == "backlog":
         return ticket.backlog(a.ticket_id, a.project)
     return 1
@@ -142,6 +144,11 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("ticket_id")
     p_run.add_argument("--project", default=None)
     p_run.add_argument(
+        "--context",
+        default=None,
+        help="extra context/steer appended to the prompt for this run",
+    )
+    p_run.add_argument(
         "--no-sandbox",
         action="store_true",
         help="run in the current dir instead of a sandbox container",
@@ -151,6 +158,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_backlog.add_argument("ticket_id")
     p_backlog.add_argument("--project", default=None)
+    p_context = tsub.add_parser(
+        "context", help="read or set a ticket's persisted extra context"
+    )
+    p_context.add_argument("ticket_id")
+    p_context.add_argument(
+        "--set",
+        dest="set_text",
+        default=None,
+        help="store this context on the ticket (printed when omitted)",
+    )
+    p_context.add_argument("--project", default=None)
     p_ticket.set_defaults(func=lambda a: _dispatch_ticket(a))
 
     p_heal = sub.add_parser("heal", help="self-healing monitor daemon (start / stop / status)")

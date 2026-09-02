@@ -128,6 +128,79 @@ def test_fetch_jira_internal_host_uses_configured_base_url(tmp_path, monkeypatch
     assert records[0].source_url == "https://jira.corp.example.com/browse/ACME-7"
 
 
+def test_adf_to_markdown_renders_rich_document():
+    """Jira Cloud API v3 returns descriptions as ADF JSON objects; the kanban
+    needs readable markdown, not a Python repr of the dict."""
+    adf = {
+        "type": "doc",
+        "content": [
+            {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Title"}]},
+            {
+                "type": "paragraph",
+                "content": [
+                    {"type": "text", "text": "Hello "},
+                    {"type": "text", "text": "bold", "marks": [{"type": "strong"}]},
+                    {"type": "text", "text": " and "},
+                    {"type": "text", "text": "italic", "marks": [{"type": "em"}]},
+                    {"type": "text", "text": " docs", "marks": [{"type": "link", "attrs": {"href": "https://ifood.atlassian.net/wiki"}}]},
+                ],
+            },
+            {
+                "type": "bulletList",
+                "content": [
+                    {"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "one"}]}]},
+                    {"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "two"}]}]},
+                ],
+            },
+            {"type": "codeBlock", "attrs": {"language": "python"}, "content": [{"type": "text", "text": "print(1)"}]},
+        ],
+    }
+    md = ticketing.adf_to_markdown(adf)
+    assert "# Title" in md
+    assert "**bold**" in md
+    assert "*italic*" in md
+    assert "[ docs](https://ifood.atlassian.net/wiki)" in md
+    assert "- one" in md and "- two" in md
+    assert "```python" in md and "print(1)" in md
+
+
+def test_adf_to_markdown_passes_plain_strings_through():
+    assert ticketing.adf_to_markdown("plain text") == "plain text"
+
+
+def test_fetch_jira_converts_adf_description(tmp_path, monkeypatch):
+    """acli --json returns description as an ADF dict; fetch_jira must store
+    readable markdown, not str(dict) — the gibberish seen in synced tickets."""
+    adf = {
+        "type": "doc",
+        "content": [
+            {"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Source"}]},
+            {"type": "paragraph", "content": [{"type": "text", "text": "Written by Alf"}]},
+        ],
+    }
+
+    def fake_run(args, capture_output, text, timeout):
+        class R:
+            returncode = 0
+            stdout = json.dumps(
+                [
+                    {
+                        "key": "ACME-8",
+                        "self": "https://acme.atlassian.net/rest/api/3/issue/ACME-8",
+                        "fields": {"summary": "ADF ticket", "description": adf},
+                    }
+                ]
+            )
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/acli")
+    records = ticketing.fetch_jira(_cfg(tmp_path))
+    assert records[0].description == "## Source\n\nWritten by Alf"
+
+
 def test_fetch_jira_missing_acli(tmp_path, monkeypatch):
     monkeypatch.setattr(ticketing.shutil, "which", lambda name: None)
     with pytest.raises(RuntimeError, match="acli"):
