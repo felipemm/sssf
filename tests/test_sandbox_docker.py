@@ -296,3 +296,58 @@ def test_build_runner_image_missing_dockerfile_raises(monkeypatch):
     monkeypatch.setattr(sandbox, "runner_dockerfile", lambda: None)
     with pytest.raises(SandboxError, match=r"sssf-runner\.Dockerfile"):
         sandbox.build_runner_image("sssf-runner")
+
+
+def test_run_sandbox_publishes_review_port(tmp_path, monkeypatch):
+    """When a container_port is configured, docker run publishes it loopback on
+    a random HOST port (docker picks a free one) so concurrent runs never
+    collide."""
+    import sssf.sandbox as sb
+
+    captured: list[list[str]] = []
+
+    def fake_docker(*args, timeout_s=30):
+        captured.append(list(args))
+        return subprocess.CompletedProcess(list(args), 0, stdout="", stderr="")
+
+    monkeypatch.setattr(sb, "_docker", fake_docker)
+    sb.run_sandbox(
+        "sssf-runner", "sssf-x1",
+        worktree=tmp_path / "wt", data_dir=tmp_path / "adws" / "data",
+        pi_home=tmp_path / "pi", publish_port=3000, cmd=["python", "-c", "pass"],
+    )
+    run_args = next(a for a in captured if a[0] == "run")
+    assert "-p" in run_args
+    i = run_args.index("-p")
+    assert run_args[i + 1] == "127.0.0.1::3000"
+
+
+def test_run_sandbox_skips_publish_without_port(tmp_path, monkeypatch):
+    import sssf.sandbox as sb
+
+    captured: list[list[str]] = []
+    monkeypatch.setattr(
+        sb, "_docker",
+        lambda *a, timeout_s=30: captured.append(list(a))
+        or subprocess.CompletedProcess(list(a), 0, "", ""),
+    )
+    sb.run_sandbox("sssf-runner", "sssf-x2", worktree=tmp_path / "wt",
+                   data_dir=tmp_path / "adws" / "data", pi_home=tmp_path / "pi", cmd=["true"])
+    run_args = next(a for a in captured if a[0] == "run")
+    assert "-p" not in run_args
+
+
+def test_stop_container_stops_and_keeps(tmp_path, monkeypatch):
+    """docker stop keeps the container (logs + review surface). Deletion is
+    sweep's job."""
+    import sssf.sandbox as sb
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        sb, "_docker",
+        lambda *a, timeout_s=30: calls.append(list(a))
+        or subprocess.CompletedProcess(list(a), 0, "", ""),
+    )
+    sb.stop_container("sssf-r9")
+    assert calls == [["stop", "-t", "5", "sssf-r9"]]
+    assert not any(a[0] == "rm" for a in calls)

@@ -189,6 +189,7 @@ def run_sandbox(
     uid: int = 1000,
     gid: int = 1000,
     env: dict[str, str] | None = None,
+    publish_port: int | None = None,
     cmd: list[str] | None = None,
 ) -> None:
     """docker run -d with the worktree + shared data bound, credentials ro.
@@ -196,7 +197,8 @@ def run_sandbox(
     git_dir mounts the repo's .git at its HOST path inside the container: a
     worktree's `.git` file references that absolute path, so without the mount
     git inside the container can't resolve the repo (the ADW's commits land in
-    the shared object store — that is the point).
+    the shared object store — that is the point). publish_port publishes the
+    review app's container port loopback-only on a RANDOM host port.
     """
     args = [
         "run",
@@ -219,6 +221,11 @@ def run_sandbox(
     args += ["--user", f"{uid}:{gid}"]
     for k, v in (env or {}).items():
         args += ["-e", f"{k}={v}"]
+    if publish_port:
+        # Loopback-only, random HOST port (docker picks a free one) so
+        # concurrent runs never collide. The app binds container_port inside
+        # the container; `docker port <name>` resolves the host port.
+        args += ["-p", f"127.0.0.1::{publish_port}"]
     args += [image, *(cmd or [])]
     # Containers are KEPT after a run for debugging, so a retry/restart may
     # find an Exited container with this name — remove it before running.
@@ -236,8 +243,19 @@ def run_sandbox(
 
 
 def stop_remove(name: str) -> None:
-    """Idempotent: remove the container whether running or stopped."""
+    """Remove the container whether running or stopped. ONLY callers: the
+    same-session container reuse in run_sandbox, and `sssf sweep` (the sole
+    deleter of run artifacts)."""
     _docker("rm", "-f", name)
+
+
+def stop_container(name: str) -> None:
+    """Stop a container and KEEP it — its logs and the worktree mount stay
+    available for review. Stopping is never deletion; removal is `sssf sweep`'s
+    job. Absent/stopped containers are fine (docker errors are ignored)."""
+    if not name:
+        return
+    _docker("stop", "-t", "5", name)
 
 
 def container_name(adw_id: str) -> str:
