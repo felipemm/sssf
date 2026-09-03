@@ -12,7 +12,9 @@ from sssf.project import data_dir, find_project
 def _dispatch_ticket(a) -> int:
     action = a.ticket_action
     if action == "add":
-        return ticket.add(a.title, a.project)
+        return ticket.add(
+            a.title, a.project, description=a.description or "", prompt_file=a.prompt_file
+        )
     if action == "sync":
         return ticket.sync(a.project)
     if action == "list":
@@ -148,6 +150,12 @@ def main(argv: list[str] | None = None) -> int:
     tsub = p_ticket.add_subparsers(dest="ticket_action", required=True)
     p_add = tsub.add_parser("add", help="create an internal ticket")
     p_add.add_argument("title")
+    p_add.add_argument("--description", default=None, help="short summary stored on the ticket")
+    p_add.add_argument(
+        "--prompt-file",
+        default=None,
+        help="relative path to the interview spec (adws/prompts/NN-<slug>.md) linked to this ticket",
+    )
     p_add.add_argument("--project", default=None)
     p_sync = tsub.add_parser("sync", help="fetch external tickets into the backlog")
     p_sync.add_argument("--project", default=None)
