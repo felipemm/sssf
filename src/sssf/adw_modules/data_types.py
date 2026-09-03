@@ -434,10 +434,28 @@ class SandboxConfig(BaseModel):
     review: ReviewConfig = Field(default_factory=ReviewConfig)
 
 
+class IntegrationConfig(BaseModel):
+    """Post-success integration of sandboxed runs. Branching and merging share
+    ONE target: fresh runs branch from `branch` and successful runs merge back
+    into it (created from main when it does not exist yet). `push` controls the
+    origin push on remote repos; `resolve` delegates merge conflicts to the
+    coding agent (resolving-merge-conflicts skill) instead of leaving them
+    manual. enabled=False keeps the legacy pure-main sandbox flow untouched.
+    """
+
+    enabled: bool = True
+    branch: str = "dev"
+    push: bool = True
+    resolve: bool = True
+    resolve_skill_path: str | None = None  # explicit SKILL.md; default: the
+    # resolving-merge-conflicts skill under the pi agent home
+
+
 class SSSFConfig(BaseModel):
     defaults: ConfigDefaults = Field(default_factory=ConfigDefaults)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
+    integration: IntegrationConfig = Field(default_factory=IntegrationConfig)
     quality: QualityConfig = Field(default_factory=QualityConfig)
     agents: list[AgentConfig] = Field(default_factory=list)
 

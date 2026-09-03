@@ -7,16 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **Visualizer ticket actions** — the kanban Run/Backlog/Sync buttons threw
-  `ReferenceError: runTicket is not defined` (the handlers were never imported
-  after the `ticketRoutes.ts` extraction) and the spawned CLI's exit code was
-  read before the process exited, so every action reported failure. Both are
-  fixed; a boot-level regression test now drives the real server against a
-  fake `sssf` CLI.
-
 ### Added
+
+- **Integration branch (post-success auto-merge)** — when enabled (default) in
+  `sssf.config.yaml`, fresh sandboxed runs branch from an integration branch
+  (`integration.branch`, default `dev`) and successful runs merge back into it
+  automatically, created from `main` when missing. Configurable: `enabled`,
+  `branch`, `push` (origin push on remote repos), `resolve` (merge conflicts
+  cleared by the coding agent with the resolving-merge-conflicts skill). The
+  merge never touches a dirty/detached operator checkout and always restores
+  the branch it switched away from; every outcome lands as an `integration`
+  event on the run's trace.
 
 - **Auto-rebuild of the runner image** — `sssf heal` now rebuilds the sandbox
   image when its baked engine fingerprint no longer matches the local sssf
@@ -25,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when docker is unavailable or sandbox is disabled, and failed builds are
   retried after a 30-minute cooldown. `sssf sandbox build` reuses the same
   build path.
+
+### Fixed
+
+- **Visualizer ticket actions** — the kanban Run/Backlog/Sync buttons threw
+  `ReferenceError: runTicket is not defined` (the handlers were never imported
+  after the `ticketRoutes.ts` extraction) and the spawned CLI's exit code was
+  read before the process exited, so every action reported failure. Both are
+  fixed; a boot-level regression test now drives the real server against a
+  fake `sssf` CLI.
 
 ## [1.0.0] - 2026-08-16
 

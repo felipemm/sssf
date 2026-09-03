@@ -24,7 +24,9 @@ const description =
     <li><strong>Parallel-safe by construction.</strong> The cwd is never touched; each run works on
       its own branch and its own filesystem.</li>
     <li><strong>The branch is the deliverable.</strong> <code class="hl">sssf/&lt;adw_id&gt;</code>
-      survives after teardown: you merge it or open a PR with your own tooling.</li>
+      survives after teardown; with integration enabled (default) a successful run is merged
+      into the integration branch automatically, otherwise you merge it or open a PR with your
+      own tooling.</li>
     <li><strong>Agents cannot touch what is not theirs.</strong> The container + worktree boundary
       is isolation that <code class="hl">writes:</code> cannot provide.</li>
   </ul>
@@ -85,6 +87,34 @@ sssf sweep [--days N]           # THE ONLY deleter: archive old runs + remove th
     <strong>Logs</strong> (docker logs of the kept container), and <strong>Review</strong> (open
     the app — the URL, launch command and instructions).
   </p>
+
+  <h2>Integration branch — successful runs merge automatically</h2>
+  <p>
+    When integration is enabled (the default), a <strong>successful</strong> run is merged back
+    into an integration branch instead of waiting for you to merge by hand — so you can test the
+    change on that branch before it reaches <code class="hl">main</code>. Branching and merging
+    share <strong>one target</strong>: fresh runs branch from the integration branch, and
+    successful runs merge back into it (created from <code class="hl">main</code> when it does
+    not exist yet). The outcome — merged, conflicted, skipped, push failure — lands as an
+    <code class="hl">integration</code> event on the run's trace.
+  </p>
+  <pre><code>integration:
+  enabled: true          # default on — false keeps the pure-main flow
+  branch: dev            # the shared target (set to main for a straight-to-main auto-merge)
+  push: true             # repos with an origin: push the merged branch upstream
+  resolve: true          # merge conflicts are resolved by the coding agent
+                         #   (resolving-merge-conflicts skill) instead of left manual</code></pre>
+  <ul>
+    <li><strong>Never disturbs your checkout.</strong> The merge runs where the operator's repo
+      is; a dirty or detached worktree makes it skip (recorded on the trace) and the branch it
+      switched away from is always restored.</li>
+    <li><strong>Conflicts resolve themselves when enabled.</strong> The coding agent (with the
+      resolving-merge-conflicts skill) clears the conflicted files; if it cannot, the merge
+      aborts cleanly and <code class="hl">sssf/&lt;adw_id&gt;</code> stays for a manual merge.</li>
+    <li><strong>Push is a separate knob.</strong> Remote repos push the merged branch to
+      <code class="hl">origin/&lt;branch&gt;</code> only when <code class="hl">push: true</code>;
+      a push failure keeps the local merge and records the error on the trace.</li>
+  </ul>
 
   <h2>Run control in the sandbox world</h2>
   <table>
