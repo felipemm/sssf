@@ -649,6 +649,13 @@ def _container_gone(docker_fn, name: str) -> bool:
         return False
 
 
+def _run_ended(wt_data: Path, adw_id: str) -> bool:
+    """True once the container-side supervisor wrote its exit marker — the ADW
+    process has ended. The container itself stays up (review mode), so its
+    death alone no longer marks the end of a run."""
+    return (wt_data / "sessions" / f"{adw_id}.supervisor-exit").exists()
+
+
 def record_never_started(project_root: Path, adw_id: str, tracer, per_run_db: Path) -> None:
     """A run whose container exited before the ADW ever wrote a session row
     (spawn-death: missing entry file, stale/broken image, import error). The
@@ -721,34 +728,39 @@ def record_never_started(project_root: Path, adw_id: str, tracer, per_run_db: Pa
 
 
 def monitor_run(project_root: Path, adw_id: str) -> int:
-    """The detached monitor: while the run's container is alive, merge the
-    per-run db into the project db (live-ish visibility, ~3s), then a final
-    sync and teardown once the ADW exits (success or fail). One project
-    connection is reused (the host owns the project db — WAL, host filesystem —
-    so concurrent monitors serialize through busy_timeout). Spawned by
-    `sssf run`/`ticket run` right after the container starts."""
+    """The detached monitor: while the run is live, merge the per-run db into
+    the project db (live-ish visibility, ~3s), then a final sync once the run
+    has ENDED — the supervisor-exit marker (the container is deliberately left
+    up in review mode) or the container dying. One project connection is reused
+    (the host owns the project db — WAL, host filesystem — so concurrent
+    monitors serialize through busy_timeout). Spawned by `sssf run`/`ticket
+    run` right after the container starts."""
     from sssf.adw_modules.tracer import Tracer
 
     data_dir, _pi, _env = sandbox_env(project_root)
     project_db = project_db_path(data_dir)
-    per_run_db = sandbox_dir(project_root, adw_id) / "adws" / "data" / "sssf.db"
+    wt_data = sandbox_dir(project_root, adw_id) / "adws" / "data"
+    per_run_db = wt_data / "sssf.db"
     tracer = Tracer(str(project_db), str(project_db.parent / "sessions" / adw_id / "events.jsonl"))
     try:
         while True:
-            if _container_gone(_docker, container_name(adw_id)):
-                break  # container gone — the run is done
+            if _container_gone(_docker, container_name(adw_id)) or _run_ended(wt_data, adw_id):
+                break  # container gone OR the run ended — the container may
+                # still be up in review mode; leave it running for the engineer
             sync_run_db(tracer.conn, per_run_db, adw_id)
             time.sleep(3)
     finally:
         # Evidence first (logs are read while the container still exists),
-        # then the final merge, then teardown. A spawn-death must leave a
-        # visible failed session — never look like it 'never started'.
+        # then the final merge. The container and worktree are KEPT — review
+        # and restart surfaces; only `sssf sweep` deletes. A spawn-death must
+        # leave a visible failed session — never look like it 'never started'.
         try:
             record_never_started(project_root, adw_id, tracer, per_run_db)
-        except Exception as error:  # evidence is best-effort; teardown must still run
+        except Exception as error:  # evidence is best-effort
             print(f"sssf: could not record spawn failure ({error})", file=sys.stderr)
         sync_run_db(tracer.conn, per_run_db, adw_id)  # final merge
-        teardown_sandbox(project_root, adw_id)
+        with contextlib.suppress(OSError):
+            (wt_data / "sessions" / f"{adw_id}.supervisor-exit").unlink(missing_ok=True)
     return 0
 
 

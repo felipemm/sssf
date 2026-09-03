@@ -413,3 +413,38 @@ def test_reopen_session_flips_terminal_row_to_running(tmp_path):
     assert ended is None
     assert started is not None and started > "2026-09-02T21:30:23"
     assert phases == 0 and events == 0  # the new run is authoritative
+
+
+def test_monitor_exits_when_run_ends_but_container_alive(tmp_path, monkeypatch):
+    """The supervisor keeps the container up after the run (review mode), so
+    the monitor must stop when the RUN ends — signalled by the supervisor-exit
+    marker — not wait for the container to disappear (session 9701903a lesson:
+    the run's end must not depend on container teardown)."""
+    import sqlite3
+
+    import sssf.sandbox as sb
+    from sssf.sandbox import monitor_run, sandbox_dir
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    data = root / "adws" / "data"
+    data.mkdir(parents=True)
+    conn = sqlite3.connect(str(data / "sssf.db"))
+    conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
+    conn.commit()
+    conn.close()
+    # the container's worktree — where the per-run db and the supervisor marker live
+    wt_data = sandbox_dir(root, "r6") / "adws" / "data"
+    (wt_data / "sessions").mkdir(parents=True)
+
+    monkeypatch.setattr(sb, "_container_gone", lambda fn, name: False)  # container stays up
+    monkeypatch.setattr(sb.time, "sleep", lambda s: None)  # no real waiting
+    monkeypatch.setattr(sb, "sync_run_db", lambda *a, **k: None)
+    monkeypatch.setattr(sb, "record_never_started", lambda *a, **k: None)
+
+    # the supervisor wrote its exit marker (the ADW ended; container idles)
+    (wt_data / "sessions" / "r6.supervisor-exit").write_text("0")
+
+    assert monitor_run(root, "r6") == 0
+    # cleanup: the marker is consumed; the container/worktree are untouched
+    assert not (wt_data / "sessions" / "r6.supervisor-exit").exists()
