@@ -85,7 +85,7 @@ progress into the project db without lock fights.
 
 - `sssf sandbox build` — build/refresh the runner image
 - `sssf sandbox list` — show sandboxes and their branches
-- `sssf sandbox prune [<adw_id>|--all]` — delete a resolved run's branch + leftovers
+- `sssf sweep [--days N]` — the only deleter: archive old runs and remove their container, worktree and review record
 - `sssf run stop <adw_id>` — kill a live run (sandbox torn down, run marked failed)
 - `sssf run restart <adw_id>` — re-run a session on its existing branch
 - `--no-sandbox` — run in the current dir instead, for debugging
@@ -126,7 +126,7 @@ sssf heal stop
 | `sssf projects [list\|remove <name>]` | manage the registry |
 | `sssf viz [start\|stop] [--port N] [--db PATH]` | global trace visualizer as a background service (bun required) |
 | `sssf sweep [--project P] [--days N]` | archive finished sessions older than N days (default 30) |
-| `sssf sandbox build\|list\|prune [--all]` | runner image / sandbox lifecycle |
+| `sssf sandbox build\|list` · `sssf sweep [--days N]` | runner image / sandbox lifecycle · sole cleanup |
 | `sssf heal start\|stop\|status` | self-healing monitor daemon |
 | `sssf ticket add/sync/list/run [--project]` | ticketing integration (internal add, external sync, backlog run) — optional, per-project `adws/config/ticketing.yaml` |
 | `sssf doctor` | check global prerequisites (`uv`, `pi`, `bun`, `sqlite3`) |
