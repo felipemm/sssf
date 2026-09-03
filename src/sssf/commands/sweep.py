@@ -45,8 +45,9 @@ def sweep_db(db_path: Path, interval: str = "-30 days") -> list[str]:
 
 
 def _clear_sandbox(root: Path, adw_id: str) -> None:
-    """Best-effort removal of a kept run's container + worktree (the resources
-    teardown deliberately leaves behind for debugging)."""
+    """The ONLY deleter of run artifacts: remove the run's container + worktree
+    and its sandbox_run record (the viz review panel disappears with the run).
+    Everything else only stops containers."""
     from sssf import sandbox
 
     try:
@@ -57,6 +58,35 @@ def _clear_sandbox(root: Path, adw_id: str) -> None:
         sandbox.remove_worktree(sandbox.sandbox_dir(root, adw_id))
     except Exception as error:
         print(f"sssf sweep: {root.name}: worktree cleanup failed: {error}")
+    try:
+        conn = sandbox.sandbox_run_db(root / "adws" / "data")
+        conn.execute("DELETE FROM sandbox_run WHERE adw_id=?", (adw_id,))
+        conn.close()
+    except Exception as error:
+        print(f"sssf sweep: {root.name}: review record cleanup failed: {error}")
+
+
+def _clean_orphan_containers(root: Path, db_path: Path) -> list[str]:
+    """Remove sssf-* containers that match NO session (spawn leftovers the
+    healer no longer deletes). Only sweep may delete them."""
+    from sssf import sandbox
+
+    try:
+        conn = sandbox.sandbox_run_db(db_path.parent)
+        known = {r[0] for r in conn.execute("SELECT adw_id FROM sessions").fetchall()}
+        conn.close()
+    except Exception:
+        return []
+    r = sandbox._docker(
+        "ps", "-a", "--filter", "name=sssf-", "--format", "{{.Names}}", timeout_s=30
+    )
+    removed: list[str] = []
+    for name in r.stdout.split():
+        adw_id = name.removeprefix("sssf-")
+        if adw_id not in known:
+            sandbox.stop_remove(name)
+            removed.append(name)
+    return removed
 
 
 def run(project_root: str | None = None, days: int = 30) -> int:
@@ -86,6 +116,12 @@ def run(project_root: str | None = None, days: int = 30) -> int:
             continue
         for adw_id in adw_ids:
             _clear_sandbox(root, adw_id)
+        try:
+            orphans = _clean_orphan_containers(root, db_path)
+            if orphans:
+                print(f"sssf sweep: {name}: removed {len(orphans)} orphan container(s)")
+        except Exception as error:
+            print(f"sssf sweep: {name}: orphan cleanup failed: {error}")
         if adw_ids:
             print(
                 f"sssf sweep: {name}: archived {len(adw_ids)} session(s)"
