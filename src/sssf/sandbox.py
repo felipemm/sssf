@@ -70,6 +70,18 @@ def create_worktree(project_root: Path, adw_id: str, attach: bool = False) -> Pa
     wt.parent.mkdir(parents=True, exist_ok=True)
     _exclude_worktrees(project_root)
     if attach:
+        # A restart attaches to the run's EXISTING branch. The checkout may
+        # already be there from a previous attempt — a stop/prune race can
+        # leave the worktree registered while the container is gone — and `git
+        # worktree add` would then fail with 'already exists', killing the
+        # restart before the ADW ever starts (session 9701903a, 2026-09-02:
+        # the leftover registered worktree from one stopped attempt silently
+        # broke every later restart). The branch is the same, so the existing
+        # checkout IS the attach target: reuse it.
+        if wt.exists() and _worktree_registered(wt):
+            return wt
+        if wt.exists():  # unregistered leftover dir — clear before git worktree add
+            shutil.rmtree(wt)
         args = ["worktree", "add", "-q", str(wt), branch]
     elif _has_remote(project_root, "origin"):
         r = _run_git(project_root, "fetch", "origin", "main")
@@ -460,6 +472,26 @@ def _forward_merge(
                         f"WHERE {pk}=?",
                         (row[cols.index(col)], pk_val),
                     )
+        # request (sessions only): the request phase writes it ONCE and it is
+        # immutable for the run, but the project row is inserted at the FIRST
+        # sync — usually BEFORE the request phase logs — and the ended-row
+        # forward update above only fires at the final merge (never once the
+        # healer has finalized the host row first). A mid-run copy must carry
+        # the request too, or `sssf run restart` on the host reads an empty
+        # request and bails ('no request to re-run'): the healer's restarts of
+        # a hung sandboxed run then burn the whole budget doing nothing and
+        # the run is finalized unrecoverably. Copy only into an empty host
+        # slot — a torn source copy (NULL request) never regresses one the
+        # host already merged.
+        if table == "sessions" and "request" in cols:
+            for row in rows:
+                req = row[cols.index("request")]
+                if req:
+                    conn.execute(
+                        f"UPDATE {table} SET request=? WHERE {pk}=? "
+                        "AND (request IS NULL OR request='')",
+                        (req, row[cols.index(pk)]),
+                    )
     except sqlite3.Error:
         pass
 
@@ -730,6 +762,42 @@ def _session_status(data_dir: Path, adw_id: str) -> str | None:
         return row[0] if row else None
     except sqlite3.Error:
         return None
+
+
+def reopen_session(data_dir: Path, adw_id: str) -> None:
+    """A restart (attach) re-opens the project row of a TERMINAL session so the
+    UI reflects the new run. Without this the host row keeps the first run's
+    terminal state forever: the monitor's forward-merge only updates un-ended
+    rows (ended_at IS NULL), so a restarted run — however long it lives or
+    however it ends — never flips the row back to running and never records its
+    own outcome (session 9701903a: status stayed 'fail / ended 21:30' while a
+    restarted run was live).
+
+    The previous run's events and phase rows are cleared too: the restarted run
+    reuses the SAME phase_ids, and the phases merge is forward-only (an ended
+    host phase row is never overwritten), so without the reset the trace's
+    waterfall would keep the old run's statuses (04_build fail 'finalized by
+    the healer') on top of the new run's events. Events are already replaced
+    wholesale by every sync — the trace is "the current run" by design.
+    Best-effort: the run proceeds even if a write fails."""
+    import datetime
+    import sqlite3
+
+    db_path = project_db_path(data_dir)
+    if not db_path.exists():
+        return
+    try:
+        conn = sqlite3.connect(str(db_path), isolation_level=None)
+        # events first — events.phase_id references phases
+        for table in ("events", "phases"):
+            conn.execute(f"DELETE FROM {table} WHERE adw_id=?", (adw_id,))
+        conn.execute(
+            "UPDATE sessions SET status='running', started_at=?, ended_at=NULL WHERE adw_id=?",
+            (datetime.datetime.now(datetime.UTC).isoformat(), adw_id),
+        )
+        conn.close()
+    except sqlite3.Error:
+        pass
 
 
 def stop_run(

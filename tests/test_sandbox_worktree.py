@@ -234,3 +234,182 @@ def test_sync_merges_live_totals_monotonically(tmp_path):
     assert conn.execute("SELECT status FROM sessions WHERE adw_id='r1'").fetchone()[0] == "running"
     conn.close()
     src.close()
+
+
+def test_sync_propagates_request_mid_run(tmp_path):
+    """Regression (2026-09-02, session 9701903a): the project row is inserted
+    at the FIRST sync — usually BEFORE the sandboxed ADW's request phase logs
+    the prompt — and the ended-row forward update only fires at the final
+    merge (and never once the healer has finalized the host row first). A
+    mid-run copy must therefore carry `request` too, or every `sssf run
+    restart` on the host reads an empty request and bails with 'no request to
+    re-run' — the healer's restarts of a hung sandboxed run then burn the
+    whole budget doing nothing and the run is finalized unrecoverably."""
+    import sqlite3
+
+    from sssf.sandbox import sync_run_db
+
+    schema = (
+        "CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, adw_name TEXT, request TEXT,"
+        " status TEXT, engineer TEXT, started_at TEXT, ended_at TEXT,"
+        " total_tokens INTEGER DEFAULT 0, total_cost REAL DEFAULT 0,"
+        " archived INTEGER DEFAULT 0)"
+    )
+    conn = sqlite3.connect(str(tmp_path / "proj.db"))
+    conn.execute(schema)
+    # The first sync already ran: the host row exists, inserted BEFORE the
+    # request phase logged (request NULL), and the run is still in flight.
+    conn.execute(
+        "INSERT INTO sessions VALUES ('r1','adw_sdlc_full',NULL,'running','Felipe',"
+        " '2026-09-02T20:48:16',NULL,0,0,0)"
+    )
+    conn.commit()
+    per = tmp_path / "per-run" / "adws" / "data"
+    per.mkdir(parents=True)
+    per_db = per / "sssf.db"
+    src = sqlite3.connect(str(per_db))
+    src.execute(schema)
+    # ...while the per-run copy HAS the request: the request phase logged it,
+    # but the container-side row is still running (ended_at NULL).
+    src.execute(
+        "INSERT INTO sessions VALUES ('r1','adw_sdlc_full','implement oauth',"
+        " 'running','Felipe','2026-09-02T20:48:16',NULL,123,0.5,0)"
+    )
+    src.commit()
+
+    sync_run_db(conn, per_db, "r1")
+    row = conn.execute("SELECT request, status FROM sessions WHERE adw_id='r1'").fetchone()
+    assert row[0] == "implement oauth"  # the request phase's value reached the host
+    assert row[1] == "running"  # a mid-run copy never downgrades the status
+
+    # The healer finalizes the HOST row (stop_run) while the container-side
+    # copy is still running; the request must already be there, so a restart
+    # can re-run the session...
+    conn.execute(
+        "UPDATE sessions SET status='fail', ended_at='2026-09-02T21:30:23' WHERE adw_id='r1'"
+    )
+    conn.commit()
+    sync_run_db(conn, per_db, "r1")  # final merge after the container is killed
+    row = conn.execute("SELECT request, status FROM sessions WHERE adw_id='r1'").fetchone()
+    assert row[0] == "implement oauth"  # ...and the final merge must not clear it
+    assert row[1] == "fail"  # nor downgrade the terminal status
+    conn.close()
+    src.close()
+
+
+def test_sync_never_overwrites_an_existing_request(tmp_path):
+    """The request is set once by the request phase and identical on a joined
+    re-run — but a TORN source copy (request still NULL, mid-INSERT) must
+    never clear a request the host already merged."""
+    import sqlite3
+
+    from sssf.sandbox import sync_run_db
+
+    schema = (
+        "CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, request TEXT, status TEXT,"
+        " ended_at TEXT, total_tokens INTEGER DEFAULT 0, total_cost REAL DEFAULT 0)"
+    )
+    conn = sqlite3.connect(str(tmp_path / "proj.db"))
+    conn.execute(schema)
+    conn.execute("INSERT INTO sessions VALUES ('r2','implement oauth','running',NULL,10,0.1)")
+    conn.commit()
+    per = tmp_path / "per-run2" / "adws" / "data"
+    per.mkdir(parents=True)
+    per_db = per / "sssf.db"
+    src = sqlite3.connect(str(per_db))
+    src.execute(schema)
+    src.execute("INSERT INTO sessions VALUES ('r2',NULL,'running',NULL,5,0.05)")  # torn copy
+    src.commit()
+
+    sync_run_db(conn, per_db, "r2")
+    row = conn.execute("SELECT request, status FROM sessions WHERE adw_id='r2'").fetchone()
+    assert row[0] == "implement oauth"  # never regressed by a torn mid-run copy
+    conn.close()
+    src.close()
+
+
+def test_attach_reuses_existing_worktree(repo):
+    """A restart attaches to the run's existing branch. When the checkout
+    already exists (a stopped/pruned attempt left it registered while the
+    container is gone), `git worktree add` would collide with 'already exists'
+    and kill the restart before the ADW ever starts (session 9701903a,
+    2026-09-02: the leftover registered worktree from one stopped attempt
+    silently broke every later restart). Attach must reuse the checkout — the
+    branch is the same, so it IS the attach target."""
+    wt1 = create_worktree(repo, "att1")  # fresh run — creates sssf/att1
+    assert wt1.exists()
+    wt2 = create_worktree(repo, "att1", attach=True)  # restart — reuse, no error
+    assert wt2 == wt1
+    wt3 = create_worktree(repo, "att1", attach=True)  # ...repeatably
+    assert wt3 == wt1
+
+
+def test_attach_clears_unregistered_leftover(repo, tmp_path):
+    """A leftover UNREGISTERED checkout dir (a failed `git worktree remove`
+    left the dir behind) must not block attach either — clear it and add."""
+    from pathlib import Path
+
+    wt1 = create_worktree(repo, "att2")
+    # simulate the teardown race: git unregisters but the dir survives
+    subprocess.run(["git", "-C", str(repo), "worktree", "remove", "--force", str(wt1)],
+                   check=True)
+    subprocess.run(["git", "-C", str(repo), "worktree", "prune"], check=True)
+    assert not Path(wt1).exists()  # prune removed it — recreate the stale dir
+    (tmp_path / "proj" / ".worktrees" / "att2").mkdir(parents=True)
+    stale = sandbox_dir(repo, "att2")
+    stale.mkdir(parents=True, exist_ok=True)
+    (stale / "stray.txt").write_text("x")
+    wt2 = create_worktree(repo, "att2", attach=True)  # must not raise
+    assert wt2 == sandbox_dir(repo, "att2")
+
+
+def test_reopen_session_flips_terminal_row_to_running(tmp_path):
+    """A restart re-opens the host row of a terminal session (status running,
+    ended_at cleared). Without it the UI keeps the previous run's fail state
+    and the restarted run's own outcome is never recorded either — the
+    monitor's forward-merge only updates rows whose ended_at IS NULL. The
+    previous run's phases/events are cleared so the restarted run (which reuses
+    the same phase_ids) is authoritative in the trace."""
+    import sqlite3
+
+    from sssf.sandbox import project_db_path, reopen_session
+
+    data = tmp_path / "adws" / "data"
+    data.mkdir(parents=True)
+    conn = sqlite3.connect(str(project_db_path(data)))
+    conn.execute(
+        "CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT,"
+        " started_at TEXT, ended_at TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE phases (phase_id TEXT PRIMARY KEY, adw_id TEXT,"
+        " status TEXT, error TEXT, ended_at TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE events (event_id TEXT PRIMARY KEY, adw_id TEXT,"
+        " phase_id TEXT, type TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO sessions VALUES ('r9','fail','2026-09-02T20:48:16',"
+        " '2026-09-02T21:30:23')"
+    )
+    conn.execute(
+        "INSERT INTO phases VALUES ('r9_04_build','r9','fail',"
+        " 'finalized by the healer: restart budget exhausted','2026-09-02T21:30:23')"
+    )
+    conn.execute("INSERT INTO events VALUES ('e1','r9','r9_01_request','phase_start')")
+    conn.commit()
+    conn.close()
+
+    reopen_session(data, "r9")
+    conn = sqlite3.connect(str(project_db_path(data)))
+    status, started, ended = conn.execute(
+        "SELECT status, started_at, ended_at FROM sessions WHERE adw_id='r9'"
+    ).fetchone()
+    phases = conn.execute("SELECT COUNT(*) FROM phases WHERE adw_id='r9'").fetchone()[0]
+    events = conn.execute("SELECT COUNT(*) FROM events WHERE adw_id='r9'").fetchone()[0]
+    conn.close()
+    assert status == "running"
+    assert ended is None
+    assert started is not None and started > "2026-09-02T21:30:23"
+    assert phases == 0 and events == 0  # the new run is authoritative

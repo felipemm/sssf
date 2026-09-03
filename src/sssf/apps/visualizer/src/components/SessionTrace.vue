@@ -46,8 +46,16 @@ const events = ref<EventRow[]>([])
 const envelopes = ref<Envelope[]>([])
 const gates = ref<GateResult[]>([])
 const apiError = ref<string | null>(null)
+const flash = ref('') // transient control feedback (restart/stop failures)
 const loaded = ref(false)
 const nowMs = ref(Date.now())
+
+let flashTimer: ReturnType<typeof setTimeout> | undefined
+function flashMsg(msg: string) {
+  flash.value = msg
+  clearTimeout(flashTimer)
+  flashTimer = setTimeout(() => (flash.value = ''), 8000)
+}
 
 let cursor = 0
 let inflight = false
@@ -486,15 +494,28 @@ const agentCosts = computed(() => {
 // Stop a live run (any phase in progress): the server shells `sssf run stop`,
 // which kills the container — the ADW's kill-failsafe marks the run failed.
 async function stop() {
-  await stopRun(props.adwId)
+  try {
+    const res = await stopRun(props.adwId)
+    if (!res.ok) flashMsg(`stop failed — ${res.output ?? 'unknown error'}`)
+  } catch {
+    flashMsg('stop failed — api unreachable')
+  }
   void tick()   // reflect the failed status immediately
 }
 
 async function restart() {
-  const res = await restartRun(props.adwId)
-  if (res.ok) {
+  try {
+    const res = await restartRun(props.adwId)
+    if (!res.ok) {
+      // The CLI reports failures on stderr ('no request to re-run'); the
+      // server merges it into output, so say WHY instead of silently nothing.
+      flashMsg(`restart failed — ${res.output ?? 'unknown error'}`)
+      return
+    }
     session.value = null   // force a reload; the run restarts in the sandbox
     void tick()
+  } catch {
+    flashMsg('restart failed — api unreachable')
   }
 }
 
@@ -515,6 +536,7 @@ function selectPhase(p: Phase) {
 <template>
   <div class="trace">
     <div v-if="apiError" class="error-bar">api unreachable — retrying {{ apiError }}</div>
+    <div v-if="flash" class="flash-bar" role="status" @click="flash = ''">{{ flash }}</div>
 
     <div v-if="session" class="run-strip">
       <span class="request" :title="session.request ?? ''">{{ session.request }}</span>
@@ -698,6 +720,18 @@ function selectPhase(p: Phase) {
   display: flex;
   flex-direction: column;
   padding: 0 0 40px;
+}
+
+.flash-bar {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  border-radius: 8px;
+  background: rgba(127, 29, 29, 0.25);
+  color: #fca5a5;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: pre-wrap;
 }
 
 .strip-archive {

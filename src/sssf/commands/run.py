@@ -133,7 +133,7 @@ def _restart(cwd: Path, args: list[str], explicit_project: str | None) -> int:
         return 1
     import sqlite3
 
-    from sssf.sandbox import _session_status, project_db_path, sandbox_env
+    from sssf.sandbox import _session_status, project_db_path, reopen_session, sandbox_env
 
     root = find_project(cwd, explicit_project)
     if root is None:
@@ -151,6 +151,11 @@ def _restart(cwd: Path, args: list[str], explicit_project: str | None) -> int:
     if not row or not row[0]:
         print(f"sssf: session {adw_id} has no request to re-run", file=sys.stderr)
         return 1
+    # Re-open the host session row: a restart attaches to the existing branch,
+    # and the monitor's forward-merge never flips a TERMINAL host row back to
+    # running — without this the UI keeps showing the previous run's fail/end
+    # state and the restarted run's own outcome is never recorded either.
+    reopen_session(data_dir, adw_id)
     adw_file = root / "adws" / "adw_simple_sdlc.py"
     return _run_sandboxed(root, adw_file, [row[0]], adw_id=adw_id, attach=True)
 

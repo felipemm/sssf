@@ -237,12 +237,22 @@ def recover(
             return f"{adw_id}: restart budget exhausted — finalized"
         state.setdefault("restarts", {})[adw_id] = count + 1
         _save_state(state)
-        subprocess.run(
+        r = subprocess.run(
             ["sssf", "run", "restart", adw_id, "--project", str(root)],
             capture_output=True,
             text=True,
             check=False,
         )
+        if r.returncode != 0:
+            # The heal log is the ONLY place a failed restart is visible: a
+            # no-op restart (e.g. 'no request to re-run') leaves the session
+            # exactly as hung as before, and claiming 'restarted' here made 3
+            # phantom recoveries burn the whole budget in a minute before the
+            # session was finalized (session 9701903a, 2026-09-02). Say what
+            # the CLI said; the budget still counts so an endlessly-failing
+            # restart stays bounded.
+            detail = (r.stderr or r.stdout or f"exit {r.returncode}").strip()
+            return f"{adw_id}: restart FAILED ({count + 1}/{MAX_RESTARTS}) — {detail}"
         return f"{adw_id}: restarted ({count + 1}/{MAX_RESTARTS})"
 
     if action == "ticket_backlog":

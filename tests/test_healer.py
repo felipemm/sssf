@@ -176,6 +176,13 @@ def test_restart_budget_exhausts_then_finalizes(tmp_path, monkeypatch):
     conn.execute("INSERT INTO phases VALUES ('hp1', 'hung1', 'running', NULL, NULL)")
     conn.commit()
     conn.close()
+
+    # The restart spawns the REAL `sssf` CLI; simulate a clean recovery so the
+    # budget accounting is tested, not the CLI's own exit code.
+    def fake_run(args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, stdout="sssf: sandboxed run spawned", stderr="")
+
+    monkeypatch.setattr(h.subprocess, "run", fake_run)
     from sssf.healer import MAX_RESTARTS, recover
 
     state = {"restarts": {}}
@@ -190,6 +197,50 @@ def test_restart_budget_exhausts_then_finalizes(tmp_path, monkeypatch):
     assert "finalized by the healer" in err and "budget" in err
     assert "engineer" not in err
     conn.close()
+
+
+def test_restart_cli_failure_is_reported(tmp_path, monkeypatch):
+    """A restart whose CLI call fails (e.g. 'no request to re-run') must be
+    reported as FAILED with the CLI's message — never logged as a successful
+    'restarted'. The heal log is the only place the failure is visible: before
+    this, an instant no-op restart silently burned a budget slot and the log
+    claimed a recovery that never happened (session 9701903a, 2026-09-02: 3
+    phantom restarts in 63s, then 'budget exhausted — finalized')."""
+    import subprocess
+
+    import sssf.healer as h
+    import sssf.sandbox as sb
+
+    monkeypatch.setattr(h, "STATE_DIR", tmp_path)
+    root = tmp_path / "proj3"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
+    data = root / "adws" / "data"
+    data.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(sb.project_db_path(data)))
+    conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
+    conn.execute("INSERT INTO sessions VALUES ('hung2', 'running', NULL)")
+    conn.commit()
+    conn.close()
+
+    real_run = subprocess.run  # captured before the patch below
+
+    def fake_run(args, **kwargs):
+        # recover() also probes git identity (git config) on the way in — only
+        # the restart CLI spawn is the subject of this test.
+        if args[0] != "sssf":
+            return real_run(args, **kwargs)
+        return subprocess.CompletedProcess(
+            args, 1, stdout="", stderr="sssf: session hung2 has no request to re-run"
+        )
+
+    monkeypatch.setattr(h.subprocess, "run", fake_run)
+    from sssf.healer import recover
+
+    out = recover(root, "hung2", "running", None, "restart", {"restarts": {}})
+    assert "restart FAILED" in out
+    assert "no request to re-run" in out
+    assert "restarted (1/3)" not in out  # honesty: no phantom recovery claim
 
 
 def test_heal_summary_accessors(tmp_path, monkeypatch):

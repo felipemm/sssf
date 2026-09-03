@@ -362,3 +362,29 @@ describe("healed7d", () => {
     rmSync(env.root, { recursive: true, force: true });
   });
 });
+
+import { sessionControl } from "./cockpit.ts";
+
+describe("sessionControl", () => {
+  test("restart failure surfaces the CLI's stderr in output", async () => {
+    // Regression: the sssf CLI prints errors ('no request to re-run') to
+    // STDERR; the old handler read stdout only, so a failed restart came back
+    // as {"ok":false,"output":""} and the trace page could not say why.
+    const calls: string[][] = [];
+    const spawn = async (a: string[]) => {
+      calls.push(a);
+      return { code: 1, out: "sssf: session 9701903a has no request to re-run" };
+    };
+    const res = await sessionControl("restart", "9701903a", "/proj/root", spawn);
+    expect(res.ok).toBe(false);
+    expect(res.output).toContain("no request to re-run");
+    expect(calls[0]).toEqual(["run", "restart", "9701903a", "--project", "/proj/root"]);
+  });
+
+  test("stop success reports the CLI's stdout", async () => {
+    const spawn = async () => ({ code: 0, out: "sssf: stopped" });
+    const res = await sessionControl("stop", "abcd1234", "/proj/root", spawn);
+    expect(res.ok).toBe(true);
+    expect(res.output).toBe("sssf: stopped");
+  });
+});

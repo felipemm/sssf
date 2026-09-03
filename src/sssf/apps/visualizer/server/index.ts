@@ -25,7 +25,7 @@ import { sweepAll } from "./sweep.ts";
 import { isEnabled, readTickets } from "./tickets.ts";
 import { syncTickets, runTicket, backlogTicket, setTicketContext } from "./ticketRoutes.ts";
 import { computeStatus } from "./status.ts";
-import { computeCockpit, computeCockpitContributions, containerLogs, defaultSpawnCli, handleControl } from "./cockpit.ts";
+import { computeCockpit, computeCockpitContributions, containerLogs, defaultSpawnCli, handleControl, sessionControl } from "./cockpit.ts";
 import type { AgentPrompts, ApiError, ControlResult, HealthResponse } from "../shared/types.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
@@ -453,22 +453,14 @@ const server = Bun.serve({
       const root = projectRoot(name);
       const adwId = param(req, "adw_id");
       if (!root) return notFound(`no project ${name}`);
-      const proc = Bun.spawn(["sssf", "run", "restart", adwId, "--project", root],
-        { stdout: "pipe", stderr: "pipe" });
-      const output = await new Response(proc.stdout).text();
-      await proc.exited;
-      return json({ ok: proc.exitCode === 0, output });
+      return json(await sessionControl("restart", adwId, root));
     }),
     "/api/projects/:project/sessions/:adw_id/stop": scoped(async (req) => {
       const name = param(req, "project");
       const root = projectRoot(name);
       const adwId = param(req, "adw_id");
       if (!root) return notFound(`no project ${name}`);
-      const proc = Bun.spawn(["sssf", "run", "stop", adwId, "--project", root],
-        { stdout: "pipe", stderr: "pipe" });
-      const output = await new Response(proc.stdout).text();
-      await proc.exited;
-      return json({ ok: proc.exitCode === 0, output });
+      return json(await sessionControl("stop", adwId, root));
     }),
     "/api/projects/:project/sessions/:adw_id/archive": {
       POST: scoped(archiveHandler),
