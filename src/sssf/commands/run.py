@@ -106,7 +106,7 @@ def _run_sandboxed(
         spawn_sandbox(
             root,
             adw_id,
-            cmd=["python", "adws/modules/adw_simple_sdlc.py", *args, "--adw-id", adw_id],
+            cmd=["python", f"adws/modules/{adw_file.name}", *args, "--adw-id", adw_id],
             image=cfg.sandbox.image,
             data_dir=data_dir,
             pi_home=pi_home,

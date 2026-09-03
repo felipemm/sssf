@@ -765,23 +765,25 @@ def stop_run(
 
 
 def stamp_adw_template(wt: Path) -> None:
-    """Stamp the CURRENT templates into the worktree: the ADW entry file and
-    the prompt_engineering tree. The worktree's copies are the project's
-    committed templates (stamped at init, possibly stale after an sssf
-    upgrade) — sandboxed runs must use the installed templates so the run
-    matches the installed sssf exactly."""
+    """Stamp the CURRENT installed ADW modules into the worktree (v2 layout:
+    adws/modules/adw_*.py). The worktree's copies are the project's committed
+    templates (stamped at init, possibly stale after an sssf upgrade — e.g.
+    the chain-builder migration and the review-gate removal) — sandboxed runs
+    must run the installed ADWs so the run matches the installed sssf exactly.
+
+    Only files the installed templates ship are refreshed: a project's CUSTOM
+    adw_*.py (no installed twin) stays as committed. Prompt_engineering is NOT
+    stamped — those files are the documented per-project customization surface
+    and the sandbox contract runs the committed project state for them."""
     import shutil
 
     import sssf
 
     templates = Path(sssf.__file__).parent / "templates"
-    adw = templates / "adws" / "adw_simple_sdlc.py"
-    if adw.exists():
-        dest = wt / "adws" / "adw_simple_sdlc.py"
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(adw, dest)
-    src_prompts = templates / "prompt_engineering"
-    if src_prompts.exists():
-        dest_prompts = wt / "adws" / "data" / "prompt_engineering"
-        shutil.rmtree(dest_prompts, ignore_errors=True)
-        shutil.copytree(src_prompts, dest_prompts)
+    src_modules = templates / "adws" / "modules"
+    if not src_modules.is_dir():
+        return
+    dest = wt / "adws" / "modules"
+    dest.mkdir(parents=True, exist_ok=True)
+    for adw in src_modules.glob("adw_*.py"):
+        shutil.copy(adw, dest / adw.name)
