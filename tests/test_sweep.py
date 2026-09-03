@@ -109,3 +109,82 @@ def test_sweep_days_flag(tmp_path, monkeypatch, capsys):
     n = conn.execute("SELECT COUNT(*) FROM sessions WHERE archived = 1").fetchone()[0]
     conn.close()
     assert n == 2
+
+
+def test_sweep_clears_sandbox_run_row(tmp_path, monkeypatch):
+    """Sweep is the sole deleter — it also removes the session's sandbox_run
+    record so the viz review panel goes away with the run."""
+    import subprocess
+
+    import sssf.sandbox as sb
+    from sssf.commands import sweep as sweep_mod
+
+    root = tmp_path / "proj"
+    data = root / "adws" / "data"
+    data.mkdir(parents=True)
+    db_path = sb.project_db_path(data)
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        "CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT,"
+        " archived INTEGER DEFAULT 0);"
+        "CREATE TABLE sandbox_run (adw_id TEXT PRIMARY KEY, container TEXT, status TEXT);"
+    )
+    old = (datetime.now(UTC) - timedelta(days=40)).isoformat(timespec="milliseconds")
+    conn.execute(
+        "INSERT INTO sessions (adw_id, status, ended_at) VALUES ('old1','success',?)",
+        (old,),
+    )
+    conn.execute("INSERT INTO sandbox_run VALUES ('old1','sssf-old1','up')")
+    conn.commit()
+    conn.close()
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        sb, "_docker",
+        lambda *a, timeout_s=30: calls.append(list(a))
+        or subprocess.CompletedProcess(list(a), 0, "", ""),
+    )
+    ids = sweep_mod.sweep_db(db_path, "-30 days")
+    assert "old1" in ids
+    sweep_mod._clear_sandbox(root, "old1")
+    conn = sqlite3.connect(db_path)
+    row = conn.execute("SELECT COUNT(*) FROM sandbox_run WHERE adw_id='old1'").fetchone()
+    conn.close()
+    assert row[0] == 0  # the review record is deleted with the run
+
+
+def test_sweep_removes_orphan_containers(tmp_path, monkeypatch):
+    """Containers that match NO session (spawn leftovers) are swept too —
+    the only cleanup path for orphans now that the healer never deletes."""
+    import subprocess
+
+    import sssf.sandbox as sb
+    from sssf.commands import sweep as sweep_mod
+
+    root = tmp_path / "proj"
+    data = root / "adws" / "data"
+    data.mkdir(parents=True)
+    db_path = sb.project_db_path(data)
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        "CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT,"
+        " archived INTEGER DEFAULT 0);"
+    )
+    conn.execute("INSERT INTO sessions (adw_id, status, ended_at) VALUES ('live1','success','2020-01-01T00:00:00')")
+    conn.commit()
+    conn.close()
+
+    ps = "sssf-orphanx\nsssf-live1\n"
+    calls: list[list[str]] = []
+
+    def fake_docker(*a, timeout_s=30):
+        calls.append(list(a))
+        if a[0] == "ps":
+            return subprocess.CompletedProcess(list(a), 0, ps, "")
+        return subprocess.CompletedProcess(list(a), 0, "", "")
+
+    monkeypatch.setattr(sb, "_docker", fake_docker)
+    removed = sweep_mod._clean_orphan_containers(root, db_path)
+    assert removed == ["sssf-orphanx"]  # live1 has a session → kept
+    assert ["rm", "-f", "sssf-orphanx"] in calls
+    assert not any("sssf-live1" in a for a in calls if a and a[0] == "rm")

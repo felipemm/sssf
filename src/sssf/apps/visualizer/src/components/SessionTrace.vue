@@ -8,11 +8,12 @@ import type {
   GateResult,
   Phase,
   PhaseKind,
+  ReviewInfo,
   Session,
   SessionUsage,
 } from '../lib/types'
-import { Archive, ArchiveRestore, Bot, RotateCw, Square, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
-import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchSession, fetchTickets, restartRun, stopRun, useProjects, type Ticket as TicketInfo } from '../lib/api'
+import { Archive, ArchiveRestore, Bot, ExternalLink, FileText, RotateCw, Square, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
+import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchReview, fetchSession, fetchSessionLogs, fetchTickets, restartRun, stopRun, useProjects, type Ticket as TicketInfo } from '../lib/api'
 import { axisTicks, fmtCost, fmtDate, payloadOk, ts } from '../lib/format'
 import { modelIcon, modelName } from '../lib/models'
 import { agentColor, hexAlpha, parseAgentStart } from '../lib/events'
@@ -46,8 +47,16 @@ const events = ref<EventRow[]>([])
 const envelopes = ref<Envelope[]>([])
 const gates = ref<GateResult[]>([])
 const apiError = ref<string | null>(null)
+const flash = ref('') // transient control feedback (restart/stop failures)
 const loaded = ref(false)
 const nowMs = ref(Date.now())
+
+let flashTimer: ReturnType<typeof setTimeout> | undefined
+function flashMsg(msg: string) {
+  flash.value = msg
+  clearTimeout(flashTimer)
+  flashTimer = setTimeout(() => (flash.value = ''), 8000)
+}
 
 let cursor = 0
 let inflight = false
@@ -486,16 +495,61 @@ const agentCosts = computed(() => {
 // Stop a live run (any phase in progress): the server shells `sssf run stop`,
 // which kills the container — the ADW's kill-failsafe marks the run failed.
 async function stop() {
-  await stopRun(props.adwId)
+  try {
+    const res = await stopRun(props.adwId)
+    if (!res.ok) flashMsg(`stop failed — ${res.output ?? 'unknown error'}`)
+  } catch {
+    flashMsg('stop failed — api unreachable')
+  }
   void tick()   // reflect the failed status immediately
 }
 
 async function restart() {
-  const res = await restartRun(props.adwId)
-  if (res.ok) {
+  try {
+    const res = await restartRun(props.adwId)
+    if (!res.ok) {
+      // The CLI reports failures on stderr ('no request to re-run'); the
+      // server merges it into output, so say WHY instead of silently nothing.
+      flashMsg(`restart failed — ${res.output ?? 'unknown error'}`)
+      return
+    }
     session.value = null   // force a reload; the run restarts in the sandbox
     void tick()
+  } catch {
+    flashMsg('restart failed — api unreachable')
   }
+}
+
+// ── run actions: prompt / logs / review ─────────────────────────────────────
+const panel = ref<'prompt' | 'logs' | 'review' | null>(null)
+const logLines = ref<string[]>([])
+const logError = ref('')
+const reviewInfo = ref<ReviewInfo | null>(null)
+
+async function loadLogs() {
+  logError.value = ''
+  try {
+    const r = await fetchSessionLogs(props.adwId, 400)
+    logLines.value = r.lines ?? []
+    logError.value = r.error ?? ''
+  } catch {
+    logError.value = 'logs unavailable'
+  }
+}
+
+async function loadReview() {
+  try {
+    reviewInfo.value = await fetchReview(props.adwId)
+  } catch {
+    reviewInfo.value = null
+    flashMsg('review info unavailable')
+  }
+}
+
+async function togglePanel(which: 'prompt' | 'logs' | 'review') {
+  panel.value = panel.value === which ? null : which
+  if (panel.value === 'logs') await loadLogs()
+  else if (panel.value === 'review') await loadReview()
 }
 
 const sessionDurationMs = computed(() => {
@@ -515,6 +569,7 @@ function selectPhase(p: Phase) {
 <template>
   <div class="trace">
     <div v-if="apiError" class="error-bar">api unreachable — retrying {{ apiError }}</div>
+    <div v-if="flash" class="flash-bar" role="status" @click="flash = ''">{{ flash }}</div>
 
     <div v-if="session" class="run-strip">
       <span class="request" :title="session.request ?? ''">{{ session.request }}</span>
@@ -560,6 +615,15 @@ function selectPhase(p: Phase) {
       >
         <RotateCw :size="16" :stroke-width="2" />
       </button>
+      <button class="strip-archive strip-action" type="button" title="Prompt — the ask this run replays" aria-label="Show the run's prompt" @click="togglePanel('prompt')">
+        <FileText :size="16" :stroke-width="2" />
+      </button>
+      <button class="strip-archive strip-action" type="button" title="Logs — docker logs of the run's container" aria-label="Show container logs" @click="togglePanel('logs')">
+        <SquareTerminal :size="16" :stroke-width="2" />
+      </button>
+      <button class="strip-archive strip-action strip-review" type="button" title="Review — open the app running in the container" aria-label="Review the app" @click="togglePanel('review')">
+        <ExternalLink :size="16" :stroke-width="2" />
+      </button>
       <span class="dim">started {{ fmtDate(session.started_at) }}</span>
       <span class="run-stats">
         <StatChip kind="cost" :value="session.total_cost" />
@@ -568,6 +632,42 @@ function selectPhase(p: Phase) {
         <StatChip kind="read" :value="usage.read" />
         <StatChip kind="written" :value="usage.written" />
       </span>
+    </div>
+
+    <div v-if="panel" class="run-panel">
+      <div class="panel-head">
+        <span class="panel-title">{{
+          panel === 'prompt' ? 'Prompt' : panel === 'logs' ? 'Container logs' : 'Review — access the app'
+        }}</span>
+        <button class="panel-close" type="button" aria-label="Close panel" @click="panel = null">✕</button>
+      </div>
+      <div v-if="panel === 'prompt'" class="panel-body">
+        <pre class="panel-pre">{{ session?.request?.trim() ? session.request : '— no prompt recorded for this run —' }}</pre>
+      </div>
+      <div v-else-if="panel === 'logs'" class="panel-body">
+        <button class="strip-archive panel-refresh" type="button" title="Refresh logs" aria-label="Refresh logs" @click="loadLogs">
+          <RotateCw :size="12" :stroke-width="2" />
+        </button>
+        <div v-if="logError" class="log-note">{{ logError }}</div>
+        <pre v-else-if="logLines.length" class="panel-pre logs">{{ logLines.join('\n') }}</pre>
+        <div v-else class="log-note">no container logs yet — the container is kept after the run; `sssf sweep` removes it</div>
+      </div>
+      <div v-else-if="panel === 'review'" class="panel-body review">
+        <template v-if="reviewInfo?.row?.review_url">
+          <a class="review-open" :href="reviewInfo.row.review_url" target="_blank" rel="noreferrer">Open app ↗</a>
+          <div class="review-detail mono">{{ reviewInfo.row.review_url }}</div>
+        </template>
+        <div v-else class="log-note">
+          no review URL — the project has no <code>sandbox.review</code> config, or the run's container is stopped / swept.
+        </div>
+        <div v-if="reviewInfo?.row?.review_command && reviewInfo.row.review_command !== '[]'" class="review-detail">
+          started with: <code class="mono">{{ reviewInfo.row.review_command }}</code>
+        </div>
+        <div v-if="reviewInfo?.row?.instructions" class="review-detail">{{ reviewInfo.row.instructions }}</div>
+        <div v-if="reviewInfo" class="review-detail">
+          container: <span class="state-chip" :class="reviewInfo.container.state">{{ reviewInfo.container.state }}</span>
+        </div>
+      </div>
     </div>
 
     <div v-if="phases.length" class="waterfall">
@@ -699,6 +799,106 @@ function selectPhase(p: Phase) {
   flex-direction: column;
   padding: 0 0 40px;
 }
+
+.flash-bar {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  border-radius: 8px;
+  background: rgba(127, 29, 29, 0.25);
+  color: #fca5a5;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: pre-wrap;
+}
+
+.run-panel {
+  margin: 8px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(11, 15, 24, 0.7);
+  overflow: hidden;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.panel-close {
+  background: none;
+  border: none;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+}
+
+.panel-close:hover { color: var(--text); }
+
+.panel-body { position: relative; padding: 10px; max-height: 320px; overflow: auto; }
+
+.panel-pre {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+
+.panel-refresh {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+}
+
+.log-note {
+  color: var(--dim);
+  font-size: 12px;
+  padding: 6px 0;
+}
+
+.log-note code { font-family: var(--mono); }
+
+.review-open {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(52, 211, 153, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  color: #34d399;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.review-open:hover { background: rgba(52, 211, 153, 0.2); }
+
+.review-detail { font-size: 12px; color: var(--dim); margin: 4px 0; }
+
+.review-detail .mono { font-family: var(--mono); }
+
+.state-chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  text-transform: uppercase;
+}
+
+.state-chip.running { color: #34d399; border-color: rgba(52, 211, 153, 0.4); }
+.state-chip.exited { color: #fbbf24; border-color: rgba(251, 191, 36, 0.4); }
+.state-chip.absent { color: var(--dim); }
 
 .strip-archive {
   display: inline-flex;

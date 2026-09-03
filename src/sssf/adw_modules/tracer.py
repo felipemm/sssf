@@ -100,6 +100,17 @@ CREATE TABLE IF NOT EXISTS tickets (
   source_url  TEXT,               -- the ticket's origin link ('' for internal)
   created_at  TEXT, updated_at TEXT
 );
+CREATE TABLE IF NOT EXISTS sandbox_run (
+  adw_id          TEXT PRIMARY KEY,
+  container       TEXT NOT NULL,
+  container_port  INTEGER,
+  host_port       INTEGER,
+  review_url      TEXT,
+  review_command  TEXT,      -- json list, for the visualizer
+  instructions    TEXT DEFAULT '',
+  status          TEXT,      -- 'up' | 'stopped'
+  updated_at      TEXT
+);
 """
 
 # Columns added after a schema shipped. CREATE TABLE IF NOT EXISTS never
@@ -186,7 +197,8 @@ class Tracer:
             )
 
     def session_request(self, adw_id: str, request: str) -> None:
-        self.conn.execute("UPDATE sessions SET request=? WHERE adw_id=?", (request[:500], adw_id))
+        # Full prompt, not truncated: `sssf run restart` re-runs this exact ask.
+        self.conn.execute("UPDATE sessions SET request=? WHERE adw_id=?", (request, adw_id))
 
     def session_finish(self, adw_id: str, ok: bool) -> None:
         self.conn.execute(

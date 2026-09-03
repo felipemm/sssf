@@ -25,6 +25,7 @@ import type {
   Session,
   SessionDetail,
   SessionSummary,
+  ReviewRow,
   SessionUsage,
 } from "../shared/types.ts";
 
@@ -452,6 +453,21 @@ export class SssfDb {
            FROM gate_results WHERE adw_id = ? ORDER BY id`,
       )
       .all(adwId);
+  }
+
+  /** The host-owned sandbox_run row for a run (container + review mapping);
+   * null when the db predates the table or the row is absent. */
+  reviewRow(adwId: string): ReviewRow | null {
+    if (!this.hasTable("sandbox_run")) return null;
+    return (
+      this.db
+        .query<ReviewRow, [string]>(
+          `SELECT adw_id, container, container_port, host_port, review_url,
+                  review_command, instructions, status, updated_at
+             FROM sandbox_run WHERE adw_id = ?`,
+        )
+        .get(adwId) ?? null
+    );
   }
 
   sessionCount(): number {

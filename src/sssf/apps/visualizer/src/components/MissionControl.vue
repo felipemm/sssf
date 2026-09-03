@@ -124,10 +124,12 @@ async function control(key: string, fn: () => Promise<ControlResult>, okMsg: str
 }
 
 function onStop(project: string, adwId: string) {
-  return control(`stop:${adwId}`, () => stopRun(project, adwId), `stopped ${adwId}`)
+  // api.stopRun(adwId, project) — the cockpit runs-now strip controls
+  // sessions in ANY project, so the project must be passed explicitly.
+  return control(`stop:${adwId}`, () => stopRun(adwId, project), `stopped ${adwId}`)
 }
 function onRestart(project: string, adwId: string) {
-  return control(`restart:${adwId}`, () => restartRun(project, adwId), `restarting ${adwId}`)
+  return control(`restart:${adwId}`, () => restartRun(adwId, project), `restarting ${adwId}`)
 }
 function onRefresh(project: string) {
   return control(`refresh:${project}`, () => refreshProject(project), `refreshed ${project} templates`)

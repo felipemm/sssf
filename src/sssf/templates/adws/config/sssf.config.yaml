@@ -220,3 +220,14 @@ agents:
       - bash
       - write
       - edit
+
+# ── sandbox (all optional — defaults: enabled, image sssf-runner) ──────────
+# review: how to launch the project's app AFTER the run so you can open it and
+# validate the change. The container stays up after the run; the app's port is
+# published on a RANDOM host port (see the run's Review panel in the viz).
+# sandbox:
+#   image: sssf-runner
+#   review:
+#     command: ["npm", "run", "dev", "--workspace=web"]   # argv list; cwd = the run worktree
+#     container_port: 3000                                  # the app's port inside the container
+#     instructions: "open the URL; sign in as Local Dev via the mock IDP"

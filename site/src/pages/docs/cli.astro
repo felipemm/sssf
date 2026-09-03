@@ -183,7 +183,7 @@ const description =
     <tbody>
       <tr><td><code class="hl">sssf sandbox build [--project P]</code></td><td>Build/refresh the <code class="hl">sssf-runner</code> image (docker required).</td></tr>
       <tr><td><code class="hl">sssf sandbox list [--project P]</code></td><td>Show sandboxes: adw_id · status · branch · container · worktree.</td></tr>
-      <tr><td><code class="hl">sssf sandbox prune [&lt;adw_id&gt; | --all] [--project P]</code></td><td>Delete a resolved run&rsquo;s branch + leftovers, or every sandbox with <code class="hl">--all</code>.</td></tr>
+      <tr><td><code class="hl">sssf sweep [--days N]</code></td><td>The <strong>only</strong> deleter of run artifacts: archive old runs and remove their container, worktree and review record (plus orphan containers). <code class="hl">sssf sandbox prune</code> is deprecated.</td></tr>
     </tbody>
   </table>
 

@@ -29,7 +29,6 @@ from sssf.sandbox import (
     project_db_path,
     sandbox_dir,
     sandbox_env,
-    stop_remove,
     sync_run_db,
     teardown_sandbox,
 )
@@ -237,12 +236,22 @@ def recover(
             return f"{adw_id}: restart budget exhausted — finalized"
         state.setdefault("restarts", {})[adw_id] = count + 1
         _save_state(state)
-        subprocess.run(
+        r = subprocess.run(
             ["sssf", "run", "restart", adw_id, "--project", str(root)],
             capture_output=True,
             text=True,
             check=False,
         )
+        if r.returncode != 0:
+            # The heal log is the ONLY place a failed restart is visible: a
+            # no-op restart (e.g. 'no request to re-run') leaves the session
+            # exactly as hung as before, and claiming 'restarted' here made 3
+            # phantom recoveries burn the whole budget in a minute before the
+            # session was finalized (session 9701903a, 2026-09-02). Say what
+            # the CLI said; the budget still counts so an endlessly-failing
+            # restart stays bounded.
+            detail = (r.stderr or r.stdout or f"exit {r.returncode}").strip()
+            return f"{adw_id}: restart FAILED ({count + 1}/{MAX_RESTARTS}) — {detail}"
         return f"{adw_id}: restarted ({count + 1}/{MAX_RESTARTS})"
 
     if action == "ticket_backlog":
@@ -351,7 +360,11 @@ def _container_exists(adw_id: str) -> bool:
 
 
 def _clean_orphans(root: Path) -> list[str]:
-    """Remove sandbox worktrees/containers that no longer match any session."""
+    """Report sandbox worktrees/containers that no longer match any session.
+
+    Only `sssf sweep` DELETES run artifacts — the healer never removes anything
+    (a session row can lag a live run by one sync; deleting on a misread was
+    destroying recoverable work). Sweep's run() cleans these orphans."""
     cleaned: list[str] = []
     base = STATE_DIR / "sandboxes" / root.name
     if not base.is_dir():
@@ -364,9 +377,7 @@ def _clean_orphans(root: Path) -> list[str]:
         return cleaned
     for wt in base.iterdir():
         if wt.is_dir() and wt.name not in known:
-            stop_remove(container_name(wt.name))
-            teardown_sandbox(root, wt.name)
-            cleaned.append(f"{wt.name}: orphaned sandbox removed")
+            cleaned.append(f"{wt.name}: orphaned sandbox (removed by sssf sweep)")
     return cleaned
 
 

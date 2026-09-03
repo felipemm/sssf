@@ -45,11 +45,14 @@ const description =
   <h2>Commands</h2>
   <pre><code>sssf sandbox build              # build/refresh the sssf-runner image
 sssf sandbox list               # show sandboxes (adw_id · status · branch · container · worktree)
-sssf sandbox prune &lt;adw_id&gt;     # delete a resolved run's branch + leftovers
-sssf sandbox prune --all        # delete every sandbox</code></pre>
+sssf sweep [--days N]           # THE ONLY deleter: archive old runs + remove their container,
+                                #   worktree and review record (and orphan containers)
+# `sssf sandbox prune` is deprecated — cleanup is `sssf sweep` only.</code></pre>
   <p>
-    Sandbox state lives under <code class="hl">~/.sssf/sandboxes/&lt;project&gt;/</code> (override
-    the root with <code class="hl">SSSF_HOME</code>).
+    Run worktrees live under <code class="hl">.worktrees/&lt;adw_id&gt;/</code> in the target repo
+    (git-ignored); the run's container is <code class="hl">sssf-&lt;adw_id&gt;</code>. Nothing is
+    deleted automatically: containers, worktrees, branches and uncommitted agent work survive
+    for review and restart until <span class="cmd">sssf sweep</span> removes them.
   </p>
   <div class="note" data-impeccable-ignore="side-tab">
     <strong>Docker is required for sandboxed runs.</strong> <span class="cmd">sssf run</span>
@@ -64,25 +67,45 @@ sssf sandbox prune --all        # delete every sandbox</code></pre>
     gated by <code class="hl">sandbox.enabled</code> in <code class="hl">sssf.config.yaml</code>.
   </p>
 
+  <h2>Review the change — the container stays up</h2>
+  <p>
+    When a run finishes, its container is <strong>kept running</strong> (a supervisor runs the
+    project's app after the ADW exits, then idles) so you can open the produced app and validate
+    the change. Configure how to launch it in <code class="hl">sssf.config.yaml</code>:
+  </p>
+  <pre><code>sandbox:
+  review:
+    command: ["npm", "run", "dev", "--workspace=web"]  # argv list; cwd = the run worktree
+    container_port: 3000                # the app's port inside the container
+    instructions: "open the URL; sign in as Local Dev via the mock IDP"</code></pre>
+  <p>
+    The app's port is published on a <strong>random host port</strong> (loopback only), so
+    concurrent runs never collide. In the <a href="/sssf/docs/visualizer">visualizer</a>, a
+    run's trace page offers three actions: <strong>Prompt</strong> (the full ask the run replays),
+    <strong>Logs</strong> (docker logs of the kept container), and <strong>Review</strong> (open
+    the app — the URL, launch command and instructions).
+  </p>
+
   <h2>Run control in the sandbox world</h2>
   <table>
     <thead>
       <tr><th>Command</th><th>What happens</th></tr>
     </thead>
     <tbody>
-      <tr><td><code class="hl">sssf run stop &lt;adw_id&gt;</code></td><td>Kill the live run: container removed, worktree removed, run marked failed.</td></tr>
-      <tr><td><code class="hl">sssf run restart &lt;adw_id&gt;</code></td><td>Re-run the session on its existing <code class="hl">sssf/&lt;adw_id&gt;</code> branch, with the original request as the prompt.</td></tr>
+      <tr><td><code class="hl">sssf run stop &lt;adw_id&gt;</code></td><td>Stop the live run: the container is <strong>stopped but kept</strong> (logs + worktree stay), the run is marked failed, in-flight phases record the stop reason. Worktree, branch and any uncommitted work survive for a restart.</td></tr>
+      <tr><td><code class="hl">sssf run restart &lt;adw_id&gt;</code></td><td>Replay the session from the start on its existing <code class="hl">sssf/&lt;adw_id&gt;</code> branch — reusing everything the previous run did (committed state, surviving partial work, the per-run db). The run's own container is replaced (same name); nothing else is deleted.</td></tr>
     </tbody>
   </table>
 
   <h2>Failure handling</h2>
   <ul>
-    <li><strong>Spawn failure</strong> (container or worktree fails to come up): the sandbox is
-      aborted (stuck container + worktree removed) and the run reports the error cleanly.</li>
-    <li><strong>Dead sandbox mid-run</strong> (container or worktree gone while the session is
+    <li><strong>Spawn failure</strong> (container or worktree fails to come up): the stuck
+      container is stopped (kept for logs); the run reports the error cleanly.
+      <span class="cmd">sssf sweep</span> removes leftovers.</li>
+    <li><strong>Dead sandbox mid-run</strong> (container gone while the session is
       <code class="hl">running</code>): the <a href="/sssf/docs/healer">healer</a> finalizes the
-      run as failed.</li>
-    <li><strong>Torn terminal state</strong> (monitor crashed before teardown): the healer syncs
-      the per-run db forward and tears the sandbox down.</li>
+      run as failed (stops what remains; deletes nothing).</li>
+    <li><strong>Torn terminal state</strong> (monitor crashed before its final sync): the healer
+      syncs the per-run db forward.</li>
   </ul>
 </DocsLayout>

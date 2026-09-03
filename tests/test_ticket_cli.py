@@ -455,7 +455,7 @@ def test_run_sandboxed_copies_interview_spec_into_worktree(tmp_path, monkeypatch
     monkeypatch.setattr(sandbox, "docker_available", lambda: True)
     monkeypatch.setattr(sandbox, "spawn_monitor", lambda root, adw_id: None)
 
-    def fake_spawn(root, adw_id, cmd, image, data_dir, pi_home, env, worktree):
+    def fake_spawn(root, adw_id, cmd, image, data_dir, pi_home, env, worktree, **kwargs):
         calls["cmd"] = cmd
         calls["worktree"] = Path(worktree)
         return {"worktree": str(worktree), "name": f"sssf-{adw_id}"}

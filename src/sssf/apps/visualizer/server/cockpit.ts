@@ -23,6 +23,8 @@ import type {
   ContainerLogsResponse,
   ControlResult,
   HealSummary,
+  ReviewInfo,
+  ReviewRow,
   RunningSession,
 } from "../shared/types.ts";
 
@@ -469,6 +471,78 @@ export async function defaultSpawnCli(args: string[]): Promise<SpawnResult> {
   const err = await new Response(proc.stderr).text();
   await proc.exited;
   return { code: proc.exitCode ?? 0, out: (out + err).trim() };
+}
+
+/**
+ * Restart or stop a session's run (shells `sssf run restart|stop`). The CLI
+ * prints failures to STDERR, so the spawn must merge both streams — the old
+ * restart handler read stdout only and a failed restart (e.g. 'no request to
+ * re-run') came back as `{"ok":false,"output":""}`, an empty silent no-op
+ * the UI could not explain.
+ */
+export async function sessionControl(
+  action: "restart" | "stop",
+  adwId: string,
+  project: string,
+  spawnCli: (args: string[]) => Promise<SpawnResult> = defaultSpawnCli,
+): Promise<{ ok: boolean; output: string }> {
+  const r = await spawnCli(["run", action, adwId, "--project", project]);
+  return { ok: r.code === 0, output: r.out.trim() };
+}
+
+/** A minimal db reader — the SssfDb reviewRow accessor (avoids a cockpit→db
+ * import cycle; index.ts passes the real SssfDb). */
+export interface ReviewDb {
+  reviewRow(adwId: string): ReviewRow | null;
+}
+
+export async function defaultDockerPs(name: string): Promise<string> {
+  const proc = Bun.spawn(
+    ["docker", "ps", "-a", "--filter", `name=${name}`, "--format", "{{.Status}}"],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  const out = await new Response(proc.stdout).text();
+  const err = await new Response(proc.stderr).text();
+  await proc.exited;
+  if (proc.exitCode !== 0) throw new Error(err.trim() || `docker exited ${proc.exitCode}`);
+  return out.trim();
+}
+
+/**
+ * The run's review record + live container state, for the trace page's
+ * Review/Logs actions. The container name comes from sandbox_run (host-owned,
+ * written at spawn); the container is deliberately KEPT after the run, so its
+ * state is `running` (review app up) or `exited`/`absent` (stopped/swept).
+ */
+export async function reviewFor(
+  db: ReviewDb,
+  adwId: string,
+  dockerPs: (name: string) => Promise<string> = defaultDockerPs,
+): Promise<ReviewInfo> {
+  const row = db.reviewRow(adwId);
+  let state: ReviewInfo["container"]["state"] = "absent";
+  if (row) {
+    const name = row.container || `sssf-${adwId}`;
+    try {
+      const status = await dockerPs(name);
+      state = status.includes("Up") ? "running" : status ? "exited" : "absent";
+    } catch {
+      state = "absent"; // docker unreachable/absent — treat as absent
+    }
+  }
+  return { row, container: { state } };
+}
+
+/** docker logs for the run's container (kept after the run; sweep removes). */
+export async function sandboxLogs(
+  db: ReviewDb,
+  adwId: string,
+  tail: number,
+  dockerLogs?: (args: string[]) => Promise<string>,
+): Promise<ContainerLogsResponse> {
+  const row = db.reviewRow(adwId);
+  const name = row?.container || `sssf-${adwId}`;
+  return containerLogs(name, tail, dockerLogs);
 }
 
 const SAFE_CONTAINER = /^sssf-[A-Za-z0-9._-]+$/;

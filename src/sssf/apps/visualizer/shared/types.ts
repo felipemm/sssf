@@ -406,3 +406,21 @@ export interface ContainerLogsResponse {
   lines: string[]
   error?: string
 }
+
+/** The host-owned sandbox_run row: live container + review mapping per run. */
+export interface ReviewRow {
+  adw_id: string
+  container: string
+  container_port: number | null
+  host_port: number | null
+  review_url: string | null
+  review_command: string | null
+  instructions: string | null
+  status: string | null
+  updated_at: string | null
+}
+
+export interface ReviewInfo {
+  row: ReviewRow | null
+  container: { state: 'running' | 'exited' | 'absent' }
+}

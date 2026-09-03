@@ -70,6 +70,18 @@ def create_worktree(project_root: Path, adw_id: str, attach: bool = False) -> Pa
     wt.parent.mkdir(parents=True, exist_ok=True)
     _exclude_worktrees(project_root)
     if attach:
+        # A restart attaches to the run's EXISTING branch. The checkout may
+        # already be there from a previous attempt — a stop/prune race can
+        # leave the worktree registered while the container is gone — and `git
+        # worktree add` would then fail with 'already exists', killing the
+        # restart before the ADW ever starts (session 9701903a, 2026-09-02:
+        # the leftover registered worktree from one stopped attempt silently
+        # broke every later restart). The branch is the same, so the existing
+        # checkout IS the attach target: reuse it.
+        if wt.exists() and _worktree_registered(wt):
+            return wt
+        if wt.exists():  # unregistered leftover dir — clear before git worktree add
+            shutil.rmtree(wt)
         args = ["worktree", "add", "-q", str(wt), branch]
     elif _has_remote(project_root, "origin"):
         r = _run_git(project_root, "fetch", "origin", "main")
@@ -177,6 +189,7 @@ def run_sandbox(
     uid: int = 1000,
     gid: int = 1000,
     env: dict[str, str] | None = None,
+    publish_port: int | None = None,
     cmd: list[str] | None = None,
 ) -> None:
     """docker run -d with the worktree + shared data bound, credentials ro.
@@ -184,7 +197,8 @@ def run_sandbox(
     git_dir mounts the repo's .git at its HOST path inside the container: a
     worktree's `.git` file references that absolute path, so without the mount
     git inside the container can't resolve the repo (the ADW's commits land in
-    the shared object store — that is the point).
+    the shared object store — that is the point). publish_port publishes the
+    review app's container port loopback-only on a RANDOM host port.
     """
     args = [
         "run",
@@ -207,6 +221,11 @@ def run_sandbox(
     args += ["--user", f"{uid}:{gid}"]
     for k, v in (env or {}).items():
         args += ["-e", f"{k}={v}"]
+    if publish_port:
+        # Loopback-only, random HOST port (docker picks a free one) so
+        # concurrent runs never collide. The app binds container_port inside
+        # the container; `docker port <name>` resolves the host port.
+        args += ["-p", f"127.0.0.1::{publish_port}"]
     args += [image, *(cmd or [])]
     # Containers are KEPT after a run for debugging, so a retry/restart may
     # find an Exited container with this name — remove it before running.
@@ -224,8 +243,19 @@ def run_sandbox(
 
 
 def stop_remove(name: str) -> None:
-    """Idempotent: remove the container whether running or stopped."""
+    """Remove the container whether running or stopped. ONLY callers: the
+    same-session container reuse in run_sandbox, and `sssf sweep` (the sole
+    deleter of run artifacts)."""
     _docker("rm", "-f", name)
+
+
+def stop_container(name: str) -> None:
+    """Stop a container and KEEP it — its logs and the worktree mount stay
+    available for review. Stopping is never deletion; removal is `sssf sweep`'s
+    job. Absent/stopped containers are fine (docker errors are ignored)."""
+    if not name:
+        return
+    _docker("stop", "-t", "5", name)
 
 
 def container_name(adw_id: str) -> str:
@@ -236,6 +266,66 @@ def project_db_path(data_dir: Path) -> Path:
     """The shared project db (bind-mounted into the container at
     /work/adws/data/sssf.db)."""
     return data_dir / "sssf.db"
+
+
+def sandbox_run_db(data_dir: Path) -> sqlite3.Connection:
+    """A connection to the host project db for sandbox_run bookkeeping (the
+    table is created by the tracer SCHEMA; create it defensively for dbs the
+    tracer has not opened yet)."""
+    conn = sqlite3.connect(str(project_db_path(data_dir)), isolation_level=None)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS sandbox_run ("
+        "  adw_id TEXT PRIMARY KEY, container TEXT NOT NULL,"
+        "  container_port INTEGER, host_port INTEGER, review_url TEXT,"
+        "  review_command TEXT, instructions TEXT DEFAULT '',"
+        "  status TEXT, updated_at TEXT)"
+    )
+    return conn
+
+
+def _record_sandbox_run(data_dir: Path, adw_id: str, review: dict) -> None:
+    """Record the live container + review mapping (host project db). Resolves
+    the random host port docker assigned for the review app's container port.
+    Best-effort: the run proceeds even if the record write fails."""
+    import datetime
+    import json
+
+    name = container_name(adw_id)
+    cp = review.get("container_port")
+    host_port = None
+    if cp:
+        r = _docker("port", name, f"{cp}/tcp")
+        if r.returncode == 0 and r.stdout.strip():
+            try:
+                host_port = int(r.stdout.strip().split(":")[-1])
+            except ValueError:
+                host_port = None
+    now = datetime.datetime.now(datetime.UTC).isoformat()
+    try:
+        conn = sandbox_run_db(data_dir)
+        conn.execute(
+            "INSERT INTO sandbox_run (adw_id, container, container_port, host_port,"
+            " review_url, review_command, instructions, status, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(adw_id) DO UPDATE SET container=excluded.container,"
+            " container_port=excluded.container_port, host_port=excluded.host_port,"
+            " review_url=excluded.review_url, review_command=excluded.review_command,"
+            " instructions=excluded.instructions, status='up', updated_at=excluded.updated_at",
+            (
+                adw_id,
+                name,
+                cp,
+                host_port,
+                f"http://127.0.0.1:{host_port}" if host_port else None,
+                json.dumps(review.get("command") or []),
+                review.get("instructions") or "",
+                "up",
+                now,
+            ),
+        )
+        conn.close()
+    except sqlite3.Error:
+        pass
 
 
 _FINGERPRINT_PATH = "/opt/sssf-fingerprint"
@@ -369,17 +459,25 @@ def spawn_sandbox(
     gid: int | None = None,
     attach: bool = False,
     worktree: Path | None = None,
+    review: dict | None = None,
 ) -> dict:
     """Start the container in a (created) worktree. Deterministic; returns the
     sandbox record (worktree, name). attach=True reuses the run's existing
     branch (a restart). `worktree` supplies an ALREADY-created worktree (the
-    ticket path creates one first to write the prompt) — never create twice."""
+    ticket path creates one first to write the prompt) — never create twice.
+
+    `review` is the project's cfg.sandbox.review as a dict: the ADW command is
+    wrapped in the container supervisor (which keeps the container up after the
+    run and launches the review app), the review container_port is published on
+    a random host port, and the resolved mapping is recorded in sandbox_run.
+    """
     ensure_image_current(image)
     wt = worktree or create_worktree(project_root, adw_id, attach=attach)
     stamp_adw_template(wt)  # deterministic: the installed template, not a stale init stamp
     uid = uid if uid is not None else os.getuid()
     gid = gid if gid is not None else os.getgid()
     env = {**(env or {}), "SSSF_IN_SANDBOX": "1"}  # tracer uses rollback journal (mount-visible)
+    review = review or {}
     run_sandbox(
         image,
         container_name(adw_id),
@@ -391,15 +489,18 @@ def spawn_sandbox(
         uid=uid,
         gid=gid,
         env=env,
-        cmd=cmd,
+        publish_port=review.get("container_port"),
+        cmd=["python", "-m", "sssf.adw_modules.supervise", "--", *cmd],
     )
+    _record_sandbox_run(data_dir, adw_id, review)
     return {"worktree": str(wt), "name": container_name(adw_id)}
 
 
 def abort_sandbox(project_root: Path, adw_id: str) -> None:
-    """Clean up after a FAILED spawn: remove the (possibly 'Created'-stuck)
-    container. The worktree stays under .worktrees/ for inspection."""
-    stop_remove(container_name(adw_id))
+    """Clean up after a FAILED spawn: STOP the (possibly 'Created'-stuck)
+    container — it is kept (logs stay readable); `sssf sweep` removes it. The
+    worktree stays under .worktrees/ for inspection."""
+    stop_container(container_name(adw_id))
 
 
 def teardown_sandbox(project_root: Path, adw_id: str) -> int:
@@ -459,6 +560,26 @@ def _forward_merge(
                         f"UPDATE {table} SET {col}=MAX(COALESCE({col},0), COALESCE(?,0)) "
                         f"WHERE {pk}=?",
                         (row[cols.index(col)], pk_val),
+                    )
+        # request (sessions only): the request phase writes it ONCE and it is
+        # immutable for the run, but the project row is inserted at the FIRST
+        # sync — usually BEFORE the request phase logs — and the ended-row
+        # forward update above only fires at the final merge (never once the
+        # healer has finalized the host row first). A mid-run copy must carry
+        # the request too, or `sssf run restart` on the host reads an empty
+        # request and bails ('no request to re-run'): the healer's restarts of
+        # a hung sandboxed run then burn the whole budget doing nothing and
+        # the run is finalized unrecoverably. Copy only into an empty host
+        # slot — a torn source copy (NULL request) never regresses one the
+        # host already merged.
+        if table == "sessions" and "request" in cols:
+            for row in rows:
+                req = row[cols.index("request")]
+                if req:
+                    conn.execute(
+                        f"UPDATE {table} SET request=? WHERE {pk}=? "
+                        "AND (request IS NULL OR request='')",
+                        (req, row[cols.index(pk)]),
                     )
     except sqlite3.Error:
         pass
@@ -527,6 +648,13 @@ def _container_gone(docker_fn, name: str) -> bool:
     except Exception as error:  # docker is down/glitchy
         print(f"sssf: teardown poll docker error ({error}) — retrying", file=sys.stderr)
         return False
+
+
+def _run_ended(wt_data: Path, adw_id: str) -> bool:
+    """True once the container-side supervisor wrote its exit marker — the ADW
+    process has ended. The container itself stays up (review mode), so its
+    death alone no longer marks the end of a run."""
+    return (wt_data / "sessions" / f"{adw_id}.supervisor-exit").exists()
 
 
 def record_never_started(project_root: Path, adw_id: str, tracer, per_run_db: Path) -> None:
@@ -601,34 +729,39 @@ def record_never_started(project_root: Path, adw_id: str, tracer, per_run_db: Pa
 
 
 def monitor_run(project_root: Path, adw_id: str) -> int:
-    """The detached monitor: while the run's container is alive, merge the
-    per-run db into the project db (live-ish visibility, ~3s), then a final
-    sync and teardown once the ADW exits (success or fail). One project
-    connection is reused (the host owns the project db — WAL, host filesystem —
-    so concurrent monitors serialize through busy_timeout). Spawned by
-    `sssf run`/`ticket run` right after the container starts."""
+    """The detached monitor: while the run is live, merge the per-run db into
+    the project db (live-ish visibility, ~3s), then a final sync once the run
+    has ENDED — the supervisor-exit marker (the container is deliberately left
+    up in review mode) or the container dying. One project connection is reused
+    (the host owns the project db — WAL, host filesystem — so concurrent
+    monitors serialize through busy_timeout). Spawned by `sssf run`/`ticket
+    run` right after the container starts."""
     from sssf.adw_modules.tracer import Tracer
 
     data_dir, _pi, _env = sandbox_env(project_root)
     project_db = project_db_path(data_dir)
-    per_run_db = sandbox_dir(project_root, adw_id) / "adws" / "data" / "sssf.db"
+    wt_data = sandbox_dir(project_root, adw_id) / "adws" / "data"
+    per_run_db = wt_data / "sssf.db"
     tracer = Tracer(str(project_db), str(project_db.parent / "sessions" / adw_id / "events.jsonl"))
     try:
         while True:
-            if _container_gone(_docker, container_name(adw_id)):
-                break  # container gone — the run is done
+            if _container_gone(_docker, container_name(adw_id)) or _run_ended(wt_data, adw_id):
+                break  # container gone OR the run ended — the container may
+                # still be up in review mode; leave it running for the engineer
             sync_run_db(tracer.conn, per_run_db, adw_id)
             time.sleep(3)
     finally:
         # Evidence first (logs are read while the container still exists),
-        # then the final merge, then teardown. A spawn-death must leave a
-        # visible failed session — never look like it 'never started'.
+        # then the final merge. The container and worktree are KEPT — review
+        # and restart surfaces; only `sssf sweep` deletes. A spawn-death must
+        # leave a visible failed session — never look like it 'never started'.
         try:
             record_never_started(project_root, adw_id, tracer, per_run_db)
-        except Exception as error:  # evidence is best-effort; teardown must still run
+        except Exception as error:  # evidence is best-effort
             print(f"sssf: could not record spawn failure ({error})", file=sys.stderr)
         sync_run_db(tracer.conn, per_run_db, adw_id)  # final merge
-        teardown_sandbox(project_root, adw_id)
+        with contextlib.suppress(OSError):
+            (wt_data / "sessions" / f"{adw_id}.supervisor-exit").unlink(missing_ok=True)
     return 0
 
 
@@ -650,12 +783,12 @@ def spawn_monitor(project_root: Path, adw_id: str) -> None:
 
 
 def prune_sandbox(project_root: Path, adw_id: str) -> int:
-    """Remove a run's leftovers AND its branch — the engineer runs this once
-    the PR is merged (or to discard a failed run). Idempotent."""
-    stop_remove(container_name(adw_id))
-    remove_worktree(sandbox_dir(project_root, adw_id))
-    delete_branch(project_root, adw_id)
-    return 0
+    """DEPRECATED — only `sssf sweep` deletes run artifacts now. Raises so the
+    command can point the engineer at sweep."""
+    raise SandboxError(
+        "cleanup is `sssf sweep` only — `sssf sandbox prune` is deprecated "
+        "(containers, worktrees and branches are never deleted otherwise)"
+    )
 
 
 def _git_identity(project_root: Path) -> tuple[str, str]:
@@ -732,19 +865,57 @@ def _session_status(data_dir: Path, adw_id: str) -> str | None:
         return None
 
 
+def reopen_session(data_dir: Path, adw_id: str) -> None:
+    """A restart (attach) re-opens the project row of a TERMINAL session so the
+    UI reflects the new run. Without this the host row keeps the first run's
+    terminal state forever: the monitor's forward-merge only updates un-ended
+    rows (ended_at IS NULL), so a restarted run — however long it lives or
+    however it ends — never flips the row back to running and never records its
+    own outcome (session 9701903a: status stayed 'fail / ended 21:30' while a
+    restarted run was live).
+
+    The previous run's events and phase rows are cleared too: the restarted run
+    reuses the SAME phase_ids, and the phases merge is forward-only (an ended
+    host phase row is never overwritten), so without the reset the trace's
+    waterfall would keep the old run's statuses (04_build fail 'finalized by
+    the healer') on top of the new run's events. Events are already replaced
+    wholesale by every sync — the trace is "the current run" by design.
+    Best-effort: the run proceeds even if a write fails."""
+    import datetime
+    import sqlite3
+
+    db_path = project_db_path(data_dir)
+    if not db_path.exists():
+        return
+    try:
+        conn = sqlite3.connect(str(db_path), isolation_level=None)
+        # events first — events.phase_id references phases
+        for table in ("events", "phases"):
+            conn.execute(f"DELETE FROM {table} WHERE adw_id=?", (adw_id,))
+        conn.execute(
+            "UPDATE sessions SET status='running', started_at=?, ended_at=NULL WHERE adw_id=?",
+            (datetime.datetime.now(datetime.UTC).isoformat(), adw_id),
+        )
+        conn.close()
+    except sqlite3.Error:
+        pass
+
+
 def stop_run(
     project_root: Path, adw_id: str, data_dir: Path, reason: str = "stopped by the engineer"
 ) -> int:
-    """Terminate a run: kill the container and remove the worktree. If the
-    session is still marked running afterwards (a stale run whose ADW died
-    without its failsafe — e.g. SIGKILL teardown), finalize it as failed so it
-    becomes archivable, and mark every in-flight/queued PHASE failed — the
+    """Stop a run: STOP the container (it is kept — logs + worktree mount stay
+    for review and restart; only `sssf sweep` deletes) and finalize the session.
+    If the session is still marked running afterwards (a stale run whose ADW
+    died without its failsafe — e.g. SIGKILL teardown), finalize it as failed so
+    it becomes archivable, and mark every in-flight/queued PHASE failed — the
     trace must show the run stopped cleanly, never a phase stuck 'running'.
     `reason` is what the trace records as the phase error — the healer says
     what IT did; only the engineer's own stop says 'stopped by the engineer'.
-    The branch stays for inspection (prune deletes it once resolved)."""
-    stop_remove(container_name(adw_id))
-    remove_worktree(sandbox_dir(project_root, adw_id))
+    The worktree (uncommitted agent work, per-run db) and the branch survive
+    for a restart; the sandbox_run record flips to 'stopped'."""
+    stop_container(container_name(adw_id))
+    _flip_sandbox_run_stopped(data_dir, adw_id)
     status = _session_status(data_dir, adw_id)
     if status is not None and status not in ("success", "fail"):
         import datetime
@@ -764,24 +935,42 @@ def stop_run(
     return 0
 
 
+def _flip_sandbox_run_stopped(data_dir: Path, adw_id: str) -> None:
+    """The container is stopped (kept) — record it so the viz shows the review
+    URL is no longer reachable. Best-effort."""
+    import datetime
+
+    try:
+        conn = sandbox_run_db(data_dir)
+        conn.execute(
+            "UPDATE sandbox_run SET status='stopped', updated_at=? WHERE adw_id=?",
+            (datetime.datetime.now(datetime.UTC).isoformat(), adw_id),
+        )
+        conn.close()
+    except sqlite3.Error:
+        pass
+
+
 def stamp_adw_template(wt: Path) -> None:
-    """Stamp the CURRENT templates into the worktree: the ADW entry file and
-    the prompt_engineering tree. The worktree's copies are the project's
-    committed templates (stamped at init, possibly stale after an sssf
-    upgrade) — sandboxed runs must use the installed templates so the run
-    matches the installed sssf exactly."""
+    """Stamp the CURRENT installed ADW modules into the worktree (v2 layout:
+    adws/modules/adw_*.py). The worktree's copies are the project's committed
+    templates (stamped at init, possibly stale after an sssf upgrade — e.g.
+    the chain-builder migration and the review-gate removal) — sandboxed runs
+    must run the installed ADWs so the run matches the installed sssf exactly.
+
+    Only files the installed templates ship are refreshed: a project's CUSTOM
+    adw_*.py (no installed twin) stays as committed. Prompt_engineering is NOT
+    stamped — those files are the documented per-project customization surface
+    and the sandbox contract runs the committed project state for them."""
     import shutil
 
     import sssf
 
     templates = Path(sssf.__file__).parent / "templates"
-    adw = templates / "adws" / "adw_simple_sdlc.py"
-    if adw.exists():
-        dest = wt / "adws" / "adw_simple_sdlc.py"
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(adw, dest)
-    src_prompts = templates / "prompt_engineering"
-    if src_prompts.exists():
-        dest_prompts = wt / "adws" / "data" / "prompt_engineering"
-        shutil.rmtree(dest_prompts, ignore_errors=True)
-        shutil.copytree(src_prompts, dest_prompts)
+    src_modules = templates / "adws" / "modules"
+    if not src_modules.is_dir():
+        return
+    dest = wt / "adws" / "modules"
+    dest.mkdir(parents=True, exist_ok=True)
+    for adw in src_modules.glob("adw_*.py"):
+        shutil.copy(adw, dest / adw.name)
