@@ -25,7 +25,7 @@ import { sweepAll } from "./sweep.ts";
 import { isEnabled, readTickets } from "./tickets.ts";
 import { syncTickets, runTicket, backlogTicket, setTicketContext } from "./ticketRoutes.ts";
 import { computeStatus } from "./status.ts";
-import { computeCockpit, computeCockpitContributions, containerLogs, defaultSpawnCli, handleControl, sessionControl } from "./cockpit.ts";
+import { computeCockpit, computeCockpitContributions, containerLogs, defaultSpawnCli, handleControl, reviewFor, sandboxLogs, sessionControl } from "./cockpit.ts";
 import type { AgentPrompts, ApiError, ControlResult, HealthResponse } from "../shared/types.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
@@ -448,6 +448,15 @@ const server = Bun.serve({
     }),
     "/api/projects/:project/sessions": scoped(sessionsHandler),
     "/api/projects/:project/sessions/:adw_id": scoped(sessionDetailHandler),
+    "/api/projects/:project/sessions/:adw_id/review": scoped(async (_req, db) => {
+      const adwId = param(_req, "adw_id");
+      return json(await reviewFor(db, adwId));
+    }),
+    "/api/projects/:project/sessions/:adw_id/logs": scoped(async (req, db) => {
+      const adwId = param(req, "adw_id");
+      const tail = Number(intQuery(req, "tail", 200));
+      return json(await sandboxLogs(db, adwId, tail));
+    }),
     "/api/projects/:project/sessions/:adw_id/restart": scoped(async (req) => {
       const name = param(req, "project");
       const root = projectRoot(name);

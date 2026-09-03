@@ -388,3 +388,56 @@ describe("sessionControl", () => {
     expect(res.output).toBe("sssf: stopped");
   });
 });
+
+import { reviewFor } from "./cockpit.ts";
+import { SssfDb } from "./db.ts";
+
+describe("reviewFor", () => {
+  test("reads sandbox_run and resolves container state", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "review-"));
+    const dbPath = join(dir, "adws", "data", "sssf.db");
+    mkdirSync(join(dir, "adws", "data"), { recursive: true });
+    const db = new Database(dbPath);
+    db.run(`CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT)`);
+    db.run(`CREATE TABLE sandbox_run (adw_id TEXT PRIMARY KEY, container TEXT,
+            container_port INTEGER, host_port INTEGER, review_url TEXT,
+            review_command TEXT, instructions TEXT, status TEXT, updated_at TEXT)`);
+    db.run(`INSERT INTO sandbox_run VALUES ('run1','sssf-run1',3000,51234,
+            'http://127.0.0.1:51234','["npm","run","dev"]','open it','up','2026-09-03T00:00:00')`);
+    db.close();
+    const sdb = new SssfDb(dbPath);
+    const dockerPs = async (name: string) => {
+      expect(name).toBe("sssf-run1");
+      return "Up 5 minutes";
+    };
+    const info = await reviewFor(sdb, "run1", dockerPs);
+    expect(info.row?.host_port).toBe(51234);
+    expect(info.row?.review_url).toBe("http://127.0.0.1:51234");
+    expect(info.row?.instructions).toBe("open it");
+    expect(info.container.state).toBe("running");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("stopped container and absent row", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "review-"));
+    const dbPath = join(dir, "adws", "data", "sssf.db");
+    mkdirSync(join(dir, "adws", "data"), { recursive: true });
+    const db = new Database(dbPath);
+    db.run(`CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT)`);
+    db.run(`CREATE TABLE sandbox_run (adw_id TEXT PRIMARY KEY, container TEXT,
+            container_port INTEGER, host_port INTEGER, review_url TEXT,
+            review_command TEXT, instructions TEXT, status TEXT, updated_at TEXT)`);
+    db.run(`INSERT INTO sandbox_run VALUES ('run2','sssf-run2',3000,51235,
+            'http://127.0.0.1:51235','[]','','stopped','2026-09-03T00:00:00')`);
+    db.close();
+    const sdb = new SssfDb(dbPath);
+    const dockerPs = async (name: string) => {
+      expect(name).toBe("sssf-run2");
+      return "Exited (0) 2 hours ago";
+    };
+    const info = await reviewFor(sdb, "run2", dockerPs);
+    expect(info.container.state).toBe("exited");
+    expect(info.row?.status).toBe("stopped");
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
