@@ -9,6 +9,7 @@ import type {
   GateResult,
   HealthResponse,
   PromptsResponse,
+  ReviewInfo,
   SessionDetail,
   SessionSummary,
 } from './types'
@@ -81,6 +82,14 @@ export function healControl(action: 'start' | 'stop'): Promise<ControlResult> {
 
 export async function fetchCockpitContributions(): Promise<ContributionDay[]> {
   return (await getJson('/api/cockpit/contributions')) as ContributionDay[]
+}
+
+export async function fetchReview(adwId: string): Promise<ReviewInfo> {
+  return getJson(`${base()}/sessions/${encodeURIComponent(adwId)}/review`) as Promise<ReviewInfo>
+}
+
+export async function fetchSessionLogs(adwId: string, tail = 200): Promise<ContainerLogsResponse> {
+  return getJson(`${base()}/sessions/${encodeURIComponent(adwId)}/logs?tail=${tail}`) as Promise<ContainerLogsResponse>
 }
 
 export async function fetchContainerLogs(name: string, tail = 100): Promise<ContainerLogsResponse> {

@@ -23,6 +23,8 @@ export type {
   CockpitCompletedPoint,
   CockpitContainer,
   ContainerLogsResponse,
+  ReviewRow,
+  ReviewInfo,
   CockpitProject,
   CockpitKpis,
   RunningSession,
