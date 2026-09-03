@@ -268,6 +268,66 @@ def project_db_path(data_dir: Path) -> Path:
     return data_dir / "sssf.db"
 
 
+def sandbox_run_db(data_dir: Path) -> sqlite3.Connection:
+    """A connection to the host project db for sandbox_run bookkeeping (the
+    table is created by the tracer SCHEMA; create it defensively for dbs the
+    tracer has not opened yet)."""
+    conn = sqlite3.connect(str(project_db_path(data_dir)), isolation_level=None)
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS sandbox_run ("
+        "  adw_id TEXT PRIMARY KEY, container TEXT NOT NULL,"
+        "  container_port INTEGER, host_port INTEGER, review_url TEXT,"
+        "  review_command TEXT, instructions TEXT DEFAULT '',"
+        "  status TEXT, updated_at TEXT)"
+    )
+    return conn
+
+
+def _record_sandbox_run(data_dir: Path, adw_id: str, review: dict) -> None:
+    """Record the live container + review mapping (host project db). Resolves
+    the random host port docker assigned for the review app's container port.
+    Best-effort: the run proceeds even if the record write fails."""
+    import datetime
+    import json
+
+    name = container_name(adw_id)
+    cp = review.get("container_port")
+    host_port = None
+    if cp:
+        r = _docker("port", name, f"{cp}/tcp")
+        if r.returncode == 0 and r.stdout.strip():
+            try:
+                host_port = int(r.stdout.strip().split(":")[-1])
+            except ValueError:
+                host_port = None
+    now = datetime.datetime.now(datetime.UTC).isoformat()
+    try:
+        conn = sandbox_run_db(data_dir)
+        conn.execute(
+            "INSERT INTO sandbox_run (adw_id, container, container_port, host_port,"
+            " review_url, review_command, instructions, status, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(adw_id) DO UPDATE SET container=excluded.container,"
+            " container_port=excluded.container_port, host_port=excluded.host_port,"
+            " review_url=excluded.review_url, review_command=excluded.review_command,"
+            " instructions=excluded.instructions, status='up', updated_at=excluded.updated_at",
+            (
+                adw_id,
+                name,
+                cp,
+                host_port,
+                f"http://127.0.0.1:{host_port}" if host_port else None,
+                json.dumps(review.get("command") or []),
+                review.get("instructions") or "",
+                "up",
+                now,
+            ),
+        )
+        conn.close()
+    except sqlite3.Error:
+        pass
+
+
 _FINGERPRINT_PATH = "/opt/sssf-fingerprint"
 _fingerprint_cache: dict[str, str | None] = {}
 
@@ -399,17 +459,25 @@ def spawn_sandbox(
     gid: int | None = None,
     attach: bool = False,
     worktree: Path | None = None,
+    review: dict | None = None,
 ) -> dict:
     """Start the container in a (created) worktree. Deterministic; returns the
     sandbox record (worktree, name). attach=True reuses the run's existing
     branch (a restart). `worktree` supplies an ALREADY-created worktree (the
-    ticket path creates one first to write the prompt) — never create twice."""
+    ticket path creates one first to write the prompt) — never create twice.
+
+    `review` is the project's cfg.sandbox.review as a dict: the ADW command is
+    wrapped in the container supervisor (which keeps the container up after the
+    run and launches the review app), the review container_port is published on
+    a random host port, and the resolved mapping is recorded in sandbox_run.
+    """
     ensure_image_current(image)
     wt = worktree or create_worktree(project_root, adw_id, attach=attach)
     stamp_adw_template(wt)  # deterministic: the installed template, not a stale init stamp
     uid = uid if uid is not None else os.getuid()
     gid = gid if gid is not None else os.getgid()
     env = {**(env or {}), "SSSF_IN_SANDBOX": "1"}  # tracer uses rollback journal (mount-visible)
+    review = review or {}
     run_sandbox(
         image,
         container_name(adw_id),
@@ -421,8 +489,10 @@ def spawn_sandbox(
         uid=uid,
         gid=gid,
         env=env,
-        cmd=cmd,
+        publish_port=review.get("container_port"),
+        cmd=["python", "-m", "sssf.adw_modules.supervise", "--", *cmd],
     )
+    _record_sandbox_run(data_dir, adw_id, review)
     return {"worktree": str(wt), "name": container_name(adw_id)}
 
 

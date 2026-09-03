@@ -112,6 +112,7 @@ def _run_sandboxed(
             pi_home=pi_home,
             env=env,
             attach=attach,
+            review=cfg.sandbox.review.model_dump(),
         )
     except SandboxError as e:
         from sssf.sandbox import abort_sandbox

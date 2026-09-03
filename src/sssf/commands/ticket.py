@@ -254,6 +254,7 @@ def run(
                 pi_home=pi_home,
                 env=env,
                 worktree=wt,  # already created above — the prompt lives here
+                review=cfg.sandbox.review.model_dump(),
             )
         except SandboxError as e:
             conn.close()

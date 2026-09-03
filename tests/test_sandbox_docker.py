@@ -351,3 +351,95 @@ def test_stop_container_stops_and_keeps(tmp_path, monkeypatch):
     sb.stop_container("sssf-r9")
     assert calls == [["stop", "-t", "5", "sssf-r9"]]
     assert not any(a[0] == "rm" for a in calls)
+
+
+def test_spawn_wraps_supervisor_and_records_sandbox_run(tmp_path, monkeypatch):
+    """spawn_sandbox wraps the ADW cmd in the supervisor, publishes the review
+    port, and records the resolved host port + url in the host db."""
+    import json
+    import sqlite3
+
+    import sssf.sandbox as sb
+
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    data = tmp_path / "adws" / "data"
+    data.mkdir(parents=True)
+    conn = sqlite3.connect(str(data / "sssf.db"))
+    conn.execute(
+        "CREATE TABLE sandbox_run (adw_id TEXT PRIMARY KEY, container TEXT,"
+        " container_port INTEGER, host_port INTEGER, review_url TEXT,"
+        " review_command TEXT, instructions TEXT, status TEXT, updated_at TEXT)"
+    )
+    conn.close()
+
+    def fake_docker(*a, timeout_s=30):
+        if a[0] == "port":
+            return subprocess.CompletedProcess(list(a), 0, "127.0.0.1:41234\n", "")
+        return subprocess.CompletedProcess(list(a), 0, "", "")
+
+    monkeypatch.setattr(sb, "_docker", fake_docker)
+    monkeypatch.setattr(sb, "ensure_image_current", lambda image: None)
+    monkeypatch.setattr(sb, "stamp_adw_template", lambda wt_dir: None)
+
+    captured: dict = {}
+
+    def fake_run_sandbox(image, name, **kw):
+        captured["name"] = name
+        captured["cmd"] = kw["cmd"]
+        captured["publish_port"] = kw.get("publish_port")
+
+    monkeypatch.setattr(sb, "run_sandbox", fake_run_sandbox)
+
+    review = {"command": ["npm", "run", "dev"], "container_port": 3000, "instructions": "open it"}
+    sb.spawn_sandbox(
+        tmp_path, "abc1",
+        cmd=["python", "adws/modules/adw_x.py", "p", "--adw-id", "abc1"],
+        image="sssf-runner", data_dir=data, pi_home=tmp_path / "pi",
+        worktree=wt, review=review,
+    )
+    assert captured["name"] == "sssf-abc1"
+    assert captured["cmd"][:5] == ["python", "-m", "sssf.adw_modules.supervise", "--", "python"]
+    assert captured["publish_port"] == 3000
+
+    conn = sqlite3.connect(str(data / "sssf.db"))
+    cur = conn.execute("SELECT * FROM sandbox_run WHERE adw_id='abc1'")
+    row = cur.fetchone()
+    d = {cname: v for cname, v in zip([d[0] for d in cur.description], row, strict=True)} if row else {}
+    conn.close()
+    assert d["host_port"] == 41234
+    assert d["review_url"] == "http://127.0.0.1:41234"
+    assert json.loads(d["review_command"]) == ["npm", "run", "dev"]
+    assert d["status"] == "up"
+
+
+def test_spawn_records_row_without_review_config(tmp_path, monkeypatch):
+    """No review config → still record the container (logs button), ports NULL."""
+    import sqlite3
+
+    import sssf.sandbox as sb
+
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    data = tmp_path / "adws" / "data"
+    data.mkdir(parents=True)
+    conn = sqlite3.connect(str(data / "sssf.db"))
+    conn.execute(
+        "CREATE TABLE sandbox_run (adw_id TEXT PRIMARY KEY, container TEXT,"
+        " container_port INTEGER, host_port INTEGER, review_url TEXT,"
+        " review_command TEXT, instructions TEXT, status TEXT, updated_at TEXT)"
+    )
+    conn.close()
+    monkeypatch.setattr(sb, "_docker", lambda *a, timeout_s=30: subprocess.CompletedProcess(list(a), 0, "", ""))
+    monkeypatch.setattr(sb, "ensure_image_current", lambda image: None)
+    monkeypatch.setattr(sb, "stamp_adw_template", lambda wt_dir: None)
+    monkeypatch.setattr(sb, "run_sandbox", lambda image, name, **kw: None)
+
+    sb.spawn_sandbox(
+        tmp_path, "abc2", cmd=["python", "-c", "pass"], image="sssf-runner",
+        data_dir=data, pi_home=tmp_path / "pi", worktree=wt,
+    )
+    conn = sqlite3.connect(str(data / "sssf.db"))
+    row = conn.execute("SELECT container, host_port, status FROM sandbox_run WHERE adw_id='abc2'").fetchone()
+    conn.close()
+    assert row == ("sssf-abc2", None, "up")
