@@ -231,3 +231,18 @@ agents:
 #     command: ["npm", "run", "dev", "--workspace=web"]   # argv list; cwd = the run worktree
 #     container_port: 3000                                  # the app's port inside the container
 #     instructions: "open the URL; sign in as Local Dev via the mock IDP"
+
+# ── integration (all optional — defaults ON, target dev) ───────────────────
+# Successful sandboxed runs merge back into an integration branch so you can
+# test the change there before it reaches main. Branching and merging share
+# ONE target: fresh runs branch from the branch below and successful runs
+# merge back into it (created from main when it does not exist yet). The
+# integration outcome lands as an `integration` event on the run's trace.
+# integration:
+#   enabled: true          # default on — false keeps the pure-main flow
+#   branch: dev            # the shared target (set to main for the legacy
+#                          #   straight-to-main auto-merge)
+#   push: true             # repos with an origin: push the merged branch up
+#   resolve: true          # merge conflicts are resolved by the coding agent
+#                          #   (resolving-merge-conflicts skill) instead of
+#                          #   being left for a manual merge
