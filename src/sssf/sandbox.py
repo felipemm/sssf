@@ -497,9 +497,10 @@ def spawn_sandbox(
 
 
 def abort_sandbox(project_root: Path, adw_id: str) -> None:
-    """Clean up after a FAILED spawn: remove the (possibly 'Created'-stuck)
-    container. The worktree stays under .worktrees/ for inspection."""
-    stop_remove(container_name(adw_id))
+    """Clean up after a FAILED spawn: STOP the (possibly 'Created'-stuck)
+    container — it is kept (logs stay readable); `sssf sweep` removes it. The
+    worktree stays under .worktrees/ for inspection."""
+    stop_container(container_name(adw_id))
 
 
 def teardown_sandbox(project_root: Path, adw_id: str) -> int:
@@ -782,12 +783,12 @@ def spawn_monitor(project_root: Path, adw_id: str) -> None:
 
 
 def prune_sandbox(project_root: Path, adw_id: str) -> int:
-    """Remove a run's leftovers AND its branch — the engineer runs this once
-    the PR is merged (or to discard a failed run). Idempotent."""
-    stop_remove(container_name(adw_id))
-    remove_worktree(sandbox_dir(project_root, adw_id))
-    delete_branch(project_root, adw_id)
-    return 0
+    """DEPRECATED — only `sssf sweep` deletes run artifacts now. Raises so the
+    command can point the engineer at sweep."""
+    raise SandboxError(
+        "cleanup is `sssf sweep` only — `sssf sandbox prune` is deprecated "
+        "(containers, worktrees and branches are never deleted otherwise)"
+    )
 
 
 def _git_identity(project_root: Path) -> tuple[str, str]:
@@ -903,16 +904,18 @@ def reopen_session(data_dir: Path, adw_id: str) -> None:
 def stop_run(
     project_root: Path, adw_id: str, data_dir: Path, reason: str = "stopped by the engineer"
 ) -> int:
-    """Terminate a run: kill the container and remove the worktree. If the
-    session is still marked running afterwards (a stale run whose ADW died
-    without its failsafe — e.g. SIGKILL teardown), finalize it as failed so it
-    becomes archivable, and mark every in-flight/queued PHASE failed — the
+    """Stop a run: STOP the container (it is kept — logs + worktree mount stay
+    for review and restart; only `sssf sweep` deletes) and finalize the session.
+    If the session is still marked running afterwards (a stale run whose ADW
+    died without its failsafe — e.g. SIGKILL teardown), finalize it as failed so
+    it becomes archivable, and mark every in-flight/queued PHASE failed — the
     trace must show the run stopped cleanly, never a phase stuck 'running'.
     `reason` is what the trace records as the phase error — the healer says
     what IT did; only the engineer's own stop says 'stopped by the engineer'.
-    The branch stays for inspection (prune deletes it once resolved)."""
-    stop_remove(container_name(adw_id))
-    remove_worktree(sandbox_dir(project_root, adw_id))
+    The worktree (uncommitted agent work, per-run db) and the branch survive
+    for a restart; the sandbox_run record flips to 'stopped'."""
+    stop_container(container_name(adw_id))
+    _flip_sandbox_run_stopped(data_dir, adw_id)
     status = _session_status(data_dir, adw_id)
     if status is not None and status not in ("success", "fail"):
         import datetime
@@ -930,6 +933,22 @@ def stop_run(
         )
         tracer.session_finish(adw_id, ok=False)  # a cancelled run is failed
     return 0
+
+
+def _flip_sandbox_run_stopped(data_dir: Path, adw_id: str) -> None:
+    """The container is stopped (kept) — record it so the viz shows the review
+    URL is no longer reachable. Best-effort."""
+    import datetime
+
+    try:
+        conn = sandbox_run_db(data_dir)
+        conn.execute(
+            "UPDATE sandbox_run SET status='stopped', updated_at=? WHERE adw_id=?",
+            (datetime.datetime.now(datetime.UTC).isoformat(), adw_id),
+        )
+        conn.close()
+    except sqlite3.Error:
+        pass
 
 
 def stamp_adw_template(wt: Path) -> None:

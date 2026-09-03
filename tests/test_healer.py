@@ -470,3 +470,29 @@ def test_heal_summary_includes_builds(tmp_path, monkeypatch):
         '{"builds": {"sssf-runner": "2026-08-21T12:00:00+00:00"}}'
     )
     assert h.heal_summary()["builds"] == {"sssf-runner": "2026-08-21T12:00:00+00:00"}
+
+
+def test_clean_orphans_reports_but_never_deletes(tmp_path, monkeypatch):
+    """Only `sssf sweep` deletes: the healer's orphan scan must not remove
+    containers/worktrees — it reports them for sweep instead."""
+    import sqlite3
+
+    import sssf.healer as h
+
+    monkeypatch.setattr(h, "STATE_DIR", tmp_path)
+    root = tmp_path / "proj"
+    (root / "adws" / "data").mkdir(parents=True)
+    conn = sqlite3.connect(str(root / "adws" / "data" / "sssf.db"))
+    conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT)")
+    conn.commit()
+    conn.close()
+    base = tmp_path / "sandboxes" / "proj"
+    (base / "orphan1").mkdir(parents=True)  # a worktree whose session is gone
+
+    calls: list[list[str]] = []
+    import sssf.sandbox as sb
+    monkeypatch.setattr(sb, "stop_remove", lambda name: calls.append(["rm", "-f", name]))
+    out = h._clean_orphans(root)
+    assert calls == []  # no docker rm/stop — sweep's job
+    assert (base / "orphan1").exists()  # untouched
+    assert any("orphan1" in line for line in out)

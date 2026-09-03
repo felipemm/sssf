@@ -90,7 +90,7 @@ def prune(explicit: str | None, adw_id: str | None, all_: bool) -> int:
         return 1
     import os
 
-    from sssf.sandbox import prune_sandbox
+    from sssf.sandbox import SandboxError, prune_sandbox
 
     base = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf")) / "sandboxes" / root.name
     if all_:
@@ -104,6 +104,10 @@ def prune(explicit: str | None, adw_id: str | None, all_: bool) -> int:
         print("sssf: usage: sssf sandbox prune <adw_id> | --all", file=sys.stderr)
         return 1
     for _id in ids:
-        prune_sandbox(root, _id)
+        try:
+            prune_sandbox(root, _id)
+        except SandboxError as e:
+            print(f"sssf: {e}", file=sys.stderr)
+            return 0
         print(f"pruned {_id}")
     return 0

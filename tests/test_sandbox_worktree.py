@@ -77,10 +77,10 @@ def test_abort_keeps_worktree_for_manual_debug(repo, tmp_path, monkeypatch):
     import sssf.sandbox as sandbox
 
     wt = create_worktree(repo, "abrt1")
-    removed = []
-    monkeypatch.setattr(sandbox, "stop_remove", lambda name: removed.append(name))
+    stopped = []
+    monkeypatch.setattr(sandbox, "stop_container", lambda name: stopped.append(name))
     sandbox.abort_sandbox(repo, "abrt1")
-    assert removed == ["sssf-abrt1"]
+    assert stopped == ["sssf-abrt1"]  # stopped, never removed
     assert wt.is_dir()  # failed spawns leave the worktree too
 
 
@@ -448,3 +448,67 @@ def test_monitor_exits_when_run_ends_but_container_alive(tmp_path, monkeypatch):
     assert monitor_run(root, "r6") == 0
     # cleanup: the marker is consumed; the container/worktree are untouched
     assert not (wt_data / "sessions" / "r6.supervisor-exit").exists()
+
+
+def test_stop_run_stops_container_keeps_worktree_and_marks_stopped(tmp_path, monkeypatch):
+    """stop_run must NOT delete: docker stop (container kept for logs/review)
+    and the worktree kept (the restart's artifact base — session 9701903a's
+    builder work was destroyed because stop/finalize removed the worktree).
+    sandbox_run flips to stopped; session + in-flight phases finalize failed."""
+    import sqlite3
+
+    import sssf.sandbox as sb
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        sb, "_docker",
+        lambda *a, timeout_s=30: calls.append(list(a))
+        or subprocess.CompletedProcess(list(a), 0, "", ""),
+    )
+    root = tmp_path / "proj"
+    data = root / "adws" / "data"
+    data.mkdir(parents=True)
+    wt = sb.sandbox_dir(root, "r9")
+    (wt / "adws" / "data" / "sessions").mkdir(parents=True)
+    conn = sqlite3.connect(str(sb.project_db_path(data)))
+    conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
+    conn.execute(
+        "CREATE TABLE phases (phase_id TEXT PRIMARY KEY, adw_id TEXT,"
+        " status TEXT, error TEXT, ended_at TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE sandbox_run (adw_id TEXT PRIMARY KEY, container TEXT,"
+        " status TEXT, updated_at TEXT)"
+    )
+    conn.execute("INSERT INTO sessions VALUES ('r9','running',NULL)")
+    conn.execute("INSERT INTO phases VALUES ('p1','r9','running',NULL,NULL)")
+    conn.execute("INSERT INTO sandbox_run VALUES ('r9','sssf-r9','up','x')")
+    conn.commit()
+    conn.close()
+
+    sb.stop_run(root, "r9", data)
+    assert ["stop", "-t", "5", "sssf-r9"] in calls
+    assert not any(a[0] == "rm" for a in calls)  # never deletes
+    assert wt.exists()  # worktree kept — restart can reuse the artifacts
+    conn = sqlite3.connect(str(sb.project_db_path(data)))
+    assert conn.execute("SELECT status FROM sessions WHERE adw_id='r9'").fetchone()[0] == "fail"
+    err = conn.execute("SELECT error FROM phases WHERE adw_id='r9'").fetchone()[0]
+    assert "stopped by the engineer" in err
+    status = conn.execute("SELECT status FROM sandbox_run WHERE adw_id='r9'").fetchone()[0]
+    conn.close()
+    assert status == "stopped"
+
+
+def test_abort_sandbox_stops_not_removes(tmp_path, monkeypatch):
+    """A failed spawn leaves the (stuck) container stopped, never removed —
+    sweep cleans it up."""
+    import sssf.sandbox as sb
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        sb, "_docker",
+        lambda *a, timeout_s=30: calls.append(list(a))
+        or subprocess.CompletedProcess(list(a), 0, "", ""),
+    )
+    sb.abort_sandbox(tmp_path, "abc9")
+    assert calls == [["stop", "-t", "5", "sssf-abc9"]]

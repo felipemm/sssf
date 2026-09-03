@@ -29,7 +29,6 @@ from sssf.sandbox import (
     project_db_path,
     sandbox_dir,
     sandbox_env,
-    stop_remove,
     sync_run_db,
     teardown_sandbox,
 )
@@ -361,7 +360,11 @@ def _container_exists(adw_id: str) -> bool:
 
 
 def _clean_orphans(root: Path) -> list[str]:
-    """Remove sandbox worktrees/containers that no longer match any session."""
+    """Report sandbox worktrees/containers that no longer match any session.
+
+    Only `sssf sweep` DELETES run artifacts — the healer never removes anything
+    (a session row can lag a live run by one sync; deleting on a misread was
+    destroying recoverable work). Sweep's run() cleans these orphans."""
     cleaned: list[str] = []
     base = STATE_DIR / "sandboxes" / root.name
     if not base.is_dir():
@@ -374,9 +377,7 @@ def _clean_orphans(root: Path) -> list[str]:
         return cleaned
     for wt in base.iterdir():
         if wt.is_dir() and wt.name not in known:
-            stop_remove(container_name(wt.name))
-            teardown_sandbox(root, wt.name)
-            cleaned.append(f"{wt.name}: orphaned sandbox removed")
+            cleaned.append(f"{wt.name}: orphaned sandbox (removed by sssf sweep)")
     return cleaned
 
 
