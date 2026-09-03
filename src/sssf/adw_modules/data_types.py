@@ -399,12 +399,39 @@ class ObservabilityConfig(BaseModel):
     poll_ms: int = 500
 
 
+class ReviewConfig(BaseModel):
+    """How to launch the project's app for human review AFTER the ADW exits.
+    `command` runs in the container (cwd = the run worktree); `container_port`
+    is the port the app listens on inside the container — published on a
+    RANDOM host port so concurrent runs never collide. `instructions` is shown
+    by the visualizer next to the review URL."""
+
+    command: list[str] | None = None
+    container_port: int | None = None
+    instructions: str = ""
+
+    @field_validator("container_port")
+    @classmethod
+    def _port_range(cls, v: int | None) -> int | None:
+        if v is not None and not 1 <= v <= 65535:
+            raise ValueError("container_port must be 1-65535")
+        return v
+
+    @field_validator("command")
+    @classmethod
+    def _command_shape(cls, v: list[str] | None) -> list[str] | None:
+        if v is not None and (not v or any(not s for s in v)):
+            raise ValueError("review command must be a non-empty argv list")
+        return v
+
+
 class SandboxConfig(BaseModel):
     """Per-run isolation. Creation/teardown is deterministic Python — the
     ADW only runs phases; the CLI owns everything around the container."""
 
     enabled: bool = True
     image: str = "sssf-runner"  # tag auto-appended: sssf-runner:<sssf-version>
+    review: ReviewConfig = Field(default_factory=ReviewConfig)
 
 
 class SSSFConfig(BaseModel):
