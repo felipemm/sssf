@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from sssf import registry
 from sssf.commands import run
 
@@ -73,3 +75,106 @@ def test_sandbox_enabled_failure_is_loud(tmp_path, capsys):
 
     assert run._sandbox_enabled(tmp_path) is False
     assert "sandbox decision failed" in capsys.readouterr().err
+
+
+def _seed_session(root: Path, adw_id: str, adw_name: str, request: str) -> None:
+    """A minimal sessions table with one row, shaped like tracer's."""
+    import sqlite3
+
+    from sssf import sandbox
+    from sssf.sandbox import project_db_path
+
+    db = project_db_path(sandbox.sandbox_env(root)[0])
+    db.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db))
+    conn.execute(
+        "CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, adw_name TEXT, request TEXT,"
+        " status TEXT, engineer TEXT, started_at TEXT, ended_at TEXT,"
+        " total_tokens INTEGER DEFAULT 0, total_cost REAL DEFAULT 0,"
+        " archived INTEGER DEFAULT 0)"
+    )
+    conn.execute(
+        "INSERT INTO sessions VALUES (?,?,?,'success','Felipe',"
+        " '2026-09-04T11:17:48',NULL,0,0,0)",
+        (adw_id, adw_name, request),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_restart_reruns_the_original_adw(tmp_path, monkeypatch):
+    """`sssf run restart` re-runs the ADW that ORIGINALLY ran the session, not
+    a hardcoded simple_sdlc. (Field case, session 36bbd3b3: a build_review
+    session restarted as simple_sdlc — different roster, different chain — and
+    died validating agents the original run never touched.)"""
+    from sssf.commands import run as run_cmd
+
+    root = _setup_project(tmp_path, monkeypatch)
+    _seed_session(root, "abc123", "adw_build_review", "bound the page to the viewport")
+
+    captured: dict = {}
+
+    def fake_run_sandboxed(root_, adw_file, args, adw_id=None, attach=False):
+        captured.update(adw_file=str(adw_file.name), args=args, adw_id=adw_id, attach=attach)
+        return 0
+
+    monkeypatch.setattr(run_cmd, "_run_sandboxed", fake_run_sandboxed)
+    assert run_cmd._restart(root, ["abc123"], None) == 0
+    assert captured == {
+        "adw_file": "adw_build_review.py",
+        "args": ["bound the page to the viewport"],
+        "adw_id": "abc123",
+        "attach": True,
+    }
+
+
+def test_restart_uses_first_name_when_adws_joined(tmp_path, monkeypatch):
+    """A session joined by a second ADW records 'original + joiner' — the
+    restart must still run the ORIGINAL (first) ADW."""
+    from sssf.commands import run as run_cmd
+
+    root = _setup_project(tmp_path, monkeypatch)
+    _seed_session(root, "abc123", "adw_build_review + adw_simple_sdlc", "bound the page")
+
+    captured: dict = {}
+    monkeypatch.setattr(
+        run_cmd,
+        "_run_sandboxed",
+        lambda root_, adw_file, args, adw_id=None, attach=False: captured.update(
+            adw_file=adw_file.name
+        )
+        or 0,
+    )
+    assert run_cmd._restart(root, ["abc123"], None) == 0
+    assert captured["adw_file"] == "adw_build_review.py"
+
+
+def test_restart_unprefixed_name_resolves(tmp_path, monkeypatch):
+    """Legacy/unprefixed adw names ('build_review') resolve the same way the
+    run command normalizes them."""
+    from sssf.commands import run as run_cmd
+
+    root = _setup_project(tmp_path, monkeypatch)
+    _seed_session(root, "abc123", "build_review", "bound the page")
+
+    captured: dict = {}
+    monkeypatch.setattr(
+        run_cmd,
+        "_run_sandboxed",
+        lambda root_, adw_file, args, adw_id=None, attach=False: captured.update(
+            adw_file=adw_file.name
+        )
+        or 0,
+    )
+    assert run_cmd._restart(root, ["abc123"], None) == 0
+    assert captured["adw_file"] == "adw_build_review.py"
+
+
+def test_restart_of_vanished_adw_is_loud(tmp_path, monkeypatch, capsys):
+    """No silent fallback: if the original ADW's module is gone, say so."""
+    from sssf.commands import run as run_cmd
+
+    root = _setup_project(tmp_path, monkeypatch)
+    _seed_session(root, "abc123", "adw_vanished_adw", "bound the page")
+    assert run_cmd._restart(root, ["abc123"], None) == 1
+    assert "adw_vanished_adw" in capsys.readouterr().err
