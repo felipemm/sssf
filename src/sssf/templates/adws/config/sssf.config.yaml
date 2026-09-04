@@ -85,11 +85,11 @@ quality:
     - name: snyk
       area: backend
       operation: security
-      # Auth: an OAuth login on the operator machine works unchanged — the
-      # host ~/.config (the CLI's OAuth session) is mounted read-only into the
-      # sandbox. A SNYK_TOKEN env (service account) is forwarded instead when
-      # set and outranks OAuth; keep it a valid production token (a stale
-      # snyk_uat.* token shadows the OAuth session -> SNYK-0005).
+      # Auth is OAuth-ONLY: run `snyk auth` on the operator machine. Sandboxed
+      # runs mount the host ~/.config (the CLI's OAuth session) read-only at
+      # /tmp/.config, so the container's snyk uses the same session — no token
+      # is ever forwarded (SNYK_TOKEN would outrank OAuth; stale/UAT tokens 401
+      # against prod -> SNYK-0005).
       argv: ["snyk", "test"]
       timeout_seconds: 300
 

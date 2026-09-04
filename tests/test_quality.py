@@ -67,6 +67,26 @@ def _gate_rows(tmp: Path) -> list[tuple]:
         conn.close()
 
 
+def _gate_notes(tmp: Path, gate: str) -> str:
+    """The first check note of a gate row (checks_json[0].note) — what the viz
+    renders as the gate's evidence."""
+    import json
+    import sqlite3
+
+    conn = sqlite3.connect(tmp / "sssf.db")
+    try:
+        row = conn.execute(
+            "SELECT checks_json FROM gate_results WHERE gate=? ORDER BY created_at DESC LIMIT 1",
+            (gate,),
+        ).fetchone()
+        if not row or not row[0]:
+            return ""
+        parsed = json.loads(row[0])
+        return parsed[0].get("note", "") if parsed else ""
+    finally:
+        conn.close()
+
+
 def test_unconfigured_runs_honest_placeholders(tmp_path):
     """No quality section → the package's placeholder commands run and pass
     loudly (they say out loud that they are fake), and each still records a
@@ -268,3 +288,121 @@ def test_env_failure_is_not_handed_to_the_builder(tmp_path):
     # env failure must never reach it as 'passed' — the ADW breaks before
     # dispatching, and the envelope contract reflects the failure
     assert quality.as_envelope(result, "quality gates").passed is False
+
+
+# ── viz visibility: failing output rides inside the gate note + event ──────
+
+
+def test_failed_check_note_and_event_carry_the_output(tmp_path):
+    """A failing check's note carries the command's output tail (multiline, so
+    the viz's gates panel renders it as a block) plus the artifact path, and
+    the quality tool_call event payload carries it too — no container exec
+    needed to see what the command printed."""
+    run = _make_run(
+        tmp_path,
+        checks=[
+            QualityCheckSpec(
+                name="snyk",
+                area="backend",
+                operation="security",
+                argv=[
+                    "python3",
+                    "-c",
+                    "print('ERROR   Authentication error (SNYK-0005)'); import sys; sys.exit(2)",
+                ],
+            )
+        ],
+    )
+    result = quality.run_quality(run)
+    check = result.checks[0]
+    assert check.passed is False
+    note = _gate_notes(tmp_path, "quality:snyk")
+    assert "exit 2" in note
+    assert "SNYK-0005" in note  # the actual output, not just the path
+    assert "see " in note and "command.log" in note  # full log still reachable
+    assert "\n" in note  # multiline -> the viz renders a <pre> block
+
+    # the event payload carries the output for the raw panel / future consumers
+    import json
+    import sqlite3
+
+    conn = sqlite3.connect(tmp_path / "sssf.db")
+    try:
+        row = conn.execute(
+            "SELECT payload_json FROM events WHERE type='tool_call' AND name='quality:snyk'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row and row[0]
+    payload = json.loads(row[0])
+    assert payload["returncode"] == 2
+    assert "SNYK-0005" in payload["output"]
+    assert payload["output_artifact"].endswith("command.log")
+
+
+def test_passed_check_note_stays_short_inline(tmp_path):
+    """A passing check keeps its one-line note (no output dump) — the viz's
+    inline rendering, not a block."""
+    run = _make_run(
+        tmp_path,
+        checks=[
+            QualityCheckSpec(
+                name="test", area="backend", operation="build", argv=["echo", "all good"]
+            )
+        ],
+    )
+    quality.run_quality(run)
+    note = _gate_notes(tmp_path, "quality:test")
+    assert note.startswith("exit 0")
+    assert "\n" not in note
+    assert "all good" not in note
+
+
+# ── auth failures are environment errors, never builder-repairable ─────────
+
+
+def test_auth_error_is_env_error_not_code_failure(tmp_path):
+    """A rejected credential (snyk SNYK-0005 / Authentication error) is an
+    ENVIRONMENT failure — no code edit can fix it, and the builder repair loop
+    must not burn agent calls on it (the env_failure path breaks the ADW out)."""
+    run = _make_run(
+        tmp_path,
+        checks=[
+            QualityCheckSpec(
+                name="snyk",
+                area="backend",
+                operation="security",
+                argv=[
+                    "python3",
+                    "-c",
+                    "print('ERROR   Authentication error (SNYK-0005)'); import sys; sys.exit(2)",
+                ],
+            )
+        ],
+    )
+    result = quality.run_quality(run)
+    check = result.checks[0]
+    assert check.returncode == 2
+    assert check.env_error is True
+    err = quality.env_failure(result)
+    assert err is not None and "environment error" in err
+
+
+def test_auth_error_markers_do_not_swallow_plain_failures(tmp_path):
+    """An exit-2 with no auth markers stays a code failure (repairable)."""
+    run = _make_run(
+        tmp_path,
+        checks=[
+            QualityCheckSpec(
+                name="test",
+                area="backend",
+                operation="build",
+                argv=["python3", "-c", "import sys; sys.exit(2)"],
+            )
+        ],
+    )
+    result = quality.run_quality(run)
+    check = result.checks[0]
+    assert check.returncode == 2
+    assert check.env_error is False
+    assert quality.env_failure(result) is None

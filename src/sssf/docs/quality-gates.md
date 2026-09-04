@@ -65,10 +65,13 @@ is touched. Delete the checks you don't want.
 
 **Security scans** use `operation: security` — e.g. `["snyk", "test"]` (SCA
 over your lockfile; exit 0 clean, non-zero on findings, so a finding fails the
-check and reaches the builder like any other red gate). Snyk needs auth: run
-`snyk auth` once on the operator machine. In sandboxed runs the host's
-`~/.config` mount carries the token (`/tmp/.config/configstore/snyk.json`);
-the sssf-runner image ships the snyk CLI.
+check and reaches the builder like any other red gate). Snyk auth is
+OAuth-only: run `snyk auth` once on the operator machine — no SNYK_TOKEN is
+ever forwarded into the sandbox (a token would outrank the OAuth session and
+stale/UAT tokens 401 against prod -> SNYK-0005). In sandboxed runs the host's
+`~/.config` mount carries the session
+(`/tmp/.config/configstore/snyk.json`, HOME=/tmp in the image); the
+sssf-runner image ships the snyk CLI.
 
 Start with **test** — it is the highest-value block. Wire `typecheck`/`build`
 when the suite alone cannot catch the failure mode you care about (a red

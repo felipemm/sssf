@@ -33,6 +33,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a dimmed +N marker for the phases that rolled off.
 
 
+- **Quality failures carry their output into the trace** — a failing
+  `quality.checks` command (e.g. snyk) now embeds the output tail in the gate
+  note (the viz's gates panel renders it as a block — no container exec to
+  read `command.log`) and in the `quality:<name>` event payload.
+
+- **Credential rejections are environment errors, not code failures** — snyk
+  auth failures (SNYK-0005/0003, `Authentication error`) classify as an
+  environment error, so the builder repair loop never burns agent calls
+  trying to "fix" a rejected token.
+
 ### Fixed
 
 - **Sandbox config validation failure on cold containers** — the runner image's
@@ -46,6 +56,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   minimal sandbox `settings.json` (no packages/skills/extensions/themes, no
   host MCP cache). Catalog resolves in ~1s on a fresh container.
 
+- **Sandbox snyk auth is OAuth-only** — `SNYK_TOKEN` is never forwarded into
+  the container (a token would outrank the mounted OAuth session; stale/UAT
+  tokens 401 against prod -> SNYK-0005). Docs and the config template say so.
+
+- **Restarted runs can supersede a frozen host row** — the monitor's
+  forward-merge only updated un-ended host rows, so a restart that missed
+  `reopen_session` left the host session ended at the previous run's terminal
+  state forever (f9e445e9: run C succeeded, the UI still showed run B's
+  failure). A strictly newer ended source row now supersedes an ended host
+  row; an older or torn copy still never downgrades a newer terminal state.
 - **Visualizer ticket actions** — the kanban Run/Backlog/Sync buttons threw
   `ReferenceError: runTicket is not defined` (the handlers were never imported
   after the `ticketRoutes.ts` extraction) and the spawned CLI's exit code was

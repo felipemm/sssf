@@ -46,15 +46,19 @@ def test_sandbox_env_reads_repo_local_identity(tmp_path, monkeypatch):
     assert env["ENGINEER_NAME"] == "Repo Local"
 
 
-def test_sandbox_env_forwards_snyk_token(tmp_path, monkeypatch):
-    """The security gate's auth: SNYK_TOKEN reaches the container."""
+def test_sandbox_env_never_forwards_snyk_token(tmp_path, monkeypatch):
+    """snyk auth in the sandbox is OAuth-only: SNYK_TOKEN is NEVER forwarded,
+    even a production-shaped one. The token would outrank the mounted OAuth
+    session (snyk env precedence) and stale/UAT tokens 401 against prod
+    (SNYK-0005); a token-less container cannot be shadowed."""
     monkeypatch.setenv("HOME", str(tmp_path))
     (tmp_path / ".gitconfig").write_text(
         "[user]\n\tname = Ada Lovelace\n\temail = ada@example.com\n"
     )
-    monkeypatch.setenv("SNYK_TOKEN", "tok123")
-    _, _, env = sandbox_env(tmp_path)
-    assert env["SNYK_TOKEN"] == "tok123"
+    for token in ("tok123", "snyk_uat.1fcad39e.stale", "11111111-2222-3333-4444-555555555555"):
+        monkeypatch.setenv("SNYK_TOKEN", token)
+        _, _, env = sandbox_env(tmp_path)
+        assert "SNYK_TOKEN" not in env
 
 
 def test_sandbox_env_without_identity_sets_nothing(tmp_path, monkeypatch):
@@ -87,3 +91,15 @@ def test_sandbox_env_forwards_openai_vars(tmp_path, monkeypatch):
     _, _, env = sandbox_env(tmp_path)
     assert env["OPENAI_API_KEY"] == "sk-test123"
     assert env["OPENAI_BASE_URL"] == "https://genplat.example.com/v1"
+
+def test_sandbox_env_rereads_environment_each_call(tmp_path, monkeypatch):
+    """No env is ever cached: a re-run (fresh spawn) sees the host env as it
+    is NOW. Mutate the env between calls and the second spawn reflects it."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".gitconfig").write_text("[user]\n\tname = A\n\temail = a@b\n")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    _, _, first = sandbox_env(tmp_path)
+    assert "OPENAI_API_KEY" not in first
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-fresh")
+    _, _, second = sandbox_env(tmp_path)
+    assert second["OPENAI_API_KEY"] == "sk-fresh"
