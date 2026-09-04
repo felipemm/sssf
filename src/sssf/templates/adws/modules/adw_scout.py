@@ -13,6 +13,7 @@ from sssf.adw_modules import agents, chains, gates, session, utils
 from sssf.adw_modules.chains import (
     AgentPhase,
     Chain,
+    CommitPhase,
 )
 from sssf.adw_modules.data_types import ScoutOutput
 
@@ -26,6 +27,10 @@ CHAIN = Chain(
             ScoutOutput,
             description="Find and report where things live — change nothing",
             gates=[gates.artifacts_exist],
+        ),
+        CommitPhase(
+            description="Commit any tree changes the recon produced (none by design — read-only)",
+            allow_empty=True,
         ),
     ],
 )

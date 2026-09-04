@@ -4,13 +4,13 @@
 Usage:
     uv run adws/adw_prompt.py "<prompt or path/to/prompt.md>" [--agent builder] [--config adws/config/sssf.config.yaml] [--adw-id a1b2c3d4]
 
-Phases: engineer(request) -> <agent>
+Phases: engineer(request) -> <agent> -> git(commit)
 """
 
 import argparse
 import sys
 
-from sssf.adw_modules import agents, session, utils
+from sssf.adw_modules import agents, chains, session, utils
 from sssf.adw_modules.data_types import AgentCall, GenericOutput, PhaseParams
 
 
@@ -39,7 +39,23 @@ def main(
             description=f"Send the request straight to {agent} and parse its envelope",
         )
     ) as ph:
-        ph.call(AgentCall(output_type=GenericOutput, prompt=prompt))
+        envelope = ph.call(AgentCall(output_type=GenericOutput, prompt=prompt))
+
+    with run.phase(
+        PhaseParams(
+            name="commit",
+            kind="code",
+            owner="git",
+            description="Commit the agent's output when it changed the tree",
+        )
+    ) as ph:
+        chains.commit_all(
+            run,
+            ph,
+            getattr(envelope, "commit_message", None)
+            or f"sssf({run.adw_id}): {getattr(envelope, 'summary', '') or agent} output",
+            allow_empty=True,
+        )
 
     return run.finish()
 

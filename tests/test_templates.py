@@ -131,6 +131,27 @@ def test_document_chain_ends_in_commit():
     assert "CommitPhase" in text  # the commit lives in the shared executor
 
 
+def test_every_adw_lands_its_working_tree():
+    """Every ADW runs in a git worktree (sandboxed) whose branch the post-run
+    integration merges into dev — an ADW that never commits strands its work as
+    uncommitted files and the merge is a no-op. (Field gap, session 36bbd3b3:
+    adw_build_review approved the /explore viewport fix with the change still
+    uncommitted in .worktrees/36bbd3b3, so dev never received it.) Chain ADWs
+    end with CommitPhase; the raw-phase ADWs (prompt, quality) call
+    chains.commit_all in their own commit phase; scout no-ops on a clean tree
+    by design (read-only) via allow_empty."""
+    for name in ("adw_build", "adw_build_review", "adw_plan", "adw_scout"):
+        text = (TEMPLATES / "adws" / "modules" / f"{name}.py").read_text()
+        assert "CommitPhase" in text, f"{name} missing CommitPhase"
+    for name in ("adw_prompt", "adw_quality"):
+        text = (TEMPLATES / "adws" / "modules" / f"{name}.py").read_text()
+        assert "commit_all" in text, f"{name} missing a commit phase"
+    # every commit that may legitimately find a clean tree opts into allow_empty
+    for name in ("adw_build", "adw_build_review", "adw_plan", "adw_scout"):
+        text = (TEMPLATES / "adws" / "modules" / f"{name}.py").read_text()
+        assert "allow_empty=True" in text, f"{name} commit not no-op safe"
+
+
 def test_template_ships_default_checks():
     cfg = (TEMPLATES / "adws" / "config" / "sssf.config.yaml").read_text()
     assert "- name: design" in cfg

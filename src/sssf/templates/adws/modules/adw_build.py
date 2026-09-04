@@ -4,7 +4,7 @@
 Usage:
     uv run adws/adw_build.py "<prompt or path/to/prompt.md>" [--config adws/config/sssf.config.yaml] [--adw-id a1b2c3d4]
 
-Phases: engineer(request) -> builder"""
+Phases: engineer(request) -> builder -> git(commit)"""
 
 import argparse
 import sys
@@ -13,6 +13,7 @@ from sssf.adw_modules import agents, chains, gates, session, utils
 from sssf.adw_modules.chains import (
     AgentPhase,
     Chain,
+    CommitPhase,
 )
 from sssf.adw_modules.data_types import BuildOutput
 
@@ -27,6 +28,10 @@ CHAIN = Chain(
             description="Implement the request",
             gates=[gates.diff_matches_claims],
             retries=1,
+        ),
+        CommitPhase(
+            description="Commit the implemented change",
+            allow_empty=True,
         ),
     ],
 )
