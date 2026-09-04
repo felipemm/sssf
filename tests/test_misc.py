@@ -73,6 +73,9 @@ def test_doctor_lists_recent_spawn_failures(tmp_path, monkeypatch, capsys):
         " '2026-08-18T00:00:00+00:00')"
     )
     monkeypatch.setattr(misc, "which", lambda name: "/usr/bin/" + name)
+    # The spawn-failure listing is under test; main's project env checks
+    # (ticketing/skills) are out of scope for a bare db fixture.
+    monkeypatch.setattr(misc, "_doctor_project", lambda ok: ok)
     monkeypatch.chdir(project)
     assert misc.doctor() == 0
     out = capsys.readouterr().out
@@ -86,6 +89,9 @@ def test_doctor_no_spawn_failures_is_quiet(tmp_path, monkeypatch, capsys):
     project = tmp_path / "proj"
     (project / "adws" / "data").mkdir(parents=True)
     monkeypatch.setattr(misc, "which", lambda name: "/usr/bin/" + name)
+    # The spawn-failure listing is under test; main's project env checks
+    # (ticketing/skills) are out of scope for a bare db fixture.
+    monkeypatch.setattr(misc, "_doctor_project", lambda ok: ok)
     monkeypatch.chdir(project)
     assert misc.doctor() == 0
     assert "recent spawn failures" not in capsys.readouterr().out
@@ -116,6 +122,9 @@ def test_doctor_spawn_failure_uses_log_tail_fallback(tmp_path, monkeypatch, caps
         (json.dumps({"remediation": None, "container_log_tail": tail}),),
     )
     monkeypatch.setattr(misc, "which", lambda name: "/usr/bin/" + name)
+    # The spawn-failure listing is under test; main's project env checks
+    # (ticketing/skills) are out of scope for a bare db fixture.
+    monkeypatch.setattr(misc, "_doctor_project", lambda ok: ok)
     monkeypatch.chdir(project)
     assert misc.doctor() == 0
     out = capsys.readouterr().out
@@ -149,6 +158,9 @@ def test_doctor_spawn_failure_without_hint_is_labeled(tmp_path, monkeypatch, cap
         " '2026-08-18T00:00:00+00:00')"
     )
     monkeypatch.setattr(misc, "which", lambda name: "/usr/bin/" + name)
+    # The spawn-failure listing is under test; main's project env checks
+    # (ticketing/skills) are out of scope for a bare db fixture.
+    monkeypatch.setattr(misc, "_doctor_project", lambda ok: ok)
     monkeypatch.chdir(project)
     assert misc.doctor() == 0
     out = capsys.readouterr().out
