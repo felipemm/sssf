@@ -38,6 +38,28 @@ RUN ARCH=$(uname -m); [ "$ARCH" = "x86_64" ] && SUF=linux || SUF=linux-arm64; \
 RUN npm install -g impeccable@3.6.1
 COPY docker/impeccable-pi /opt/impeccable-pi
 
+# Headless Chrome — impeccable's browser engine (audit/critique/visual
+# contrast) launches it through puppeteer for REAL rendered-page checks; the
+# node-only detector is the degraded fallback when no browser exists.
+#   * Chrome for Testing publishes NO linux-arm64 build (linux64/mac/win only),
+#     and impeccable's pinned puppeteer resolves arm64 to the x86_64 build,
+#     which cannot run in an arm64 container — so install Google Chrome's
+#     arm64 .deb instead and pin puppeteer to it via PUPPETEER_EXECUTABLE_PATH.
+#   * Containers cannot namespace-clone (docker seccomp denies it even with
+#     the setuid helper: "Failed to move to new namespace ... Operation not
+#     permitted"), and impeccable only passes --no-sandbox under CI — so every
+#     chrome launch goes through a wrapper that adds the container flags.
+RUN apt-get update -qq \
+    && curl -fsSL -o /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_arm64.deb \
+    && apt-get install -y --no-install-recommends /tmp/chrome.deb fonts-liberation \
+    && rm -f /tmp/chrome.deb \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /opt/chrome-bin \
+    && printf '#!/bin/sh\nexec /usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage "$@"\n' \
+       > /opt/chrome-bin/chrome \
+    && chmod 755 /opt/chrome-bin/chrome
+ENV PUPPETEER_EXECUTABLE_PATH=/opt/chrome-bin/chrome
+
 # sssf itself (the build context is the sssf repo root)
 COPY pyproject.toml README.md /opt/sssf/
 COPY src/sssf /opt/sssf/src/sssf/

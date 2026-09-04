@@ -48,6 +48,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   their shipped sub-agents instead of degrading to an in-thread
   single-context run ("no sub-agent tools exposed").
 
+- **Headless Chrome in the runner image** — impeccable's browser engine
+  (audit/critique/visual contrast over a real rendered page) now works in
+  sandboxed runs instead of degrading to the node-only detector. Chrome for
+  Testing publishes no linux-arm64 build and impeccable's pinned puppeteer
+  resolves arm64 to the x86_64 binary, so the image installs Google Chrome's
+  arm64 .deb and pins puppeteer to it via `PUPPETEER_EXECUTABLE_PATH`; every
+  launch goes through a wrapper adding the container flags
+  (`--no-sandbox --disable-dev-shm-usage` — docker seccomp blocks namespace
+  cloning and impeccable only disables the sandbox under CI).
+
 
 ### Fixed
 
