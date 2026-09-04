@@ -188,6 +188,8 @@ agents:
     prompt_engineering:
       system: adws/data/prompt_engineering/designer/system.md
       user: adws/data/prompt_engineering/designer/user.md
+    harness_engineering:
+      - adws/data/harness_engineering/subagents.ts    # subagent_* tools — impeccable's multi-context pass
     writes:
       - site/                     # the design surface; adjust in project configs
     tools:
@@ -198,6 +200,10 @@ agents:
       - bash
       - edit
       - write
+      - subagent_create            # extension tools MUST be named here or they are filtered out
+      - subagent_continue
+      - subagent_list
+      - subagent_remove
 
   - name: documenter
     model: litellm/gemini-2.5-flash
