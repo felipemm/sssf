@@ -563,3 +563,59 @@ def test_sync_newer_ended_source_supersedes_frozen_host_row(tmp_path):
     assert row == ("success", "2026-09-03T01:11:35")
     conn.close()
     src.close()
+
+
+def test_sync_older_generation_never_reverts_reopened_host_row(tmp_path):
+    """Regression (2e3d7693): a kanban/CLI restart calls reopen_session (host
+    row -> running, started_at=now), but the re-run's monitor can sync BEFORE
+    the new ADW writes its own session_start — the per-run db still holds the
+    PREVIOUS attempt's terminal row. That stale copy (older started_at) must
+    never revert the reopened host row, or the kanban card sits in Blocked
+    for the whole re-run while the new attempt actually progresses."""
+    import sqlite3
+
+    from sssf.sandbox import sync_run_db
+
+    conn = sqlite3.connect(str(tmp_path / "proj.db"))
+    conn.execute(
+        "CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, "
+        "started_at TEXT, ended_at TEXT)"
+    )
+    # reopen_session stamped the host row: running, fresh started_at, no end
+    conn.execute(
+        "INSERT INTO sessions VALUES ('r1','running','2026-09-04T14:33:06',NULL)"
+    )
+    conn.commit()
+    per = tmp_path / "per-run" / "adws" / "adw_data"
+    per.mkdir(parents=True)
+    per_db = per / "sssf.db"
+    src = sqlite3.connect(str(per_db))
+    src.execute(
+        "CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, "
+        "started_at TEXT, ended_at TEXT)"
+    )
+    # per-run still carries attempt 1's terminal row (started BEFORE the reopen)
+    src.execute(
+        "INSERT INTO sessions VALUES "
+        "('r1','fail','2026-09-04T14:19:39','2026-09-04T14:24:24')"
+    )
+    src.commit()
+
+    sync_run_db(conn, per_db, "r1")
+    row = conn.execute("SELECT status, started_at, ended_at FROM sessions WHERE adw_id='r1'").fetchone()
+    assert row == ("running", "2026-09-04T14:33:06", None), (
+        "an older-generation terminal copy reverted the reopened host row"
+    )
+
+    # once the re-run's own row exists (newer generation), its terminal state
+    # supersedes normally — the reopened host row is not frozen forever
+    src.execute(
+        "UPDATE sessions SET status='success', started_at='2026-09-04T14:33:08', "
+        "ended_at='2026-09-04T14:55:00' WHERE adw_id='r1'"
+    )
+    src.commit()
+    sync_run_db(conn, per_db, "r1")
+    row = conn.execute("SELECT status, ended_at FROM sessions WHERE adw_id='r1'").fetchone()
+    assert row == ("success", "2026-09-04T14:55:00")
+    conn.close()
+    src.close()

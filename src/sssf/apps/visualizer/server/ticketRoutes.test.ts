@@ -12,7 +12,7 @@ function fakeSpawn(stdout: string, stderr = "", exitCode = 0): SpawnFn {
       exited: Promise.resolve(exitCode),
     };
   };
-  (fn as { calls: string[][] }).calls = calls;
+  (fn as unknown as { calls: string[][] }).calls = calls;
   return fn;
 }
 
@@ -22,7 +22,7 @@ describe("runTicket", () => {
     const res = await runTicket("/proj", "internal:x", undefined, spawn);
     expect(res.ok).toBe(true);
     expect(res.adwId).toBe("abc12345");
-    expect((spawn as { calls: string[][] }).calls[0]).toEqual([
+    expect((spawn as unknown as { calls: string[][] }).calls[0]).toEqual([
       "sssf", "ticket", "run", "internal:x", "--project", "/proj",
     ]);
   });
@@ -31,7 +31,7 @@ describe("runTicket", () => {
     const spawn = fakeSpawn("sssf ticket: run spawned for internal:x — adw_id abc12345");
     const res = await runTicket("/proj", "internal:x", "focus on the OAuth flow", spawn);
     expect(res.ok).toBe(true);
-    expect((spawn as { calls: string[][] }).calls[0]).toEqual([
+    expect((spawn as unknown as { calls: string[][] }).calls[0]).toEqual([
       "sssf", "ticket", "run", "internal:x", "--context", "focus on the OAuth flow", "--project", "/proj",
     ]);
   });
@@ -64,7 +64,7 @@ describe("syncTickets / backlogTicket", () => {
     const spawn = fakeSpawn("sssf ticket: context saved for internal:x");
     const res = await setTicketContext("/proj", "internal:x", "steer text", spawn);
     expect(res.ok).toBe(true);
-    expect((spawn as { calls: string[][] }).calls[0]).toEqual([
+    expect((spawn as unknown as { calls: string[][] }).calls[0]).toEqual([
       "sssf", "ticket", "context", "internal:x", "--set", "steer text", "--project", "/proj",
     ]);
   });

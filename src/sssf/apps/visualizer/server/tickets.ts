@@ -1,7 +1,5 @@
 /** Ticketing: enabled check + backlog reads over a project's trace db. */
 import { Database } from "bun:sqlite";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 export interface TicketRun {
   adw_id: string

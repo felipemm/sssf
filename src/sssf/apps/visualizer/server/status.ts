@@ -1,8 +1,6 @@
 /** Status dashboard: one aggregate payload per project, computed from the trace db. */
 import { ticketingEnabled } from "./ticketing";
 import { Database } from "bun:sqlite";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { contributions, gitStats } from "./git";
 import type { ContributionDay, GitStats } from "./git";
 

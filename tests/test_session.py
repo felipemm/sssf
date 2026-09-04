@@ -85,3 +85,33 @@ def test_uncaught_exception_marks_session_failed(tmp_path):
     row = run.tracer.conn.execute("SELECT status FROM sessions WHERE adw_id='abc'").fetchone()
     assert row[0] == "fail"
     run.tracer.conn.close()
+
+
+# ── re-join: a re-run is a NEW generation of the session ─────────────────────
+
+
+def test_session_start_on_rerun_clears_previous_terminal_state(tmp_path):
+    """A re-run of the same adw_id must not inherit the previous attempt's
+    terminal state. Regression (session 2e3d7693): session_start flipped
+    status to 'running' but left the old ended_at set — a contradictory
+    'running + ended_at' row the monitor's forward-merge froze at the old
+    failure, so the kanban card sat in Blocked while attempt 2 ran."""
+    t = tracer_mod.Tracer(db_path=tmp_path / "sssf.db", events_jsonl=tmp_path / "e.jsonl")
+    t.session_start("abc", "tester", "adw_simple_sdlc")
+    t.session_finish("abc", ok=False)  # attempt 1 fails
+    before = t.conn.execute(
+        "SELECT status, ended_at FROM sessions WHERE adw_id='abc'"
+    ).fetchone()
+    assert before == ("fail", before[1]) and before[1] is not None
+
+    t.session_start("abc", "tester", "adw_simple_sdlc")  # attempt 2 joins
+    row = t.conn.execute(
+        "SELECT status, ended_at FROM sessions WHERE adw_id='abc'"
+    ).fetchone()
+    assert row[0] == "running"
+    assert row[1] is None, "re-run must clear the previous attempt's ended_at"
+    names = t.conn.execute(
+        "SELECT adw_name FROM sessions WHERE adw_id='abc'"
+    ).fetchone()
+    assert names[0] == "adw_simple_sdlc"  # same ADW re-joining is not chained
+    t.conn.close()
