@@ -512,3 +512,54 @@ def test_abort_sandbox_stops_not_removes(tmp_path, monkeypatch):
     )
     sb.abort_sandbox(tmp_path, "abc9")
     assert calls == [["stop", "-t", "5", "sssf-abc9"]]
+
+
+def test_sync_newer_ended_source_supersedes_frozen_host_row(tmp_path):
+    """Regression (f9e445e9 restarts): a restart route that misses
+    reopen_session leaves the HOST row ended at the previous run's terminal
+    state — the old ended-only merge could then never record the new run's
+    outcome, so the UI showed the old failure forever. A strictly NEWER ended
+    source row must supersede an ended host row; an older (or NULL) copy can
+    still never downgrade a newer terminal state."""
+    import sqlite3
+
+    from sssf.sandbox import sync_run_db
+
+    conn = sqlite3.connect(str(tmp_path / "proj.db"))
+    conn.execute(
+        "CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, "
+        "started_at TEXT, ended_at TEXT)"
+    )
+    # host row frozen at run B's failure (restart missed reopen_session)
+    conn.execute(
+        "INSERT INTO sessions VALUES ('r1','fail','2026-09-03T00:00:00','2026-09-03T00:29:50')"
+    )
+    conn.commit()
+    per = tmp_path / "per-run" / "adws" / "adw_data"
+    per.mkdir(parents=True)
+    per_db = per / "sssf.db"
+    src = sqlite3.connect(str(per_db))
+    src.execute(
+        "CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, "
+        "started_at TEXT, ended_at TEXT)"
+    )
+    src.execute(
+        "INSERT INTO sessions VALUES ('r1','success','2026-09-03T00:45:00','2026-09-03T01:11:35')"
+    )
+    src.commit()
+
+    sync_run_db(conn, per_db, "r1")
+    row = conn.execute("SELECT status, ended_at FROM sessions WHERE adw_id='r1'").fetchone()
+    assert row == ("success", "2026-09-03T01:11:35")  # superseded by the newer run
+
+    # an OLDER ended source copy must never downgrade the newer terminal state
+    src.execute(
+        "UPDATE sessions SET status='fail', started_at='2026-09-03T00:10:00', "
+        "ended_at='2026-09-03T00:20:00' WHERE adw_id='r1'"
+    )
+    src.commit()
+    sync_run_db(conn, per_db, "r1")
+    row = conn.execute("SELECT status, ended_at FROM sessions WHERE adw_id='r1'").fetchone()
+    assert row == ("success", "2026-09-03T01:11:35")
+    conn.close()
+    src.close()

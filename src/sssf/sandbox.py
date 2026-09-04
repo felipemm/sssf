@@ -837,10 +837,30 @@ def _forward_merge(
                 pk_val = row[cols.index(pk)]
                 if row[cols.index("ended_at")] is not None:
                     sets = [f"{c}=?" for c in cols if c not in (pk, "adw_id")]
-                    conn.execute(
-                        f"UPDATE {table} SET {','.join(sets)} WHERE {pk}=? AND ended_at IS NULL",
-                        [row[cols.index(c)] for c in cols if c not in (pk, "adw_id")] + [pk_val],
-                    )
+                    if table == "sessions":
+                        # A restart is meant to reopen the host row first
+                        # (reopen_session), but a restart route that misses it
+                        # leaves the host row ENDED at the previous run's
+                        # terminal state — then this ended-source merge can
+                        # never record the new run's outcome and the UI shows
+                        # the old failure forever (f9e445e9: run C succeeded
+                        # 01:11:35, host row frozen at run B's fail 00:29:50).
+                        # Let a strictly NEWER ended source row supersede an
+                        # ended host row; a stale/torn copy (older ended_at, or
+                        # NULL) can still never downgrade a newer terminal
+                        # state.
+                        conn.execute(
+                            f"UPDATE {table} SET {','.join(sets)} "
+                            f"WHERE {pk}=? AND (ended_at IS NULL OR ended_at < ?)",
+                            [row[cols.index(c)] for c in cols if c not in (pk, "adw_id")]
+                            + [pk_val, row[cols.index("ended_at")]],
+                        )
+                    else:
+                        conn.execute(
+                            f"UPDATE {table} SET {','.join(sets)} WHERE {pk}=? AND ended_at IS NULL",
+                            [row[cols.index(c)] for c in cols if c not in (pk, "adw_id")]
+                            + [pk_val],
+                        )
         # live totals: tokens/cost only accumulate, so a max-merge on every
         # sync never regresses — a torn mid-run copy carries fewer tokens than
         # the previous sync, and MAX is safe in both directions. This is what
@@ -1149,19 +1169,17 @@ def sandbox_env(project_root: Path) -> tuple[Path, Path, dict[str, str]]:
     env: dict[str, str] = {}
     if os.environ.get("OPENAI_API_KEY"):
         # The standard OpenAI env vars — litellm/pi read these natively for
-        # OpenAI-compatible endpoints (e.g. GenPlat); the container gets them
-        # the same way it gets SNYK_TOKEN. No GENPLAT_TOKEN: it is not a
-        # standard var and no tooling in the container reads it.
+        # OpenAI-compatible endpoints (e.g. GenPlat). No GENPLAT_TOKEN: it is
+        # not a standard var and no tooling in the container reads it.
         env["OPENAI_API_KEY"] = os.environ["OPENAI_API_KEY"]
     if os.environ.get("OPENAI_BASE_URL"):
         env["OPENAI_BASE_URL"] = os.environ["OPENAI_BASE_URL"]
-    if os.environ.get("SNYK_TOKEN"):
-        # SNYK_TOKEN (service accounts / CI) is forwarded when set. OAuth-authed
-        # CLIs need nothing here: spawn_sandbox mounts the operator's ~/.config
-        # (where snyk keeps its OAuth session) read-only at /tmp/.config. A stale
-        # SNYK_TOKEN overrides that session (snyk env precedence) — the gate then
-        # fails SNYK-0005 even though `snyk whoami` succeeds with the var unset.
-        env["SNYK_TOKEN"] = os.environ["SNYK_TOKEN"]
+    # SNYK_TOKEN is deliberately NEVER forwarded: auth is OAuth-only. snyk in
+    # the sandbox authenticates via the operator's session — spawn_sandbox
+    # mounts ~/.config (where snyk keeps configstore/snyk.json) read-only at
+    # /tmp/.config with HOME=/tmp in the image. An exported SNYK_TOKEN would
+    # outrank that session (snyk env precedence) and stale/UAT tokens 401
+    # against prod (SNYK-0005); a token-less container cannot be shadowed.
     name, email = _git_identity(project_root)
     if name and email:
         # Author AND committer — git needs both pairs inside the container, or

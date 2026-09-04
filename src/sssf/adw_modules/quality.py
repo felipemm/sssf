@@ -167,6 +167,20 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
         f"\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}\n"
     )
     passed = returncode == 0
+    # A rejected credential (snyk SNYK-0005/0003, 'Authentication error') is an
+    # ENVIRONMENT failure, not a code failure: no code edit can fix an auth
+    # rejection, and sending the builder into its repair loop on one burns
+    # agent calls and hides the real problem (env_failure() breaks the ADW
+    # out). Markers are kept tight so a suite that legitimately prints '401'
+    # output is not misclassified.
+    output_tail = (stdout + stderr)[-TAIL_CHARS:]
+    if not passed and not env_error:
+        combined = stdout + stderr
+        if any(
+            marker in combined
+            for marker in ("Authentication error", "SNYK-0005", "SNYK-0003", "credentials not recognized")
+        ):
+            env_error = True
     run.tracer.event(
         EventRecord(
             adw_id=run.adw_id,
@@ -180,6 +194,9 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
                 "returncode": returncode,
                 "passed": passed,
                 "output_artifact": str(output_artifact),
+                # The command's actual output, so the trace (and the viz's raw
+                # event panel) shows what failed without opening the artifact.
+                "output": output_tail,
             },
             started_at=started_at,
             ended_at=now_iso(),
@@ -191,6 +208,11 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
     note = f"exit {returncode}, {duration:.1f}s"
     if not passed:
         note += f" — see {output_artifact}"
+        if output_tail.strip():
+            # Multiline note: the viz's gates panel renders notes containing a
+            # newline as a <pre> block — the output is visible in the UI, no
+            # container exec to read command.log.
+            note += f"\n{output_tail}".rstrip()
     run.tracer.gate_row(
         phase, f"quality:{spec.name}", GateReport().check(command, passed, note), attempt=1
     )
@@ -208,7 +230,7 @@ def _run(spec: QualityCheckSpec, run) -> QualityCheckResult:
         env_error=env_error,
         duration_seconds=duration,
         output_artifact=str(output_artifact),
-        output_tail=(stdout + stderr)[-TAIL_CHARS:],
+        output_tail=output_tail,
     )
 
 
