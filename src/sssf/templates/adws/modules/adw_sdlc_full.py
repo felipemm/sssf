@@ -54,11 +54,19 @@ DOCUMENT_NOTES = (
 # the documenter defaults to a kb write-up, and these phases are NOT that.
 
 INIT_DIRECTIVE = (
-    "This phase is NOT the kb write-up. Run the impeccable skill's `init` "
-    "command (/impeccable init) to capture durable product context: answer its "
-    "questions from the request/plan context you were handed (surface type "
-    "inferred from the work; buildPath: code — this factory has no image "
-    "generation) and write PRODUCT.md at the repo root. It is generated once "
+    "This phase is NOT the kb write-up and needs no diff: you are handed the "
+    "plan envelope by design, so it carries no diff_path/changed_files/stat — "
+    "do not look for them and never fall back to the document-from-diff task. "
+    "The impeccable `init` this phase refers to is a discovery INTERVIEW that "
+    "you conduct yourself — it is NOT an executable: there is no "
+    "scripts/init.mjs and no `npx impeccable init` subcommand, so do not run "
+    "node/npx. Open the impeccable skill's reference/init.md and follow its "
+    "flow: explore the repo, then capture durable product context by answering "
+    "its questions from the request/plan context you were handed (this run has "
+    "no live user — answer from the context yourself and label every inferred "
+    "fact as an inference). Platform: web; buildPath: code — this factory has "
+    "no image generation. Write PRODUCT.md at the repo root and declare it in "
+    "your envelope's artifacts so the gates verify it. It is generated once "
     "per project; the designer reads it as design context."
 )
 
@@ -66,18 +74,24 @@ DESIGN_DIRECTIVE = (
     "This phase runs the impeccable design pass on the project's DESIGN "
     "SURFACE. Find the surface in adws/config/sssf.config.yaml: the `design` "
     "quality check's `surface` (or its detect target). If PRODUCT.md exists, "
-    "read it first (it is your design context). Run the impeccable skill's "
-    "audit -> critique -> polish -> optimize commands against that surface, "
-    "and apply every actionable fix each command reports. Edit ONLY the "
-    "design surface; never commit — the factory commits. Report every file "
-    "you changed in your envelope."
+    "read it first (it is your design context). Run the impeccable audit -> "
+    "critique -> polish -> optimize pass against that surface: each pass is a "
+    "workflow you execute yourself by loading the skill's reference "
+    "(reference/audit.md, critique.md, polish.md, optimize.md) — those passes "
+    "are NOT executables, so do not look for scripts/audit.mjs or npx "
+    "subcommands; run the skill's node scripts only where the reference calls "
+    "for detector evidence. Apply every actionable fix each pass reports. "
+    "Edit ONLY the design surface; never commit — the factory commits. Report "
+    "every file you changed in your envelope."
 )
 
 DESIGN_DOC_DIRECTIVE = (
     "This phase is NOT the kb write-up. The design world changed or DESIGN.md "
-    "is missing: run the impeccable skill's `document` command "
-    "(/impeccable document) to write DESIGN.md at the repo root from the "
-    "project's design state, and declare it as document_path/artifacts."
+    "is missing: run the impeccable `document` flow to write DESIGN.md at the "
+    "repo root from the project's design state. Like `init`, `document` is a "
+    "workflow you execute yourself from the skill's reference/document.md — "
+    "there is no scripts/document.mjs or npx subcommand to run. Declare "
+    "DESIGN.md in your envelope's artifacts/document_path."
 )
 
 

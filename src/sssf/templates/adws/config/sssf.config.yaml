@@ -95,7 +95,7 @@ quality:
 
 agents:
   - name: planner
-    model: litellm/deepseek-v4-pro-official
+    model: litellm/gpt-5.6-terra
     thinking: high
     color: "#a78bfa"                 # optional hex — the agent's lane color in the visualizer
     purpose: Turn a request into a plan the builder can implement without asking questions.
@@ -120,7 +120,7 @@ agents:
 
   - name: builder
     color: "#22d3ee"
-    # model: litellm/deepseek-v4-pro-official
+    model: litellm/deepseek-v4-flash-official
     # thinking: high
     purpose: Implement the plan exactly; report every changed file in the envelope.
     prompt_engineering:
@@ -139,7 +139,7 @@ agents:
 
   - name: scout
     color: "#fbbf24"
-    # model: litellm/deepseek-v4-pro-official
+    model: litellm/gpt-5.6-luna
     # thinking: high
     purpose: Find and report where things live; change nothing.
     prompt_engineering:
@@ -183,6 +183,7 @@ agents:
       - write
 
   - name: designer
+    model: litellm/gemini-3.7-flash   # the impeccable audit->critique->polish->optimize pass is reasoning-heavy
     color: "#f59e0b"
     purpose: Run the impeccable design pass (audit, critique, polish, optimize) on the project's design surface and apply the fixes it reports.
     prompt_engineering:
@@ -206,7 +207,7 @@ agents:
       - subagent_remove
 
   - name: documenter
-    model: litellm/gemini-2.5-flash
+    model: litellm/glm-5.3-flash-tencent
     thinking: high
     color: "#e879f9"
     purpose: Write up the change that was just made, from the diff; document only.
