@@ -5,7 +5,7 @@
 export interface SpawnHandle {
   stdout: string | ReadableStream;
   stderr: string | ReadableStream;
-  exitCode: number;
+  exitCode: number | null; // captured at spawn (null until exit) — await `exited` instead
   exited: Promise<number>;
 }
 
