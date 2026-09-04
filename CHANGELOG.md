@@ -45,6 +45,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Sandbox config validation failure on cold containers** — the runner image's
+  entrypoint copied the operator's `settings.json` wholesale into the sandbox
+  pi home; pi 0.84.x then installed the operator's interactive `packages`
+  (honcho-memory, voice-stt, context7, web-search, `git:obra/superpowers`) on
+  first use — a network bootstrap that exceeded the ADW's 30s `pi
+  --list-models` catalog timeout, so every agent's model reported "not found"
+  and the run died at config validation. The entrypoint now copies only the
+  model catalog (`models.json`, `models-store.json`, `auth.json`) and writes a
+  minimal sandbox `settings.json` (no packages/skills/extensions/themes, no
+  host MCP cache). Catalog resolves in ~1s on a fresh container.
+
 - **Sandbox snyk auth is OAuth-only** — `SNYK_TOKEN` is never forwarded into
   the container (a token would outrank the mounted OAuth session; stale/UAT
   tokens 401 against prod -> SNYK-0005). Docs and the config template say so.
