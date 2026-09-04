@@ -4,6 +4,7 @@ import { Archive, ArchiveRestore, RotateCw, Square, User } from 'lucide-vue-next
 import type { EventRow, SessionSummary } from '../lib/types'
 import { archiveSession, fetchEvents, restartRun, stopRun } from '../lib/api'
 import { axisTicks, fmtOffset, ts } from '../lib/format'
+import { runDurationMs } from '../lib/duration'
 import { adwIconFor } from '../lib/adwIcons'
 import { agentColor, dotColor, eventLabel } from '../lib/events'
 import { hrefFor } from '../lib/router'
@@ -12,13 +13,9 @@ import StatChip from './StatChip.vue'
 const props = defineProps<{ session: SessionSummary; nowMs: number; archived?: boolean }>()
 const emit = defineEmits<{ archived: [adwId: string] }>()
 
-const durationMs = computed(() => {
-  const s = props.session
-  const start = ts(s.started_at)
-  if (!Number.isFinite(start)) return NaN
-  const end = running.value ? props.nowMs : ts(s.ended_at)
-  return (Number.isFinite(end) ? end : props.nowMs) - start
-})
+// Sum of each phase's duration — the row span would count the idle gap
+// between a re-run's attempts as part of the run.
+const durationMs = computed(() => runDurationMs(props.session, props.nowMs))
 
 const adwIcon = computed(() => adwIconFor(props.session.adw_name))
 

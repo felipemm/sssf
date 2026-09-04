@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { Archive, ArchiveRestore, RotateCw, Square, User } from 'lucide-vue-next'
 import type { SessionSummary } from '../lib/types'
 import { archiveSession, restartRun, stopRun } from '../lib/api'
-import { ts } from '../lib/format'
+import { runDurationMs } from '../lib/duration'
 import { hrefFor } from '../lib/router'
 import { adwIconFor } from '../lib/adwIcons'
 import PhaseDots from './PhaseDots.vue'
@@ -18,13 +18,10 @@ const emit = defineEmits<{ changed: [adwId: string] }>()
 
 const adwIcon = computed(() => adwIconFor(props.session.adw_name))
 
-const durationMs = computed(() => {
-  const s = props.session
-  const start = ts(s.started_at)
-  if (!Number.isFinite(start)) return NaN
-  const end = s.status === 'running' ? props.nowMs : ts(s.ended_at)
-  return (Number.isFinite(end) ? end : props.nowMs) - start
-})
+// Total run time is the sum of each phase's duration, NOT the session row's
+// wall-clock span — a re-run joins the same row, so the span would count the
+// idle gap between attempts (09:00 run + 21:00 re-run = a 12-hour "run").
+const durationMs = computed(() => runDurationMs(props.session, props.nowMs))
 
 // The card is an <a>; the buttons inside must not navigate. The parent polls
 // every 500 ms — a failed write just re-syncs on the next tick.
