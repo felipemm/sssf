@@ -35,6 +35,10 @@ def test_starter_config_validates(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     cfg = agents.load_config(cfg_dir / "sssf.config.yaml")
     agents.validate(cfg, ["planner", "builder", "reviewer", "scout", "documenter", "designer"])
+    # the designer runs the reasoning-heavy impeccable pass on its own model —
+    # not the defaults.model fallback.
+    roster = {a.name: a for a in cfg.agents}
+    assert roster["designer"].model == "litellm/gemini-3.7-flash"
 
 
 def test_artifact_folders_live_under_adws():
@@ -77,6 +81,13 @@ def test_quality_design_variant_has_impeccable_phases():
         "_design_world_changed",
         "PRODUCT.md",
         "DESIGN.md",
+        # the impeccable init/document/design-pass directives must tell the
+        # roster model the mechanism is agent-conducted, not a script to run
+        # (field failure 9ff2d43a: the documenter hunted for scripts/init.mjs
+        # and npx, then failed instead of writing PRODUCT.md)
+        "scripts/init.mjs",
+        "reference/init.md",
+        "reference/document.md",
     ):
         assert needle in text, f"sdlc_full missing {needle}"
     # the simple_sdlc tail is present (review -> retest -> commit_build)

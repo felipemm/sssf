@@ -183,6 +183,7 @@ agents:
       - write
 
   - name: designer
+    model: litellm/gemini-3.7-flash   # the impeccable audit->critique->polish->optimize pass is reasoning-heavy
     color: "#f59e0b"
     purpose: Run the impeccable design pass (audit, critique, polish, optimize) on the project's design surface and apply the fixes it reports.
     prompt_engineering:
