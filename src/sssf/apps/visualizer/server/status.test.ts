@@ -63,3 +63,24 @@ describe("ticketingEnabled (shared with tickets.ts)", () => {
     expect(ticketingEnabled(root)).toBe(false);
   });
 });
+
+
+describe("computeStatus avg duration", () => {
+  test("average is per-run ACTIVE time (phase sums), not the row span", () => {
+    // One successful session whose row spans 12h (two attempts: 09:00 + 21:00)
+    // but whose phases sum to 10 minutes of actual work.
+    const { root, db, path } = fakeProject();
+    const today = new Date().toISOString().slice(0, 10);
+    const h = (hh: number, mm: number, ss = 0) => `${today}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+    db.run(`INSERT INTO sessions VALUES ('r1','success',?,?,1.0,10,0)`, [h(9, 0), h(21, 5)]);
+    // attempt 1: 09:00→09:05 (5 min across two phases); attempt 2: 21:00→21:05
+    db.run(`INSERT INTO phases VALUES ('r1_01','r1',1,'request','engineer','felipe','d','success',0,0,NULL,?,?)`, [h(9, 0), h(9, 1)]);
+    db.run(`INSERT INTO phases VALUES ('r1_02','r1',2,'build','agent','builder','d','success',0,0,NULL,?,?)`, [h(9, 1), h(9, 5)]);
+    db.run(`INSERT INTO phases VALUES ('r1_03','r1',3,'request','engineer','felipe','d','success',0,0,NULL,?,?)`, [h(21, 0), h(21, 1)]);
+    db.run(`INSERT INTO phases VALUES ('r1_04','r1',4,'build','agent','builder','d','success',0,0,NULL,?,?)`, [h(21, 1), h(21, 5)]);
+    db.close();
+    const status = computeStatus(path, root, "fixture", 90);
+    expect(status.totals.avg_duration_s!).toBeCloseTo(600, 0); // ~10 minutes of work, not 12h
+    rmSync(root, { recursive: true, force: true });
+  });
+});

@@ -15,6 +15,7 @@ import type {
 import { Archive, ArchiveRestore, Bot, ExternalLink, FileText, RotateCw, Square, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
 import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchReview, fetchSession, fetchSessionLogs, fetchTickets, restartRun, stopRun, useProjects, type Ticket as TicketInfo } from '../lib/api'
 import { axisTicks, fmtCost, fmtDate, payloadOk, ts } from '../lib/format'
+import { runDurationMs } from '../lib/duration'
 import { modelIcon, modelName } from '../lib/models'
 import { agentColor, hexAlpha, parseAgentStart } from '../lib/events'
 import { navigate, phaseCrumb } from '../lib/router'
@@ -555,10 +556,9 @@ async function togglePanel(which: 'prompt' | 'logs' | 'review') {
 const sessionDurationMs = computed(() => {
   const s = session.value
   if (!s) return NaN
-  const start = ts(s.started_at)
-  if (!Number.isFinite(start)) return NaN
-  const end = s.status === 'running' ? nowMs.value : ts(s.ended_at)
-  return (Number.isFinite(end) ? end : nowMs.value) - start
+  // Sum of each phase's duration, not the row span — a re-run joins the same
+  // row and the span would count the idle gap between attempts as run time.
+  return runDurationMs(s, nowMs.value)
 })
 
 function selectPhase(p: Phase) {

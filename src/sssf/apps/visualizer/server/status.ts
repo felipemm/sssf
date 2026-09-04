@@ -108,25 +108,39 @@ export function computeStatus(dbPath: string, root: string, name: string, window
     // ── totals ────────────────────────────────────────────────────────────
     const t = has("sessions")
       ? db.query<{ n: number; active: number; success: number; failed: number; archived: number;
-                   total_cost: number; total_tokens: number;
-                   avg_duration_s: number; } & Record<string, unknown>, []>(
+                   total_cost: number; total_tokens: number; } & Record<string, unknown>, []>(
         `SELECT COUNT(*) n,
                 SUM(status='running') active,
                 SUM(status='success') success,
                 SUM(status='fail') failed,
                 COALESCE(SUM(archived),0) archived,
                 COALESCE(SUM(total_cost),0) total_cost,
-                COALESCE(SUM(total_tokens),0) total_tokens,
-                AVG(CASE WHEN status='success' AND ended_at IS NOT NULL
-                         THEN (julianday(ended_at)-julianday(started_at))*86400 END) avg_duration_s
+                COALESCE(SUM(total_tokens),0) total_tokens
            FROM sessions`).get()!
       : null;
+    // avg duration of successful runs = the average of each run's TOTAL ACTIVE
+    // time (sum of its phases), never the row span — a re-run joins the same
+    // session row, so ended_at − started_at would count the idle gap between
+    // attempts as part of the run and skew the average.
+    let avgDurationS = 0;
+    if (has("sessions") && has("phases")) {
+      const d = db.query<{ avg_duration_s: number | null }, []>(
+        `SELECT AVG(dur) avg_duration_s FROM (
+           SELECT SUM((julianday(p.ended_at)-julianday(p.started_at))*86400) dur
+           FROM sessions s JOIN phases p ON p.adw_id = s.adw_id
+           WHERE s.status='success'
+             AND p.started_at IS NOT NULL AND p.ended_at IS NOT NULL
+           GROUP BY s.adw_id
+         )`
+      ).get()!;
+      avgDurationS = Number(d.avg_duration_s ?? 0);
+    }
     const totals: Totals = t
       ? { runs: t.n, active: Number(t.active ?? 0), success: Number(t.success ?? 0),
           failed: Number(t.failed ?? 0), archived: Number(t.archived ?? 0),
           success_rate: (Number(t.success ?? 0) + Number(t.failed ?? 0)) > 0
             ? Number(t.success ?? 0) / (Number(t.success ?? 0) + Number(t.failed ?? 0)) : 0,
-          avg_duration_s: t.avg_duration_s ?? 0,
+          avg_duration_s: avgDurationS,
           total_cost: Number(t.total_cost ?? 0),
           avg_cost_per_run: t.n > 0 ? Number(t.total_cost ?? 0) / t.n : 0,
           total_tokens: Number(t.total_tokens ?? 0),

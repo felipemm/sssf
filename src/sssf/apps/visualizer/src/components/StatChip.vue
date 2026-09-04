@@ -28,7 +28,7 @@ const TITLES = {
     'Each turn re-sends the whole conversation, so this is far larger than the ' +
     'conversation itself: it is spend, not size. The gap between it and read + ' +
     'written is cached context re-read on later turns.',
-  runtime: 'Duration — wall-clock from the first phase starting to the last one ending.',
+  runtime: 'Duration — total active run time across all attempts (idle gaps between re-runs excluded).',
   read:
     'Read — raw tokens the models took in: prompts, file contents and tool results, ' +
     'counted the first time they enter the context. Excludes cached re-reads of ' +
