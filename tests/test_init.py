@@ -19,6 +19,11 @@ def test_init_stamps_project(tmp_path, monkeypatch):
     assert (root / ".env.sample").exists()
     agents_md = (root / "AGENTS.md").read_text()
     assert "sssf" in agents_md
+    assert "## Instructions" in agents_md
+    assert (
+        "- **When reporting information, be extremely concise and sacrifice grammar"
+        " for the sake of concision.**" in agents_md
+    )
     gitignore = (root / ".gitignore").read_text()
     assert "adws/data/sssf.db" in gitignore
     assert "adws/data/sssf.db-wal" in gitignore
@@ -35,6 +40,29 @@ def test_init_is_idempotent_and_does_not_clobber(tmp_path, monkeypatch):
     adw.write_text(original + "\n# user edit\n")
     assert _run_init(root, monkeypatch) == 0
     assert adw.read_text() == original + "\n# user edit\n"
+
+
+def test_refresh_stamps_instructions_on_pre_instructions_stamp(tmp_path, monkeypatch):
+    """Refresh appends the Instructions section even when the sssf marker is
+    already present (i.e. a stamp made before this section existed) — and
+    never duplicates it across repeated refreshes."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert _run_init(root, monkeypatch) == 0
+    # Roll AGENTS.md back to a pre-instructions stamp: keep the sssf block,
+    # drop the Instructions section.
+    agents_md = root / "AGENTS.md"
+    text = agents_md.read_text()
+    agents_md.write_text(text.split("## Instructions")[0].rstrip() + "\n")
+    assert "## Instructions" not in agents_md.read_text()
+    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+    assert _run_init(root, monkeypatch, ["--refresh"]) == 0
+    refreshed = agents_md.read_text()
+    assert refreshed.count("## Instructions") == 1
+    assert "sacrifice grammar for the sake of concision" in refreshed
+    # a further refresh leaves it untouched
+    assert _run_init(root, monkeypatch, ["--refresh"]) == 0
+    assert agents_md.read_text().count("## Instructions") == 1
 
 
 def test_refresh_adds_missing_only(tmp_path, monkeypatch):
