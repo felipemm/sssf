@@ -849,12 +849,32 @@ def _forward_merge(
                         # ended host row; a stale/torn copy (older ended_at, or
                         # NULL) can still never downgrade a newer terminal
                         # state.
-                        conn.execute(
-                            f"UPDATE {table} SET {','.join(sets)} "
-                            f"WHERE {pk}=? AND (ended_at IS NULL OR ended_at < ?)",
-                            [row[cols.index(c)] for c in cols if c not in (pk, "adw_id")]
-                            + [pk_val, row[cols.index("ended_at")]],
-                        )
+                        #
+                        # Generation guard: the merge must also never let an
+                        # OLDER-run copy (source.started_at < host.started_at)
+                        # overwrite a freshly reopened host row. reopen_session
+                        # stamps started_at=now; a sync racing the re-run's
+                        # first ADW write still sees the PREVIOUS attempt's
+                        # terminal row and would otherwise revert the reopen,
+                        # freezing the card in the old failure for the whole
+                        # re-run (session 2e3d7693: attempt 2 built while the
+                        # kanban card sat in Blocked).
+                        started = row[cols.index("started_at")] if "started_at" in cols else None
+                        if started is not None:
+                            conn.execute(
+                                f"UPDATE {table} SET {','.join(sets)} "
+                                f"WHERE {pk}=? AND (ended_at IS NULL OR ended_at < ?) "
+                                f"AND (started_at IS NULL OR ? >= started_at)",
+                                [row[cols.index(c)] for c in cols if c not in (pk, "adw_id")]
+                                + [pk_val, row[cols.index("ended_at")], started],
+                            )
+                        else:
+                            conn.execute(
+                                f"UPDATE {table} SET {','.join(sets)} "
+                                f"WHERE {pk}=? AND (ended_at IS NULL OR ended_at < ?)",
+                                [row[cols.index(c)] for c in cols if c not in (pk, "adw_id")]
+                                + [pk_val, row[cols.index("ended_at")]],
+                            )
                     else:
                         conn.execute(
                             f"UPDATE {table} SET {','.join(sets)} WHERE {pk}=? AND ended_at IS NULL",

@@ -178,9 +178,20 @@ class Tracer:
 
     # ── sessions ────────────────────────────────────────────────────────────
     def session_start(self, adw_id: str, engineer: str, adw_name: str | None = None) -> None:
+        # A re-run of the same adw_id is a NEW generation of the session: the
+        # previous attempt's terminal state must not linger on the row. Leaving
+        # the old ended_at set while flipping status to 'running' produced a
+        # contradictory per-run row, and the monitor's forward-merge (which
+        # lets only a STRICTLY NEWER ended_at supersede) then froze the host
+        # row at the previous attempt's failure for the whole re-run — the
+        # kanban card sat in Blocked while the new run progressed (session
+        # 2e3d7693). Clear ended_at and re-stamp started_at: a fresh process is
+        # a fresh run generation.
         self.conn.execute(
-            "INSERT INTO sessions (adw_id, status, engineer, started_at) VALUES (?,?,?,?) "
-            "ON CONFLICT(adw_id) DO UPDATE SET status='running'",
+            "INSERT INTO sessions (adw_id, status, engineer, started_at, ended_at) "
+            "VALUES (?,?,?,?,NULL) "
+            "ON CONFLICT(adw_id) DO UPDATE SET status='running', "
+            "started_at=excluded.started_at, ended_at=NULL",
             (adw_id, "running", engineer, now_iso()),
         )
         if not adw_name:
