@@ -44,7 +44,7 @@ def test_starter_config_validates(tmp_path, monkeypatch):
         "scout": "litellm/gpt-5.6-luna",
         "reviewer": "litellm/gpt-5.5",
         "designer": "litellm/gemini-3.7-flash",
-        "documenter": "litellm/glm-5.3-flash-tencent",
+        "documenter": "litellm/glm-5.3-tencent",
     }
     for name, model in expected.items():
         assert roster[name].model == model, f"{name} model drifted to {roster[name].model!r}"
