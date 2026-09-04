@@ -42,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   auth failures (SNYK-0005/0003, `Authentication error`) classify as an
   environment error, so the builder repair loop never burns agent calls
   trying to "fix" a rejected token.
+- **Designer runs impeccable in full multi-context mode** — the designer agent
+  now declares the subagents harness extension and the `subagent_*` tools
+  (create/continue/list/remove), so impeccable's audit/critique passes spawn
+  their shipped sub-agents instead of degrading to an in-thread
+  single-context run ("no sub-agent tools exposed").
+
 
 ### Fixed
 
