@@ -147,7 +147,9 @@ def _restart(cwd: Path, args: list[str], explicit_project: str | None) -> int:
         return 1
     db_path = project_db_path(data_dir)
     conn = sqlite3.connect(str(db_path), isolation_level=None)
-    row = conn.execute("SELECT request FROM sessions WHERE adw_id=?", (adw_id,)).fetchone()
+    row = conn.execute(
+        "SELECT request, adw_name FROM sessions WHERE adw_id=?", (adw_id,)
+    ).fetchone()
     conn.close()
     if not row or not row[0]:
         print(f"sssf: session {adw_id} has no request to re-run", file=sys.stderr)
@@ -157,7 +159,25 @@ def _restart(cwd: Path, args: list[str], explicit_project: str | None) -> int:
     # running — without this the UI keeps showing the previous run's fail/end
     # state and the restarted run's own outcome is never recorded either.
     reopen_session(data_dir, adw_id)
-    adw_file = root / "adws" / "adw_simple_sdlc.py"
+    # Re-run the ADW that ORIGINALLY ran the session, never a hardcoded
+    # default. sessions.adw_name records every ADW that joined, newest
+    # appended ("adw_build_review + adw_simple_sdlc"); the FIRST is the
+    # original run. A restart under a different ADW validates a different
+    # roster and walks a different chain — a build_review session restarted
+    # as simple_sdlc re-planned and re-tested the request and died validating
+    # agents the original never touched (session 36bbd3b3: phantom
+    # documenter model).
+    original = (row[1] or "").split(" + ", 1)[0].strip()
+    if original and not original.startswith("adw_"):
+        original = f"adw_{original}"
+    adw_file = _adw_file(root, original) if original else None
+    if adw_file is None:
+        print(
+            f"sssf: session {adw_id} ran '{row[1] or '?'}' — no adw module or "
+            "installed template by that name to re-run",
+            file=sys.stderr,
+        )
+        return 1
     return _run_sandboxed(root, adw_file, [row[0]], adw_id=adw_id, attach=True)
 
 
