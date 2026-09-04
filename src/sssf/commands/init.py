@@ -26,6 +26,12 @@ Edit your chains in `adws/modules/adw_*.py` and your roster in
 <!-- /sssf -->
 """
 
+AGENTS_INSTRUCTIONS = """
+## Instructions
+
+- **When reporting information, be extremely concise and sacrifice grammar for the sake of concision.**
+"""
+
 GITIGNORE_ENTRIES = [
     "adws/data/sessions/",
     "adws/data/sssf.db",
@@ -187,6 +193,12 @@ def run(
             agents_md.write_text(text.rstrip() + "\n" + AGENTS_BLOCK)
     else:
         agents_md.write_text("# Project\n" + AGENTS_BLOCK)
+    # Agent reporting instructions — appended on every init (fresh or refresh),
+    # so projects stamped before this section existed get it on their next
+    # refresh. Idempotent: skipped once the bullet is present.
+    text = agents_md.read_text()
+    if "sacrifice grammar for the sake of concision" not in text:
+        agents_md.write_text(text.rstrip() + "\n" + AGENTS_INSTRUCTIONS)
 
     gitignore = root / ".gitignore"
     if gitignore.exists():
