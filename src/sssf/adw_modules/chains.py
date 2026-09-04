@@ -93,10 +93,17 @@ class ReviewLoop:
 
 @dataclass
 class CommitPhase:
-    """A git commit of the verified working tree."""
+    """A git commit of the verified working tree.
+
+    ``allow_empty`` makes the phase idempotent: when the working tree has no
+    changes — a no-op re-run whose work already landed, or a read-only run —
+    the phase logs a note and the run continues instead of failing with
+    "nothing to commit".
+    """
 
     name: str = "commit"
     description: str = "Commit the tested and quality-verified working tree"
+    allow_empty: bool = False
 
 
 @dataclass
@@ -138,8 +145,12 @@ def run_quality_or_raise(run, phase, previous=None) -> None:
         raise RuntimeError("quality failed: " + "; ".join(result.failures))
 
 
-def commit_all(run, phase, message: str) -> None:
-    phase.log(sha=git_helper.commit_all(message), message=message)
+def commit_all(run, phase, message: str, *, allow_empty: bool = False) -> None:
+    sha = git_helper.commit_all(message, allow_empty=allow_empty)
+    if sha:
+        phase.log(sha=sha, message=message)
+    else:
+        phase.log(message=message, note="nothing to commit — the working tree is unchanged")
 
 
 # ── the executor ───────────────────────────────────────────────────────────────
@@ -214,7 +225,7 @@ def _run_phases(cfg, run, prompt: str, chain: Chain) -> int:
                 message = getattr(previous, "commit_message", None) or (
                     f"sssf({run.adw_id}): {getattr(previous, 'summary', 'chain')}"
                 )
-                commit_all(run, ph, message)
+                commit_all(run, ph, message, allow_empty=spec.allow_empty)
 
         elif isinstance(spec, CodePhase):
             if spec.when is not None and not spec.when(run):

@@ -4,13 +4,13 @@
 Usage:
     uv run adws/adw_quality.py "<reason for the quality run>" [--config adws/config/sssf.config.yaml] [--adw-id a1b2c3d4]
 
-Phases: engineer(request) -> code(quality)
+Phases: engineer(request) -> code(quality) -> git(commit)
 """
 
 import argparse
 import sys
 
-from sssf.adw_modules import agents, quality, session, utils
+from sssf.adw_modules import agents, chains, quality, session, utils
 from sssf.adw_modules.data_types import PhaseParams
 
 REQUIRED_AGENTS: list[str] = []
@@ -48,6 +48,18 @@ def main(prompt: str, config: str | None = None, adw_id: str | None = None) -> i
         )
         if not result.passed:
             raise RuntimeError("quality failed: " + "; ".join(result.failures))
+
+    with run.phase(
+        PhaseParams(
+            name="commit",
+            kind="code",
+            owner="git",
+            description="Land any tree changes the quality run produced (normally none)",
+        )
+    ) as ph:
+        chains.commit_all(
+            run, ph, f"sssf({run.adw_id}): quality verification", allow_empty=True
+        )
 
     return run.finish()
 

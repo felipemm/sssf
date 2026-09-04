@@ -113,7 +113,7 @@ def test_agent_phases_chain_envelopes(tmp_path):
     import sssf.adw_modules.git_helper as gh
 
     gh_orig = gh.commit_all
-    gh.commit_all = lambda message: "abc123"  # type: ignore[assignment]
+    gh.commit_all = lambda message, **kwargs: "abc123"  # type: ignore[assignment]
     try:
         assert chains.run_chain(run.cfg, run, "do it", chain) == 0
     finally:
@@ -128,7 +128,7 @@ def test_agent_phases_chain_envelopes(tmp_path):
 def fake_commit(monkeypatch):
     import sssf.adw_modules.git_helper as gh
 
-    monkeypatch.setattr(gh, "commit_all", lambda message: "abc123")
+    monkeypatch.setattr(gh, "commit_all", lambda message, **kwargs: "abc123")
 
 
 def test_quality_loop_breaks_on_pass(tmp_path, fake_commit):
@@ -208,3 +208,56 @@ def test_quality_loop_exhausts_then_fails(tmp_path, fake_commit):
     # every red verify phase is marked not_passed — the trace never claims success
     not_passed = [p for p in run.phases if getattr(p, "status", None) == "not_passed"]
     assert len(not_passed) == chains.MAX_FIX_LOOPS
+
+
+def test_commit_phase_allow_empty_noops_on_clean_tree(tmp_path, monkeypatch):
+    """CommitPhase(allow_empty=True) must not fail a run whose working tree is
+    unchanged — a no-op re-run or a read-only run ends clean with a note, not
+    a crash. (Field gap: a build_review run reached review-approval with its
+    fix still uncommitted, so the sandbox branch never carried the work.)"""
+    import sssf.adw_modules.git_helper as gh
+
+    calls: dict = {}
+
+    def fake_commit(message, **kwargs):
+        calls.update(message=message, **kwargs)
+        return None  # nothing staged — clean tree
+
+    monkeypatch.setattr(gh, "commit_all", fake_commit)
+    run = _make_run(tmp_path)
+    chain = Chain(
+        name="br",
+        phases=[
+            AgentPhase("build", "builder", GenericOutput, description="b"),
+            CommitPhase(description="commit the reviewed implementation", allow_empty=True),
+        ],
+    )
+    assert chains.run_chain(run.cfg, run, "x", chain) == 0
+    assert run.accepted is True
+    # the executor forwarded allow_empty to git_helper — no crash on None
+    assert calls["allow_empty"] is True
+    assert calls["message"].startswith("sssf(")
+
+
+def test_commit_phase_default_still_forwards_allow_empty_false(tmp_path, monkeypatch):
+    """The default CommitPhase keeps the strict contract: allow_empty is False
+    unless the ADW opts in."""
+    import sssf.adw_modules.git_helper as gh
+
+    seen = {}
+
+    def fake_commit(message, **kwargs):
+        seen.update(message=message, **kwargs)
+        return "abc123"
+
+    monkeypatch.setattr(gh, "commit_all", fake_commit)
+    run = _make_run(tmp_path)
+    chain = Chain(
+        name="bt",
+        phases=[
+            AgentPhase("build", "builder", GenericOutput, description="b"),
+            CommitPhase(),
+        ],
+    )
+    assert chains.run_chain(run.cfg, run, "x", chain) == 0
+    assert seen["allow_empty"] is False

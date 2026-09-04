@@ -4,7 +4,7 @@
 Usage:
     uv run adws/adw_build_review.py "<prompt or path/to/prompt.md>" [--config adws/config/sssf.config.yaml] [--adw-id a1b2c3d4]
 
-Phases: engineer(request) -> builder -> reviewer (bounded)"""
+Phases: engineer(request) -> builder -> reviewer (bounded) -> git(commit)"""
 
 import argparse
 import sys
@@ -13,6 +13,7 @@ from sssf.adw_modules import agents, chains, gates, session, utils
 from sssf.adw_modules.chains import (
     AgentPhase,
     Chain,
+    CommitPhase,
     ReviewLoop,
 )
 from sssf.adw_modules.data_types import BuildOutput
@@ -29,6 +30,10 @@ CHAIN = Chain(
             gates=[gates.diff_matches_claims],
         ),
         ReviewLoop(),
+        CommitPhase(
+            description="Commit the reviewed implementation — only reached on approval",
+            allow_empty=True,
+        ),
     ],
 )
 
