@@ -38,6 +38,59 @@ def projects(action: str, name: str | None) -> int:
     return 0
 
 
+def _recent_spawn_failures(limit: int = 5) -> list[tuple[str, str]]:
+    """[(adw_id, hint)] from the current project's db — read-only."""
+    import json
+    import sqlite3
+
+    from sssf.adw_modules import paths
+
+    root = Path.cwd()
+    db = paths.data_dir(root) / "sssf.db"
+    if not (root / "adws").exists() or not db.exists():
+        return []
+    conn = None
+    try:
+        # Open read-only (SELECTs only). WAL dbs can't be opened with mode=ro
+        # when the -wal/-shm files are absent (checkpointed and closed), so on
+        # that error fall back to a plain connection — both paths are
+        # SELECT-only.
+        try:
+            conn = sqlite3.connect(
+                f"file:{db.as_posix()}?mode=ro", uri=True, timeout=5
+            )
+        except sqlite3.Error:
+            conn = sqlite3.connect(str(db), timeout=5)
+        rows = conn.execute(
+            "SELECT adw_id FROM sessions"
+            " WHERE adw_name='adw_simple_sdlc (never started)'"
+            " ORDER BY started_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        out: list[tuple[str, str]] = []
+        for (adw_id,) in rows:
+            ev = conn.execute(
+                "SELECT payload_json FROM events WHERE adw_id=?"
+                " AND name='sandbox spawn failure'"
+                " ORDER BY started_at DESC LIMIT 1",
+                (adw_id,),
+            ).fetchone()
+            hint = ""
+            if ev:
+                payload = json.loads(ev[0])
+                if isinstance(payload, dict):
+                    hint = payload.get("remediation") or (
+                        payload.get("container_log_tail") or ""
+                    )[-120:]
+            out.append((adw_id, hint))
+        return out
+    except (sqlite3.Error, ValueError):
+        return []
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def doctor() -> int:
     ok = True
     for tool in CORE_TOOLS:
@@ -52,6 +105,11 @@ def doctor() -> int:
     console.print(
         f"[{'green' if on_path else 'red'}]{'ok' if on_path else 'missing'}[/]  ~/.local/bin on PATH"
     )
+    failures = _recent_spawn_failures()
+    if failures:
+        console.print("\n[yellow]recent spawn failures[/yellow]")
+        for adw_id, hint in failures:
+            console.print(f"  {adw_id}  {hint or '(no hint classified)'}")
     ok = _doctor_project(ok)
     return 0 if ok else 1
 

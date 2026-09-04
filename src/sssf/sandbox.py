@@ -1009,6 +1009,7 @@ def record_never_started(project_root: Path, adw_id: str, tracer, per_run_db: Pa
         pass
     from sssf.adw_modules.data_types import EventRecord
     from sssf.adw_modules.utils import now_iso
+    from sssf.postmortem import classify_failure
 
     now = now_iso()
     tracer.conn.execute(
@@ -1032,6 +1033,7 @@ def record_never_started(project_root: Path, adw_id: str, tracer, per_run_db: Pa
             payload={
                 "exit_code": exit_code,
                 "container_log_tail": log_tail[-2000:],
+                "remediation": classify_failure(log_tail, exit_code),
             },
         )
     )
