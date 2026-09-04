@@ -207,7 +207,7 @@ agents:
       - subagent_remove
 
   - name: documenter
-    model: litellm/minimax-m3-official
+    model: litellm/glm-5.3-flash-tencent
     thinking: high
     color: "#e879f9"
     purpose: Write up the change that was just made, from the diff; document only.
