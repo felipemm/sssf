@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when docker is unavailable or sandbox is disabled, and failed builds are
   retried after a 30-minute cooldown. `sssf sandbox build` reuses the same
   build path.
+- **Kanban cards cap their phase dots to a rolling window** — a restarted
+  session keeps appending phases at rising seq, so its card accumulated
+  dozens of dots and overflowed the card (f9e445e9: 26 across three
+  attempts). Cards now show the newest 12 phases — the latest attempt — with
+  a dimmed +N marker for the phases that rolled off.
+
 
 ### Fixed
 
