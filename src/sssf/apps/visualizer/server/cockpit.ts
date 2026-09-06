@@ -270,19 +270,21 @@ function projectRow(
       // first-class citizen; the ticket is provenance). A ticket whose run
       // finished is done/failed even if its row still says 'starting'/'running'
       // (mirrors server/status.ts).
-      const rows = db.query<{ status: string; adw_id: string | null }, []>(
-        "SELECT status, adw_id FROM tickets").all();
+      let rows: { t_status: string; s_status: string | null; adw_id: string | null }[] = [];
+      if (hasTable(db, "sessions")) {
+        rows = db.query<{ t_status: string; s_status: string | null; adw_id: string | null }, []>(
+          "SELECT t.status AS t_status, s.status AS s_status, t.adw_id FROM tickets t LEFT JOIN sessions s ON t.adw_id = s.adw_id").all();
+      } else {
+        rows = db.query<{ t_status: string; s_status: string | null; adw_id: string | null }, []>(
+          "SELECT status AS t_status, NULL AS s_status, adw_id FROM tickets").all();
+      }
       let backlog = 0;
       let inflight = 0;
       let done = 0;
       for (const r of rows) {
-        let status = r.status;
-        if (r.adw_id) {
-          const srow = hasTable(db, "sessions")
-            ? db.query<{ status: string }, [string]>(
-                "SELECT status FROM sessions WHERE adw_id=?").get(r.adw_id)
-            : null;
-          if (srow) status = srow.status === "success" ? "done" : srow.status === "fail" ? "failed" : "running";
+        let status = r.t_status;
+        if (r.adw_id && r.s_status) {
+          status = r.s_status === "success" ? "done" : r.s_status === "fail" ? "failed" : "running";
         }
         if (status === "starting") status = "running"; // spawned, run warming up
         if (status === "backlog") backlog++;
