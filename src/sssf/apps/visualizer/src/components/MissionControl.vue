@@ -72,6 +72,7 @@ const chartWindowLabel = computed(
 )
 
 async function fetchContribs() {
+  if (document.hidden) return
   try {
     contribDays.value = await fetchCockpitContributions()
   } catch {
@@ -80,6 +81,7 @@ async function fetchContribs() {
 }
 
 async function refresh() {
+  if (document.hidden) return
   if (loading.value) return
   loading.value = true
   error.value = ''
@@ -153,6 +155,7 @@ let logTimer: ReturnType<typeof setInterval> | undefined
 let contribTimer: ReturnType<typeof setInterval> | undefined
 
 async function fetchLogs() {
+  if (document.hidden) return
   if (!logName.value || logLoading.value) return
   logLoading.value = true
   logError.value = ''

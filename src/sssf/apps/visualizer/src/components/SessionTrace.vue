@@ -70,6 +70,7 @@ const SIDE_TABLE_TYPES = new Set(['gate_pass', 'gate_fail', 'handoff', 'agent_en
 const { projectsLoaded, selectedProject } = useProjects()
 
 async function tick() {
+  if (document.hidden) return
   if (inflight) return
   if (!projectsLoaded.value || !selectedProject.value) return   // wait for the project
   inflight = true
