@@ -22,6 +22,7 @@ let timer: ReturnType<typeof setInterval> | undefined
 let inflight = false
 
 async function tick() {
+  if (document.hidden) return
   if (inflight) return
   if (!projectsLoaded.value) return   // wait for the project situation before fetching
   inflight = true

@@ -64,6 +64,7 @@ function stopPolling() {
 }
 
 async function pull() {
+  if (document.hidden) return
   if (inflight) return
   inflight = true
   try {
