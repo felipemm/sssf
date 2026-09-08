@@ -3,3 +3,10 @@
 **/__pycache__
 **/*.pyc
 **/node_modules
+# repo-local dev artifacts never copied by the Dockerfile — keeping them out of
+# the context shrinks the walk/send on every build (cache-key noise included)
+.mypy_cache
+.pytest_cache
+.superpowers
+/site
+/dist
