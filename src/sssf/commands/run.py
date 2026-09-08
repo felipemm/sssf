@@ -18,9 +18,17 @@ def run(
     explicit_project: str | None = None,
     no_sandbox: bool = False,
 ) -> int:
-    # The run parser takes the prompt as a REMAINDER positional, so options
-    # after it (e.g. `sssf run simple_sdlc "<prompt>" --project X`) land in
-    # args. Pull a trailing --project out when the caller didn't pass one.
+    # The run parser takes the prompt as a REMAINDER positional, so option
+    # flags typed AFTER it (e.g. `sssf run simple_sdlc "<prompt>" --no-sandbox`)
+    # are swallowed into args instead of parsed — argparse stops option
+    # processing once REMAINDER starts. Strip --no-sandbox here (same reason the
+    # --project extraction below exists): without it the flag is forwarded
+    # VERBATIM into the ADW argv — and, in sandboxed mode, into the container
+    # command, where adw_*.py dies with "unrecognized arguments: --no-sandbox"
+    # (exit 2, "sandboxed run died before the ADW started", e.g. cce4c966).
+    if "--no-sandbox" in args:
+        args = [a for a in args if a != "--no-sandbox"]
+        no_sandbox = True
     if explicit_project is None and "--project" in args:
         i = args.index("--project")
         if i + 1 < len(args):
@@ -102,6 +110,10 @@ def _run_sandboxed(
 
     adw_id = adw_id or uuid.uuid4().hex[:8]
     data_dir, pi_home, env = sandbox_env(root)
+    # Defense in depth: the container command must never carry a literal
+    # --no-sandbox (REMAINDER can smuggle it past the CLI; the ADW's argparse
+    # dies on it with exit 2). run() strips it, this guarantees it anyway.
+    args = [a for a in args if a != "--no-sandbox"]
     try:
         spawn_sandbox(
             root,
