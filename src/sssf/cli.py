@@ -207,7 +207,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_sb = sub.add_parser("sandbox", help="sandbox lifecycle (build / list / prune)")
     sbsub = p_sb.add_subparsers(dest="sandbox_action", required=True)
-    p_build = sbsub.add_parser("build", help="build/refresh the sssf-runner image")
+    p_build = sbsub.add_parser(
+        "build", help="build/refresh the sssf-runner image (streams docker progress)"
+    )
     p_build.add_argument("--project", default=None)
     p_list = sbsub.add_parser("list", help="show sandboxes (adw_id · status · branch · container)")
     p_list.add_argument("--project", default=None)

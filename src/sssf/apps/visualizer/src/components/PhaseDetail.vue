@@ -365,7 +365,7 @@ function togglePanel(id: string) {
           <span class="tag-v">{{ phase.attempt ?? 0 }}/{{ phase.retries ?? 0 }}</span>
         </span>
       </div>
-      <button class="close" title="close" @click="$emit('close')">✕</button>
+      <button class="close" title="close" aria-label="Close" @click="$emit('close')">✕</button>
     </header>
 
     <div v-if="phase.error" class="error-bar d-error">{{ phase.error }}</div>
