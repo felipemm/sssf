@@ -124,9 +124,15 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("doctor", help="check global prerequisites and project state").set_defaults(
         func=lambda a: misc.doctor()
     )
-    sub.add_parser("upgrade", help="uv tool upgrade sssf").set_defaults(
-        func=lambda a: misc.upgrade()
+    p_upgrade = sub.add_parser(
+        "upgrade", help="update sssf (uv tool upgrade; git pull for editable installs)"
     )
+    p_upgrade.add_argument(
+        "--check",
+        action="store_true",
+        help="report whether an update is available (JSON, read-only)",
+    )
+    p_upgrade.set_defaults(func=lambda a: misc.upgrade(check=a.check))
 
     p_viz = sub.add_parser("viz", help="run the global trace visualizer as a background service")
     p_viz.add_argument("action", nargs="?", default="start", choices=["start", "stop"])
