@@ -12,6 +12,7 @@ import type {
   ReviewInfo,
   SessionDetail,
   SessionSummary,
+  UpdateReport,
 } from './types'
 
 async function getJson(url: string): Promise<unknown> {
@@ -96,6 +97,10 @@ export async function fetchContainerLogs(name: string, tail = 100): Promise<Cont
   const res = await fetch(`/api/cockpit/containers/${encodeURIComponent(name)}/logs?tail=${tail}`)
   if (!res.ok) return { ok: false, lines: [], error: `logs ${res.status}` }
   return (await res.json()) as ContainerLogsResponse
+}
+
+export async function fetchUpdateCheck(): Promise<UpdateReport> {
+  return getJson('/api/update-check') as Promise<UpdateReport>
 }
 
 export async function fetchProjects(): Promise<ProjectInfo[]> {
