@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useId } from 'vue'
 import type { Component } from 'vue'
 
 defineProps<{
@@ -11,17 +12,19 @@ defineProps<{
 }>()
 
 defineEmits<{ toggle: [] }>()
+
+const bodyId = useId()
 </script>
 
 <template>
   <section class="dsec">
-    <button class="dsec-head" @click="$emit('toggle')">
-      <span class="chev">{{ open ? '▾' : '▸' }}</span>
-      <component :is="icon" v-if="icon" class="dsec-icon" :size="19" :stroke-width="2" />
+    <button class="dsec-head" @click="$emit('toggle')" :aria-expanded="open" :aria-controls="open ? bodyId : undefined">
+      <span class="chev" aria-hidden="true">{{ open ? '▾' : '▸' }}</span>
+      <component :is="icon" v-if="icon" class="dsec-icon" :size="19" :stroke-width="2" aria-hidden="true" />
       <span class="dsec-title">{{ title }}</span>
       <span v-if="count != null" class="dsec-count dim">({{ count }})</span>
     </button>
-    <div v-if="open" class="dsec-body">
+    <div v-if="open" :id="bodyId" class="dsec-body">
       <slot />
     </div>
   </section>
