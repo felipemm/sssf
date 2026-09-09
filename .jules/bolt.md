@@ -1,0 +1,3 @@
+## 2024-05-19 - Vue Component Frequent Polling Optimization
+**Learning:** Polling Vue components using `setInterval` (like `SessionsList.vue`, `KanbanBoard.vue`) that re-fetch data every 500ms create unnecessary background API requests and possible UI churn when the user tabs away. Since these apps are dashboards meant to run all the time, background polling drains network and CPU resources when the dashboard isn't actively viewed.
+**Action:** The codebase uses `setInterval` for fetching data very aggressively (`500ms`). It should dynamically pause polling when the browser tab is not visible, making use of the Page Visibility API (`document.hidden`). By skipping API calls or pausing intervals when `document.hidden` is true, we prevent massive redundant polling.
