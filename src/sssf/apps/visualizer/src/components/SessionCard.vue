@@ -64,7 +64,7 @@ function stopPolling() {
 }
 
 async function pull() {
-  if (inflight) return
+  if (inflight || document.hidden) return
   inflight = true
   try {
     const fresh: EventRow[] = []
