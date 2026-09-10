@@ -1,6 +1,14 @@
+const tsCache = new Map<string, number>()
+
 export function ts(iso: string | null | undefined): number {
   if (!iso) return NaN
-  return new Date(iso).getTime()
+  let val = tsCache.get(iso)
+  if (val === undefined) {
+    val = new Date(iso).getTime()
+    if (tsCache.size > 10000) tsCache.clear()
+    tsCache.set(iso, val)
+  }
+  return val
 }
 
 export function fmtDuration(ms: number): string {
