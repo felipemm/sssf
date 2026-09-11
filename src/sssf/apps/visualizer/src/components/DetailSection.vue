@@ -15,7 +15,7 @@ defineEmits<{ toggle: [] }>()
 
 <template>
   <section class="dsec">
-    <button class="dsec-head" @click="$emit('toggle')">
+    <button class="dsec-head" :aria-expanded="open" @click="$emit('toggle')">
       <span class="chev">{{ open ? '▾' : '▸' }}</span>
       <component :is="icon" v-if="icon" class="dsec-icon" :size="19" :stroke-width="2" />
       <span class="dsec-title">{{ title }}</span>
