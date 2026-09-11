@@ -122,7 +122,7 @@ async function tick() {
 
 onMounted(() => {
   void tick()
-  timer = setInterval(() => void tick(), 500)
+  timer = setInterval(() => { if (!document.hidden) void tick() }, 500) // ⚡ Bolt: pause background polling when tab is hidden
 })
 watch(projectsLoaded, () => {
   if (projectsLoaded.value) void tick()   // the project resolved — fetch for real
