@@ -135,7 +135,7 @@ const nowMs = ref(Date.now())   // KanbanSessionCard's duration chip ticks with 
 onMounted(() => {
   void tick()
   void pullTickets()
-  timer = setInterval(() => void tick(), 500)
+  timer = setInterval(() => { if (!document.hidden) void tick() }, 500) // ⚡ Bolt: pause background polling when tab is hidden
   resizeObs = new ResizeObserver(() => computeZoom())
   if (zoomWrapEl.value) resizeObs.observe(zoomWrapEl.value)
   computeZoom()

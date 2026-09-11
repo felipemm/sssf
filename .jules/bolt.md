@@ -1,0 +1,3 @@
+## 2024-09-12 - Prevent background API polling when browser tab is hidden
+**Learning:** The visualizer app aggressively polls the backend (every 500ms) to tail live runs using `setInterval` across multiple views (lists, kanban, trace, cards). If left running unchecked, these timers continue firing even when the tab is hidden, leading to thousands of unnecessary network requests and wasted CPU cycles for background tabs.
+**Action:** Always wrap API fetch calls inside `setInterval` with a check for `!document.hidden` in dashboards that rely on frequent polling. This ensures the app only requests data when visible, significantly reducing background resource drain.
