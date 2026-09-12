@@ -18,6 +18,7 @@ onMounted(() => {
     class="project-picker"
     :value="selectedProject ?? ''"
     title="trace db"
+    aria-label="Select project"
     @change="emit('select', ($event.target as HTMLSelectElement).value)"
   >
     <option v-for="p in projects" :key="p.name" :value="p.name">{{ p.name }}</option>
