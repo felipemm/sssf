@@ -34,10 +34,14 @@ async function tick() {
   try {
     sessions.value = await fetchSessions()
     // Guard: the API is deduplicated, so a repeated adw_id here is a real bug.
-    const dupes = sessions.value.filter(
-      (s, i) => sessions.value.findIndex((x) => x.adw_id === s.adw_id) !== i,
-    )
-    if (dupes.length) console.warn('[board] DUPLICATE adw_id in response:', dupes.map((d) => `${d.adw_id}:${d.status}`))
+    // Optimization: Use an O(n) Set instead of O(n²) filter+findIndex for performance during 500ms poll
+    const seenIds = new Set<string>()
+    const dupes: string[] = []
+    for (const s of sessions.value) {
+      if (seenIds.has(s.adw_id)) dupes.push(`${s.adw_id}:${s.status}`)
+      else seenIds.add(s.adw_id)
+    }
+    if (dupes.length) console.warn('[board] DUPLICATE adw_id in response:', dupes)
     apiError.value = null
     loaded.value = true
   } catch (err) {

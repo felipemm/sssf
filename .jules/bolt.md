@@ -1,0 +1,3 @@
+## 2024-05-14 - [O(n^2) finding index inside map/filter can be a bottleneck in high frequency loop]
+**Learning:** Checking for duplicate items using `Array.prototype.filter` coupled with `Array.prototype.findIndex` is an O(n^2) operation. When run inside a high frequency polling loop (like 500ms intervals) this can significantly slow down execution and cause dropped frames or lag on large datasets (e.g. 5000+ sessions in a project).
+**Action:** Replace `Array.prototype.filter` combined with `Array.prototype.findIndex` with a standard `for` loop storing identifiers in an O(1) look-up `Set`. This turns the operation into O(n).
