@@ -1,0 +1,3 @@
+## 2026-09-17 - [Missing ARIA attributes on Vue interactive elements]
+**Learning:** Icon-only or mini functional buttons (e.g. collapse/expand chevrons, mini refresh buttons, inline retry links) and collapsible sections across the Vue components commonly lacked proper `aria-label`, `aria-expanded`, and `aria-pressed` attributes, which impairs screen reader accessibility.
+**Action:** When adding new interactive toggle regions or icon-only controls, always include `aria-expanded`/`aria-pressed` bound to the same reactive state as the visual indicator, along with a descriptive `aria-label` explaining the target action.
