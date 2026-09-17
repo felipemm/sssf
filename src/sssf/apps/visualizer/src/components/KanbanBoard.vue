@@ -10,7 +10,7 @@ import {
   type Ticket,
   type TicketsResponse,
 } from '../lib/api'
-import { ts } from '../lib/format'
+import { cmpTs } from '../lib/format'
 import KanbanSessionCard from './KanbanSessionCard.vue'
 import TicketCard from './TicketCard.vue'
 import TicketModal from './TicketModal.vue'
@@ -217,7 +217,7 @@ const byColumn = computed(() => {
     else (groups[status] ?? groups.fail).push(s)
   }
   for (const list of Object.values(groups)) {
-    list.sort((a, b) => (ts(b.started_at) || 0) - (ts(a.started_at) || 0))
+    list.sort((a, b) => cmpTs(b.started_at, a.started_at))
   }
   return groups
 })
