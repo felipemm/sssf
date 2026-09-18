@@ -267,8 +267,8 @@ function fmtRel(iso: string | null): string {
           <div class="kpi-n">{{ data.heal.running ? data.heal.healed7d : 'off' }}</div>
           <div class="kpi-l">{{ data.heal.running ? 'sessions healed · 7d' : 'healer' }}</div>
           <div class="heal-actions">
-            <button v-if="!data.heal.running" class="mini" @click="onHeal('start')">start</button>
-            <button v-else class="mini" @click="onHeal('stop')">stop</button>
+            <button v-if="!data.heal.running" type="button" class="mini" @click="onHeal('start')">start</button>
+            <button v-else type="button" class="mini" @click="onHeal('stop')">stop</button>
           </div>
         </div>
       </div>
@@ -315,10 +315,10 @@ function fmtRel(iso: string | null): string {
             <td class="hint hint-line" data-hint="All-time session cost.">{{ fmtUsd(p.costTotalUsd) }}</td>
             <td class="hint hint-line" data-hint="Latest event time in the project db.">{{ fmtRel(p.lastActivity) }}</td>
             <td class="actions">
-              <button class="icon" title="Refresh — sssf init --refresh --auto: accept all template updates, non-interactive" aria-label="Refresh project" :disabled="pending.has(`refresh:${p.name}`)" @click="onRefresh(p.name)">
+              <button type="button" class="icon" title="Refresh — sssf init --refresh --auto: accept all template updates, non-interactive" aria-label="Refresh project" :disabled="pending.has(`refresh:${p.name}`)" @click="onRefresh(p.name)">
                 <RefreshCw :size="14" :class="{ spin: pending.has(`refresh:${p.name}`) }" />
               </button>
-              <button class="icon" title="Remove from the registry (confirm dialog). Does not delete the project's files." aria-label="Remove project" @click="onRemove(p.name)">
+              <button type="button" class="icon" title="Remove from the registry (confirm dialog). Does not delete the project's files." aria-label="Remove project" @click="onRemove(p.name)">
                 <Trash2 :size="14" />
               </button>
             </td>
@@ -340,10 +340,10 @@ function fmtRel(iso: string | null): string {
           <span class="phase hint" data-hint="The phase currently executing (latest running phase).">{{ r.phase ?? '—' }}</span>
           <span class="age hint" data-hint="How long the session has been running (mm:ss).">{{ fmtAge(r.ageSec) }}</span>
           <span class="run-actions">
-            <button class="icon" title="Stop — finalizes the session + in-flight phases as 'fail' (stopped by the engineer)" aria-label="Stop run" :disabled="pending.has(`stop:${r.adwId}`)" @click="onStop(r.project, r.adwId)">
+            <button type="button" class="icon" title="Stop — finalizes the session + in-flight phases as 'fail' (stopped by the engineer)" aria-label="Stop run" :disabled="pending.has(`stop:${r.adwId}`)" @click="onStop(r.project, r.adwId)">
               <Square :size="13" />
             </button>
-            <button class="icon" title="Restart — reuses the adw_id + request and attaches to the same branch" aria-label="Restart run" :disabled="pending.has(`restart:${r.adwId}`)" @click="onRestart(r.project, r.adwId)">
+            <button type="button" class="icon" title="Restart — reuses the adw_id + request and attaches to the same branch" aria-label="Restart run" :disabled="pending.has(`restart:${r.adwId}`)" @click="onRestart(r.project, r.adwId)">
               <RotateCw :size="13" />
             </button>
           </span>
@@ -357,6 +357,7 @@ function fmtRel(iso: string | null): string {
         <button
           v-for="w in CHART_WINDOWS"
           :key="w.key"
+          type="button"
           class="window-btn"
           :class="{ active: chartWindow === w.key }"
           role="tab"
@@ -397,7 +398,7 @@ function fmtRel(iso: string | null): string {
             <td :class="c.running ? 'up' : 'down'" class="hint" data-hint="docker ps status.">{{ c.status }}</td>
             <td class="dim hint" data-hint="Container creation time.">{{ c.created }}</td>
             <td>
-              <button class="strip-archive" :class="{ on: logName === c.name }"
+              <button type="button" class="strip-archive" :class="{ on: logName === c.name }"
                       :title="logName === c.name ? 'Close logs' : 'Tail the container logs — docker logs --tail N --timestamps, auto-refreshed every 5s while open'"
                       aria-label="Toggle container logs"
                       @click="toggleLogs(c.name)">
@@ -412,7 +413,7 @@ function fmtRel(iso: string | null): string {
                 <select v-model.number="logTail" class="tail-select" @change="onLogTailChange">
                   <option :value="50">50</option><option :value="100">100</option><option :value="250">250</option>
                 </select>
-                <button class="mini" :disabled="logLoading" @click="fetchLogs">
+                <button type="button" class="mini" :disabled="logLoading" @click="fetchLogs">
                   <RefreshCw :size="12" :class="{ spin: logLoading }" style="vertical-align: -1px; margin-right: 4px" />refresh
                 </button>
                 <span class="log-hint">auto-tails every 5s</span>
@@ -467,7 +468,9 @@ function fmtRel(iso: string | null): string {
       <form class="add-form" @submit.prevent="onAdd">
         <input v-model="newRoot" class="root-input hint" data-hint="Filesystem path to a project (must contain adws/). Registered in ~/.sssf/projects.json — the project's runs become visible to the cockpit." placeholder="/path/to/project (with adws/)" spellcheck="false" />
         <button class="primary" type="submit" :disabled="adding || !newRoot.trim()">
-          <Plus :size="15" style="vertical-align: -2px; margin-right: 5px" />Add
+          <LoaderCircle v-if="adding" :size="15" class="spin" style="vertical-align: -2px; margin-right: 5px" />
+          <Plus v-else :size="15" style="vertical-align: -2px; margin-right: 5px" />
+          {{ adding ? 'Adding…' : 'Add' }}
         </button>
       </form>
     </section>
