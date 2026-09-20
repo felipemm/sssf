@@ -462,8 +462,8 @@ function togglePanel(id: string) {
           <template v-else-if="promptsState === 'ready'">
             <div v-if="!promptPanels.length" class="faint">no compiled prompts recorded</div>
             <div v-for="panel in promptPanels" :key="panel.id" class="prompt-panel">
-              <button class="prompt-head" @click="togglePanel(panel.id)">
-                <span class="chev">{{ openPanels.has(panel.id) ? '▾' : '▸' }}</span>
+              <button class="prompt-head" :aria-expanded="openPanels.has(panel.id)" @click="togglePanel(panel.id)">
+                <span class="chev" aria-hidden="true">{{ openPanels.has(panel.id) ? '▾' : '▸' }}</span>
                 <span class="prompt-title">{{ panel.title }}</span>
                 <span class="dim">{{ panel.lines }} lines</span>
               </button>
@@ -471,11 +471,16 @@ function togglePanel(id: string) {
                 <div class="prompt-tools">
                   <button
                     :class="{ active: !rawView.has(panel.id) }"
+                    :aria-pressed="!rawView.has(panel.id)"
                     @click="rawView.delete(panel.id)"
                   >
                     rendered
                   </button>
-                  <button :class="{ active: rawView.has(panel.id) }" @click="rawView.add(panel.id)">
+                  <button
+                    :class="{ active: rawView.has(panel.id) }"
+                    :aria-pressed="rawView.has(panel.id)"
+                    @click="rawView.add(panel.id)"
+                  >
                     raw
                   </button>
                 </div>

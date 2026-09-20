@@ -277,10 +277,11 @@ function toggleCollapsed(key: string) {
             type="button"
             class="col-toggle"
             :title="collapsed[col.key] ? 'Expand stage' : 'Collapse stage'"
+            :aria-expanded="!collapsed[col.key]"
             @click="toggleCollapsed(col.key)"
           >
-            <ChevronRight v-if="collapsed[col.key]" :size="15" :stroke-width="2" class="chev" />
-            <ChevronDown v-else :size="15" :stroke-width="2" class="chev" />
+            <ChevronRight v-if="collapsed[col.key]" :size="15" :stroke-width="2" class="chev" aria-hidden="true" />
+            <ChevronDown v-else :size="15" :stroke-width="2" class="chev" aria-hidden="true" />
             <span class="dot" :style="{ background: col.accent }" />
             <span class="col-name">{{ col.label }}</span>
             <span class="col-count">{{ col.key === 'backlog' ? backlogTickets.length : col.key === 'fail' ? byColumn[col.key].length + failedTickets.length : byColumn[col.key].length }}</span>
