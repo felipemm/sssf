@@ -1,0 +1,3 @@
+## 2025-05-18 - [Optimize Ticket Status Check Query]
+**Learning:** In the visualizer's `computeCockpit` routine (specific to cross-project overview), the ticket status query suffered from an N+1 pattern where it executed a separate `SELECT status FROM sessions WHERE adw_id=?` for every ticket row inside a loop.
+**Action:** Replace the loop body query with a single `LEFT JOIN` on the initial `tickets` fetch (`SELECT t.status, s.status AS session_status FROM tickets t LEFT JOIN sessions s ON t.adw_id = s.adw_id`). This pattern should be used whenever cross-referencing row metadata in cockpit generation to avoid blocking the single-thread event loop with excessive SQLite queries.

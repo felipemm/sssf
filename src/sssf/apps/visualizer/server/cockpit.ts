@@ -270,19 +270,21 @@ function projectRow(
       // first-class citizen; the ticket is provenance). A ticket whose run
       // finished is done/failed even if its row still says 'starting'/'running'
       // (mirrors server/status.ts).
-      const rows = db.query<{ status: string; adw_id: string | null }, []>(
-        "SELECT status, adw_id FROM tickets").all();
+      // ⚡ Bolt: Replaced N+1 query loop with a single LEFT JOIN.
+      // Expected impact: Eliminates O(N) database queries per project in the cockpit loop,
+      // significantly reducing main thread blocking time during poll refresh.
+      const hasSessions = hasTable(db, "sessions");
+      const query = hasSessions
+        ? `SELECT t.status, s.status AS session_status FROM tickets t LEFT JOIN sessions s ON t.adw_id = s.adw_id`
+        : `SELECT status, NULL AS session_status FROM tickets`;
+      const rows = db.query<{ status: string; session_status: string | null }, []>(query).all();
       let backlog = 0;
       let inflight = 0;
       let done = 0;
       for (const r of rows) {
         let status = r.status;
-        if (r.adw_id) {
-          const srow = hasTable(db, "sessions")
-            ? db.query<{ status: string }, [string]>(
-                "SELECT status FROM sessions WHERE adw_id=?").get(r.adw_id)
-            : null;
-          if (srow) status = srow.status === "success" ? "done" : srow.status === "fail" ? "failed" : "running";
+        if (r.session_status) {
+          status = r.session_status === "success" ? "done" : r.session_status === "fail" ? "failed" : "running";
         }
         if (status === "starting") status = "running"; // spawned, run warming up
         if (status === "backlog") backlog++;
