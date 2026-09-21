@@ -41,7 +41,13 @@ def build(explicit: str | None) -> int:
                 file=sys.stderr,
             )
             return 1
-        build_runner_image(cfg.sandbox.image)
+        print(
+            f"building {cfg.sandbox.image} — cache-cold builds download "
+            "pi/bun/snyk/Chrome from the network and can take many minutes "
+            "(docker progress streams below)",
+            file=sys.stderr,
+        )
+        build_runner_image(cfg.sandbox.image, stream=True)
     except SandboxError as e:
         print(f"sssf: image build failed: {e}", file=sys.stderr)
         return 1

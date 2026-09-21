@@ -315,10 +315,10 @@ function fmtRel(iso: string | null): string {
             <td class="hint hint-line" data-hint="All-time session cost.">{{ fmtUsd(p.costTotalUsd) }}</td>
             <td class="hint hint-line" data-hint="Latest event time in the project db.">{{ fmtRel(p.lastActivity) }}</td>
             <td class="actions">
-              <button class="icon" title="Refresh — sssf init --refresh --auto: accept all template updates, non-interactive" :disabled="pending.has(`refresh:${p.name}`)" @click="onRefresh(p.name)">
+              <button class="icon" title="Refresh — sssf init --refresh --auto: accept all template updates, non-interactive" aria-label="Refresh project" :disabled="pending.has(`refresh:${p.name}`)" @click="onRefresh(p.name)">
                 <RefreshCw :size="14" :class="{ spin: pending.has(`refresh:${p.name}`) }" />
               </button>
-              <button class="icon" title="Remove from the registry (confirm dialog). Does not delete the project's files." @click="onRemove(p.name)">
+              <button class="icon" title="Remove from the registry (confirm dialog). Does not delete the project's files." aria-label="Remove project" @click="onRemove(p.name)">
                 <Trash2 :size="14" />
               </button>
             </td>
@@ -340,10 +340,10 @@ function fmtRel(iso: string | null): string {
           <span class="phase hint" data-hint="The phase currently executing (latest running phase).">{{ r.phase ?? '—' }}</span>
           <span class="age hint" data-hint="How long the session has been running (mm:ss).">{{ fmtAge(r.ageSec) }}</span>
           <span class="run-actions">
-            <button class="icon" title="Stop — finalizes the session + in-flight phases as 'fail' (stopped by the engineer)" :disabled="pending.has(`stop:${r.adwId}`)" @click="onStop(r.project, r.adwId)">
+            <button class="icon" title="Stop — finalizes the session + in-flight phases as 'fail' (stopped by the engineer)" aria-label="Stop run" :disabled="pending.has(`stop:${r.adwId}`)" @click="onStop(r.project, r.adwId)">
               <Square :size="13" />
             </button>
-            <button class="icon" title="Restart — reuses the adw_id + request and attaches to the same branch" :disabled="pending.has(`restart:${r.adwId}`)" @click="onRestart(r.project, r.adwId)">
+            <button class="icon" title="Restart — reuses the adw_id + request and attaches to the same branch" aria-label="Restart run" :disabled="pending.has(`restart:${r.adwId}`)" @click="onRestart(r.project, r.adwId)">
               <RotateCw :size="13" />
             </button>
           </span>
@@ -399,6 +399,7 @@ function fmtRel(iso: string | null): string {
             <td>
               <button class="strip-archive" :class="{ on: logName === c.name }"
                       :title="logName === c.name ? 'Close logs' : 'Tail the container logs — docker logs --tail N --timestamps, auto-refreshed every 5s while open'"
+                      aria-label="Toggle container logs"
                       @click="toggleLogs(c.name)">
                 <Terminal :size="15" :stroke-width="2" />
               </button>

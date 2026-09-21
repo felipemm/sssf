@@ -5,7 +5,19 @@ import sys
 from pathlib import Path
 
 from sssf import __version__
-from sssf.commands import heal, init, misc, obs_cmds, run, sandbox_cmd, spec, sweep, ticket, viz
+from sssf.commands import (
+    heal,
+    init,
+    misc,
+    notify_cmd,
+    obs_cmds,
+    run,
+    sandbox_cmd,
+    spec,
+    sweep,
+    ticket,
+    viz,
+)
 from sssf.project import data_dir, find_project
 
 
@@ -192,6 +204,28 @@ def main(argv: list[str] | None = None) -> int:
     p_context.add_argument("--project", default=None)
     p_ticket.set_defaults(func=lambda a: _dispatch_ticket(a))
 
+    p_notify = sub.add_parser(
+        "notify", help="post an alert to a ticket's Slack thread (alerting only)"
+    )
+    p_notify.add_argument("ticket_id")
+    p_notify.add_argument("text")
+    p_notify.add_argument("--workbench", default=None, help="workbench URL")
+    p_notify.add_argument("--mr", default=None, help="merge-request URL")
+    p_notify.add_argument("--release", default=None, help="release URL")
+    p_notify.add_argument("--tompero", default=None, help="tompero deployment URL")
+    p_notify.add_argument("--project", default=None)
+    p_notify.set_defaults(
+        func=lambda a: notify_cmd.run(
+            a.ticket_id,
+            a.text,
+            a.project,
+            workbench=a.workbench,
+            mr=a.mr,
+            release=a.release,
+            tompero=a.tompero,
+        )
+    )
+
     p_heal = sub.add_parser("heal", help="self-healing monitor daemon (start / stop / status)")
     p_heal.add_argument("action", nargs="?", default="status", choices=["start", "stop", "status"])
     p_heal.set_defaults(func=lambda a: heal.main(a.action))
@@ -207,7 +241,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p_sb = sub.add_parser("sandbox", help="sandbox lifecycle (build / list / prune)")
     sbsub = p_sb.add_subparsers(dest="sandbox_action", required=True)
-    p_build = sbsub.add_parser("build", help="build/refresh the sssf-runner image")
+    p_build = sbsub.add_parser(
+        "build", help="build/refresh the sssf-runner image (streams docker progress)"
+    )
     p_build.add_argument("--project", default=None)
     p_list = sbsub.add_parser("list", help="show sandboxes (adw_id · status · branch · container)")
     p_list.add_argument("--project", default=None)

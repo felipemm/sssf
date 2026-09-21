@@ -2,14 +2,21 @@
 # NO credentials, NO project files — the host provides those at container start.
 FROM python:3.11-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get -o Acquire::Retries=5 update && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
       git curl ca-certificates unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Modern node (apt's node 18 is too old for current pi/undici) — nodesource 22
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
+# --max-time/--retry: a stalled fetch must FAIL LOUDLY, not hang the build mute
+# for the 30-min subprocess ceiling (a plain `curl | bash` that dies mid-pipe
+# would make apt fail on the missing repo anyway).
+RUN curl -fsSL --retry 5 --retry-all-errors --max-time 120 https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# npm fetch hardening for the global installs below (registry stalls)
+ENV npm_config_fetch_retries=5 \
+    npm_config_fetch_timeout=600000
 
 # pi — the coding-agent CLI the ADW shells to for agent calls
 RUN npm install -g --ignore-scripts @earendil-works/pi-coding-agent
@@ -27,7 +34,7 @@ RUN npm install -g bun
 # bare snyk-linux is x64-only, ARM needs snyk-linux-arm64. Auth comes from
 # SNYK_TOKEN (forwarded by sandbox_env), never a configstore file.
 RUN ARCH=$(uname -m); [ "$ARCH" = "x86_64" ] && SUF=linux || SUF=linux-arm64; \
-    curl -fsSL "https://static.snyk.io/cli/latest/snyk-$SUF" -o /usr/local/bin/snyk \
+    curl -fsSL --retry 3 --retry-all-errors --max-time 600 "https://static.snyk.io/cli/latest/snyk-$SUF" -o /usr/local/bin/snyk \
     && chmod +x /usr/local/bin/snyk
 
 # impeccable — design quality: CLI for the deterministic gate (detect) and the
@@ -49,11 +56,19 @@ COPY docker/impeccable-pi /opt/impeccable-pi
 #     the setuid helper: "Failed to move to new namespace ... Operation not
 #     permitted"), and impeccable only passes --no-sandbox under CI — so every
 #     chrome launch goes through a wrapper that adds the container flags.
-RUN apt-get update -qq \
-    && curl -fsSL -o /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_arm64.deb \
-    && apt-get install -y --no-install-recommends /tmp/chrome.deb fonts-liberation \
+RUN apt-get -o Acquire::Retries=5 update -qq \
+    && curl -fsSL --retry 3 --retry-all-errors --max-time 600 -o /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_arm64.deb \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends /tmp/chrome.deb fonts-liberation \
     && rm -f /tmp/chrome.deb \
     && rm -rf /var/lib/apt/lists/* \
+    # headless puppeteer screenshots never load non-en-US UI strings — the
+    # locale packs are ~50MB of dead weight
+    && find /opt/google/chrome/locales -type f ! -name 'en-US.pak' -delete \
+    # DRM (Widevine) and Chrome's on-device AI/WebGPU extras are dlopen-lazy;
+    # absent they log at most, and the renderer still runs headless — ~50MB
+    && rm -rf /opt/google/chrome/WidevineCdm \
+    && rm -f /opt/google/chrome/libLiteRtWebGpuAccelerator.so \
+    && rm -f /opt/google/chrome/liboptimization_guide_internal.so \
     && mkdir -p /opt/chrome-bin \
     && printf '#!/bin/sh\nexec /usr/bin/google-chrome-stable --no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage "$@"\n' \
        > /opt/chrome-bin/chrome \
