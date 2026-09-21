@@ -391,6 +391,20 @@ export interface ControlResult {
   error?: string
 }
 
+/** `sssf upgrade --check` — is the sssf tool itself behind its origin? */
+export interface UpdateReport {
+  ok: boolean
+  local_sha?: string
+  remote_sha?: string
+  ahead?: number
+  behind?: number
+  branch?: string
+  dirty?: number
+  command?: string
+  repo?: string
+  reason?: string
+}
+
 export interface CockpitContainer {
   name: string
   adwId: string

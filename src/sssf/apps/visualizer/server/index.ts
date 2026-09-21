@@ -25,6 +25,7 @@ import { sweepAll } from "./sweep.ts";
 import { isEnabled, readTickets } from "./tickets.ts";
 import { syncTickets, runTicket, backlogTicket, setTicketContext } from "./ticketRoutes.ts";
 import { computeStatus } from "./status.ts";
+import { updateCheck } from "./updates.ts";
 import { computeCockpit, computeCockpitContributions, containerLogs, defaultSpawnCli, handleControl, reviewFor, sandboxLogs, sessionControl } from "./cockpit.ts";
 import type { AgentPrompts, ApiError, ControlResult, HealthResponse } from "../shared/types.ts";
 
@@ -316,6 +317,10 @@ const server = Bun.serve({
         })),
       ),
     ),
+
+    // Is the sssf tool itself behind its origin? Read-only; the banner stays
+    // silent on !ok (offline / packaged install / CLI failure).
+    "/api/update-check": safely(async () => json(await updateCheck())),
 
     // Mission Control — cross-project aggregate + controls.
     "/api/cockpit": safely(async () => json(await computeCockpit({ registry: projects }))),

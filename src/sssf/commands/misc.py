@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 from pathlib import Path
 
 from rich.console import Console
@@ -153,5 +152,17 @@ def _doctor_project(ok: bool) -> bool:
     return ok
 
 
-def upgrade() -> int:
-    return subprocess.call(["uv", "tool", "upgrade", "sssf"])
+def upgrade(check: bool = False) -> int:
+    """Update the sssf tool itself.
+
+    --check is read-only: prints the JSON update report consumed by the viz
+    banner (the local git checkout vs its origin), never touches the repo.
+    Without --check: pulls the source repo when sssf runs editable from one,
+    else falls back to `uv tool upgrade sssf`.
+    """
+    from sssf import updates
+
+    if check:
+        console.print_json(data=updates.check())
+        return 0
+    return updates.upgrade()
