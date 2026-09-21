@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import type { SessionSummary } from '../lib/types'
 import { fetchSessions } from '../lib/api'
-import { ts } from '../lib/format'
+import { cmpTs } from '../lib/format'
 import SessionCard from './SessionCard.vue'
 import { useProjects } from '../lib/api'
 
@@ -55,7 +55,7 @@ function onArchived(adwId: string) {
 }
 
 const ordered = computed(() =>
-  sessions.value.toSorted((a, b) => (ts(b.started_at) || 0) - (ts(a.started_at) || 0)),
+  sessions.value.toSorted((a, b) => cmpTs(b.started_at, a.started_at)),
 )
 </script>
 

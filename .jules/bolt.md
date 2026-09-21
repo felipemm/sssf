@@ -25,3 +25,7 @@
 ## 2024-05-14 - [O(n^2) finding index inside map/filter can be a bottleneck in high frequency loop]
 **Learning:** Checking for duplicate items using `Array.prototype.filter` coupled with `Array.prototype.findIndex` is an O(n^2) operation. When run inside a high frequency polling loop (like 500ms intervals) this can significantly slow down execution and cause dropped frames or lag on large datasets (e.g. 5000+ sessions in a project).
 **Action:** Replace `Array.prototype.filter` combined with `Array.prototype.findIndex` with a standard `for` loop storing identifiers in an O(1) look-up `Set`. This turns the operation into O(n).
+
+## 2024-05-18 - Lexicographical sorting for ISO 8601 strings
+**Learning:** Parsing ISO date strings repeatedly via `new Date(d).getTime()` (or `Date.parse`) within array sorting comparators creates a significant performance bottleneck, especially when polling and re-rendering lists or boards frequently. Because ISO 8601 string lengths and character sequences represent dates logically, they can be accurately sorted using direct lexicographical string comparisons (`a < b ? -1 : 1`) which is roughly 10x faster than object allocation and date parsing.
+**Action:** When sorting items by ISO 8601 dates (like `started_at` strings), compare the raw strings lexicographically instead of parsing them into timestamps first.

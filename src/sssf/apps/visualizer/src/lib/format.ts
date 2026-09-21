@@ -11,6 +11,13 @@ export function ts(iso: string | null | undefined): number {
   return val
 }
 
+/** Lexicographically compares two ISO 8601 strings, avoiding costly Date parsing */
+export function cmpTs(a: string | null | undefined, b: string | null | undefined): number {
+  const as = a || ''
+  const bs = b || ''
+  return as === bs ? 0 : as < bs ? -1 : 1
+}
+
 export function fmtDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '—'
   if (ms < 1000) return `${(ms / 1000).toFixed(2)}s`
