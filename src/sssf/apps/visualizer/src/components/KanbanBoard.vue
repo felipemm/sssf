@@ -27,16 +27,24 @@ let timer: ReturnType<typeof setInterval> | undefined
 let inflight = false
 
 async function tick() {
+  if (document.hidden) return
   nowMs.value = Date.now()
-  if (inflight) return
+  if (inflight || document.hidden) return
   if (!projectsLoaded.value) return   // wait for the project situation before fetching
   inflight = true
   try {
     sessions.value = await fetchSessions()
     // Guard: the API is deduplicated, so a repeated adw_id here is a real bug.
-    const dupes = sessions.value.filter(
-      (s, i) => sessions.value.findIndex((x) => x.adw_id === s.adw_id) !== i,
-    )
+    // O(N) duplicate check using a Set to avoid O(N²) findIndex inside filter
+    const seenIds = new Set<string>()
+    const dupes = []
+    for (const s of sessions.value) {
+      if (seenIds.has(s.adw_id)) {
+        dupes.push(s)
+      } else {
+        seenIds.add(s.adw_id)
+      }
+    }
     if (dupes.length) console.warn('[board] DUPLICATE adw_id in response:', dupes.map((d) => `${d.adw_id}:${d.status}`))
     apiError.value = null
     loaded.value = true
@@ -277,10 +285,11 @@ function toggleCollapsed(key: string) {
             type="button"
             class="col-toggle"
             :title="collapsed[col.key] ? 'Expand stage' : 'Collapse stage'"
+            :aria-expanded="!collapsed[col.key]"
             @click="toggleCollapsed(col.key)"
           >
-            <ChevronRight v-if="collapsed[col.key]" :size="15" :stroke-width="2" class="chev" />
-            <ChevronDown v-else :size="15" :stroke-width="2" class="chev" />
+            <ChevronRight v-if="collapsed[col.key]" :size="15" :stroke-width="2" class="chev" aria-hidden="true" />
+            <ChevronDown v-else :size="15" :stroke-width="2" class="chev" aria-hidden="true" />
             <span class="dot" :style="{ background: col.accent }" />
             <span class="col-name">{{ col.label }}</span>
             <span class="col-count">{{ col.key === 'backlog' ? backlogTickets.length : col.key === 'fail' ? byColumn[col.key].length + failedTickets.length : byColumn[col.key].length }}</span>

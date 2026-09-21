@@ -83,21 +83,25 @@ async function toBacklog(event: MouseEvent) {
       class="ticket-act ticket-backlog"
       type="button"
       :disabled="moving"
+      :aria-busy="moving"
       :title="'Put this ticket back into the backlog (keeps the failed run in its history)'"
       aria-label="Back to backlog"
       @click="toBacklog"
     >
-      <Undo2 :size="14" :stroke-width="2" />
+      <LoaderCircle v-if="moving" class="spin" :size="14" :stroke-width="2" />
+      <Undo2 v-else :size="14" :stroke-width="2" />
     </button>
     <button
       class="ticket-act ticket-run"
       type="button"
       :disabled="running || starting"
+      :aria-busy="running || starting"
       :title="starting ? 'Starting — the run is warming up' : (running ? 'Starting…' : 'Run this ticket (spawn simple_sdlc)')"
       aria-label="Run ticket"
       @click="run"
     >
-      <Play :size="14" :stroke-width="2" />
+      <LoaderCircle v-if="running || starting" class="spin" :size="14" :stroke-width="2" />
+      <Play v-else :size="14" :stroke-width="2" />
     </button>
   </div>
 </template>

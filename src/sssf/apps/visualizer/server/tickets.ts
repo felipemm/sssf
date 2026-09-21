@@ -48,28 +48,33 @@ export function readTickets(dbPath: string): Ticket[] {
     db.run(TICKETS_DDL);
     db.run(TICKET_RUNS_DDL);
     ensureContextColumn(db);
-    const rows = db.query<any, []>(
-      "SELECT id, provider, external_id, title, description, context, status, prompt_file, adw_id, source_url"
-      + " FROM tickets ORDER BY created_at DESC, rowid DESC",
-    ).all();
+    let rows: any[] = [];
+    try {
+      rows = db.query<any, []>(
+        "SELECT t.id, t.provider, t.external_id, t.title, t.description, t.context, t.status, t.prompt_file, t.adw_id, t.source_url, s.status AS session_status"
+        + " FROM tickets t LEFT JOIN sessions s ON t.adw_id = s.adw_id ORDER BY t.created_at DESC, t.rowid DESC",
+      ).all();
+    } catch {
+      // sessions table may not exist yet (no runs)
+      rows = db.query<any, []>(
+        "SELECT id, provider, external_id, title, description, context, status, prompt_file, adw_id, source_url, NULL as session_status"
+        + " FROM tickets ORDER BY created_at DESC, rowid DESC",
+      ).all();
+    }
+
     return rows.map((row) => {
       let status = row.status as string;
       // A ticket moved back to the backlog rests there even though its past
       // run failed — backlog is the explicit retry state, so it wins over
       // session derivation. Every other stored status derives from the
       // CURRENT (latest) run's session.
-      if (row.status !== "backlog" && row.adw_id) {
-        try {
-          const s = db.query<{ status: string }, [string]>(
-            "SELECT status FROM sessions WHERE adw_id = ?",
-          ).get(row.adw_id);
-          if (s) status = s.status === "success" ? "done" : s.status === "fail" ? "failed" : "running";
-        } catch {
-          // sessions table may not exist yet (no runs) — keep the ticket status
-        }
+      if (row.status !== "backlog" && row.adw_id && row.session_status) {
+        status = row.session_status === "success" ? "done" : row.session_status === "fail" ? "failed" : "running";
       }
+
+      const { session_status, ...rest } = row;
       const runs = runHistory(db, row.id, row.adw_id);
-      return { ...row, status, runs, source_url: row.source_url ?? "" };
+      return { ...rest, status, runs, source_url: row.source_url ?? "" };
     });
   } finally {
     db.close();
@@ -79,10 +84,10 @@ export function readTickets(dbPath: string): Ticket[] {
 function runHistory(db: Database, ticketId: string, currentAdwId: string | null): TicketRun[] {
   // ticket_runs is the authoritative history; pre-feature tickets carry only
   // the adw_id column, so synthesize their single run.
-  let rows: { adw_id: string; started_at: string | null; ended_at: string | null }[] = [];
+  let rows: { adw_id: string; started_at: string | null; ended_at: string | null; s_status: string | null }[] = [];
   try {
-    rows = db.query<{ adw_id: string; started_at: string | null; ended_at: string | null }, [string]>(
-      "SELECT r.adw_id, s.started_at, s.ended_at"
+    rows = db.query<{ adw_id: string; started_at: string | null; ended_at: string | null; s_status: string | null }, [string]>(
+      "SELECT r.adw_id, s.started_at, s.ended_at, s.status AS s_status"
       + " FROM ticket_runs r LEFT JOIN sessions s ON s.adw_id = r.adw_id"
       + " WHERE r.ticket_id = ? ORDER BY r.created_at",
     ).all(ticketId);
@@ -90,25 +95,19 @@ function runHistory(db: Database, ticketId: string, currentAdwId: string | null)
     // ticket_runs table missing — fall through to synthesis
   }
   if (rows.length === 0 && currentAdwId) {
-    rows = db.query<{ adw_id: string; started_at: string | null; ended_at: string | null }, [string]>(
-      "SELECT adw_id, started_at, ended_at FROM sessions WHERE adw_id = ?",
-    ).all(currentAdwId);
-    if (rows.length === 0) rows = [{ adw_id: currentAdwId, started_at: null, ended_at: null }];
+    try {
+      rows = db.query<{ adw_id: string; started_at: string | null; ended_at: string | null; s_status: string | null }, [string]>(
+        "SELECT adw_id, started_at, ended_at, status AS s_status FROM sessions WHERE adw_id = ?",
+      ).all(currentAdwId);
+    } catch {
+      // sessions table missing
+    }
+    if (rows.length === 0) rows = [{ adw_id: currentAdwId, started_at: null, ended_at: null, s_status: null }];
   }
   return rows.map((r) => ({
     adw_id: r.adw_id,
-    status: sessionStatus(db, r.adw_id),
+    status: r.s_status,
     started_at: r.started_at,
     ended_at: r.ended_at,
   }));
-}
-
-function sessionStatus(db: Database, adwId: string): string | null {
-  try {
-    return db.query<{ status: string | null }, [string]>(
-      "SELECT status FROM sessions WHERE adw_id = ?",
-    ).get(adwId)?.status ?? null;
-  } catch {
-    return null;
-  }
 }
