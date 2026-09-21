@@ -10,6 +10,7 @@ visualizer. **Agent proposes, code disposes.**
 
 > **Origin:** a repackaging of [Super Simple Software Factory](https://github.com/disler/super-simple-software-factory)
 > by [IndyDevDan](https://github.com/disler) — the engine and visualizer are ported from that
+> project's MIT-licensed code.
 > project's skill; this repo ships it as a globally installed CLI. MIT, same license.
 
 ## Quickstart
