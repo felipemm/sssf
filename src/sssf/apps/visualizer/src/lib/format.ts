@@ -1,16 +1,21 @@
-// ⚡ Bolt: Cache timestamp parsing to prevent repetitive Date instantiation in polling loops.
-// This O(1) map lookup significantly reduces CPU overhead when sorting sessions every 500ms.
 const tsCache = new Map<string, number>()
 
 export function ts(iso: string | null | undefined): number {
   if (!iso) return NaN
   let val = tsCache.get(iso)
   if (val === undefined) {
-    if (tsCache.size > 2000) tsCache.clear() // Prevent memory leak over long sessions
     val = new Date(iso).getTime()
+    if (tsCache.size > 10000) tsCache.clear()
     tsCache.set(iso, val)
   }
   return val
+}
+
+/** Lexicographically compares two ISO 8601 strings, avoiding costly Date parsing */
+export function cmpTs(a: string | null | undefined, b: string | null | undefined): number {
+  const as = a || ''
+  const bs = b || ''
+  return as === bs ? 0 : as < bs ? -1 : 1
 }
 
 export function fmtDuration(ms: number): string {
