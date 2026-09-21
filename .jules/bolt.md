@@ -9,3 +9,7 @@
 ## 2024-09-07 - Pause UI polling when tab is inactive
 **Learning:** The visualizer app relies heavily on active polling (`setInterval` every 500ms - 5000ms) to keep data fresh across multiple components (`MissionControl`, `KanbanBoard`, `SessionsList`, etc). This polling continued relentlessly even when the tab was hidden, draining client resources and keeping unnecessary load on the backend.
 **Action:** Use `if (document.hidden) return;` inside high-frequency polling functions to pause API requests when the tab is out of focus. This is a crucial pattern for any real-time observability app built on polling.
+
+## 2024-05-24 - Memoize Date Parsing
+**Learning:** Repeatedly parsing identical date strings into `Date` objects in JS is a significant bottleneck during list rendering/sorting in dashboards. Calling `new Date(iso)` inside a sort loop (e.g., in Vue computed properties) is O(n log n) but scaling by an expensive constant.
+**Action:** Implemented a `Map` cache for the `ts()` function to store string-to-timestamp mappings. Limits the map size to prevent memory leaks while dramatically speeding up arrays containing repeated timestamps across re-renders.
