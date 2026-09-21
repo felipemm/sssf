@@ -96,7 +96,8 @@ pre-flight probe, and none wanted.
 
 ## Verifying it works
 
-1. Run a session: `sssf run "…"` (or `sssf sandbox run`).
+1. Run a session: `sssf flow plan --skip-exploration` (or `sssf flow
+   implement <ticket-id>`).
 2. In the trace (`sssf viz` → session → trace), the `test_N` phase shows the
    command, exit code, and duration; the envelope handed to the builder after
    a failure carries the verbatim output tail.

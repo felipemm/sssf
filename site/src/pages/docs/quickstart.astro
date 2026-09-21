@@ -61,21 +61,24 @@ sssf init</code></pre>
   </p>
 
   <h2>3 · Run something safe</h2>
-  <pre><code>sssf run scout "map the repo"</code></pre>
+  <pre><code>sssf flow plan --skip-exploration</code></pre>
   <p>
-    <span class="cmd">scout</span> is the read-only recon chain: it changes nothing. A green run
-    proves the whole path end to end: config validated, session minted, agent ran, envelope
-    parsed, events landed in <code class="hl">adws/data/sssf.db</code>. Fix it here before
-    composing anything larger, because every multi-agent chain rides this exact path.
+    Flows are the only entry point for work (#89). The plan flow runs
+    exploration (skippable here) → grill-with-docs → spec → implementation
+    tickets; a green run proves the whole path end to end: config validated,
+    session minted, agents ran, envelopes parsed, events landed in
+    <code class="hl">adws/data/sssf.db</code>. Fix it here before composing
+    anything larger, because every multi-agent chain rides this exact path.
   </p>
   <p>
     Want to see it before wiring your own project? The
     <a href="https://github.com/felipemm/inkwell">inkwell</a> demo repo is ready to run —
-    clone it and run <code>sssf run</code> to watch a full traced chain.
+    clone it and run <code>sssf flow</code> to watch a full traced chain.
   </p>
   <p>
-    The <code class="hl">adw_</code> prefix is optional: <span class="cmd">sssf run adw_scout</span>
-    and <span class="cmd">sssf run scout</span> are the same thing.
+    Work always belongs to a ticket: <span class="cmd">sssf flow implement
+    &lt;ticket-id&gt;</span> implements one <span class="cmd">ready-for-agent</span>
+    ticket unattended (triage → build → review).
   </p>
 
   <h2>4 · Look at the trace</h2>

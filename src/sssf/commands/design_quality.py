@@ -159,6 +159,6 @@ def configure(root: Path, surface: str) -> int:
     print(f"sssf: designer scope set to {surface}; .impeccable/config.json ready")
     print(
         "sssf: commit adws/config/sssf.config.yaml + .impeccable/ — sandboxed "
-        "runs read the committed state. Run the full flow with `sssf run sdlc_full \"...\"`"
+        "runs read the committed state. Run the full flow with `sssf flow deploy`"
     )
     return 0

@@ -79,32 +79,51 @@ const description =
     </thead>
     <tbody>
       <tr>
-        <td><code class="hl">sssf run &lt;adw&gt; "&lt;prompt&gt;" [--adw-id X] [--project P] [--no-sandbox]</code></td>
+        <td><code class="hl">sssf flow plan [&lt;ticket-id&gt;] [--skip-exploration] [--project P] [--no-sandbox]</code></td>
         <td>
-          Execute a chain. The <code class="hl">adw_</code> prefix is optional
-          (<span class="cmd">sssf run scout</span> ≡ <span class="cmd">sssf run adw_scout</span>).
-          Standard ADWs run from the installed templates (a project&rsquo;s committed copy can go
-          stale after an upgrade); custom ADWs run from the project.
-          <ul style="margin: 8px 0 0;">
-            <li><code class="hl">--adw-id</code>: join an existing session: same dirs, same
-              context handoff, each agent resumes its context window (this is how you chain)</li>
-            <li><code class="hl">--project</code>: target a specific project (also pulled from a
-              trailing <code class="hl">--project</code> after the prompt)</li>
-            <li><code class="hl">--no-sandbox</code>: run in the current dir instead of a sandbox
-              container</li>
-          </ul>
-          The prompt can also be a file: <code class="hl">sssf run &lt;adw&gt; "run prompt
-          adws/prompts/x.md"</code>: how <span class="cmd">sssf ticket run</span> feeds tickets
-          in.
+          Plan a feature: exploration (skippable) → grill-with-docs → spec →
+          implementation tickets. With a ticket-id the plan chain runs on that
+          ticket's prompt; without one it runs exploration-first on the project.
         </td>
       </tr>
       <tr>
-        <td><code class="hl">sssf run stop &lt;adw_id&gt;</code></td>
+        <td><code class="hl">sssf flow implement &lt;ticket-id&gt; [--project P] [--no-sandbox]</code></td>
+        <td>
+          Implement one <span class="cmd">ready-for-agent</span> ticket end to end
+          (triage → build → review) with no operator in the loop.
+        </td>
+      </tr>
+      <tr>
+        <td><code class="hl">sssf flow deploy [--yes] [--project P] [--no-sandbox]</code></td>
+        <td>
+          Release train: batch signoff on the dev snapshot → version bump → MR
+          dev→main → e2e → release. <span class="cmd">--yes</span> is the explicit
+          automation escape for the terminal signoff gate.
+        </td>
+      </tr>
+      <tr>
+        <td><code class="hl">sssf ticket run &lt;ticket-id&gt;</code></td>
+        <td>
+          The legacy ticket-run path — runs the project's own
+          <span class="cmd">adw_simple_sdlc.py</span> for already-stamped projects
+          (the flow chains replaced the 13 one-off ADWs; legacy copies stay
+          runnable until the operator re-inits). Fresh projects use
+          <span class="cmd">sssf flow implement</span>.
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Run control</h2>
+  <table>
+    <tbody>
+      <tr>
+        <td><code class="hl">sssf sandbox stop &lt;adw_id&gt;</code></td>
         <td>Kill a live run: any processes left in flight are terminated (pid verified against the
           recorded command first), the sandbox is torn down, the run is marked failed.</td>
       </tr>
       <tr>
-        <td><code class="hl">sssf run restart &lt;adw_id&gt;</code></td>
+        <td><code class="hl">sssf sandbox restart &lt;adw_id&gt;</code></td>
         <td>Re-run a session on its existing branch with the original request as the prompt. The
           ADW joins and reaps the old state.</td>
       </tr>

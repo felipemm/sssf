@@ -208,7 +208,7 @@ class Tracer:
             )
 
     def session_request(self, adw_id: str, request: str) -> None:
-        # Full prompt, not truncated: `sssf run restart` re-runs this exact ask.
+        # Full prompt, not truncated: `sssf sandbox restart` re-runs this exact ask.
         self.conn.execute("UPDATE sessions SET request=? WHERE adw_id=?", (request, adw_id))
 
     def session_finish(self, adw_id: str, ok: bool) -> None:

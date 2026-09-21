@@ -938,7 +938,7 @@ def _forward_merge(
         # sync — usually BEFORE the request phase logs — and the ended-row
         # forward update above only fires at the final merge (never once the
         # healer has finalized the host row first). A mid-run copy must carry
-        # the request too, or `sssf run restart` on the host reads an empty
+        # the request too, or `sssf sandbox restart` on the host reads an empty
         # request and bails ('no request to re-run'): the healer's restarts of
         # a hung sandboxed run then burn the whole budget doing nothing and
         # the run is finalized unrecoverably. Copy only into an empty host
@@ -1130,7 +1130,7 @@ def monitor_run(project_root: Path, adw_id: str) -> int:
     has ENDED — the supervisor-exit marker (the container is deliberately left
     up in review mode) or the container dying. One project connection is reused
     (the host owns the project db — WAL, host filesystem — so concurrent
-    monitors serialize through busy_timeout). Spawned by `sssf run`/`ticket
+    monitors serialize through busy_timeout). Spawned by `sssf flow`/`ticket
     run` right after the container starts."""
     from sssf.adw_modules.tracer import Tracer
 

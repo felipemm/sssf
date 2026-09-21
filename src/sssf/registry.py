@@ -1,6 +1,6 @@
 """Global project registry: ~/.sssf/projects.json.
 
-Runtime state, not config. `sssf init` registers, `sssf run` refreshes
+Runtime state, not config. `sssf init` registers, `sssf flow` refreshes
 last_run, `sssf projects` lists/removes, `sssf viz` serves over it.
 """
 

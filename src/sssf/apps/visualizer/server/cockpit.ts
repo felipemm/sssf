@@ -476,7 +476,8 @@ export async function defaultSpawnCli(args: string[]): Promise<SpawnResult> {
 }
 
 /**
- * Restart or stop a session's run (shells `sssf run restart|stop`). The CLI
+ * Restart or stop a session's run (shells `sssf sandbox restart|stop` — the
+ * run-control home since ad-hoc `sssf run` was removed, #89). The CLI
  * prints failures to STDERR, so the spawn must merge both streams — the old
  * restart handler read stdout only and a failed restart (e.g. 'no request to
  * re-run') came back as `{"ok":false,"output":""}`, an empty silent no-op
@@ -488,7 +489,7 @@ export async function sessionControl(
   project: string,
   spawnCli: (args: string[]) => Promise<SpawnResult> = defaultSpawnCli,
 ): Promise<{ ok: boolean; output: string }> {
-  const r = await spawnCli(["run", action, adwId, "--project", project]);
+  const r = await spawnCli(["sandbox", action, adwId, "--project", project]);
   return { ok: r.code === 0, output: r.out.trim() };
 }
 

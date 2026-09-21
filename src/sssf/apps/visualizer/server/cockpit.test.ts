@@ -378,7 +378,7 @@ describe("sessionControl", () => {
     const res = await sessionControl("restart", "9701903a", "/proj/root", spawn);
     expect(res.ok).toBe(false);
     expect(res.output).toContain("no request to re-run");
-    expect(calls[0]).toEqual(["run", "restart", "9701903a", "--project", "/proj/root"]);
+    expect(calls[0]).toEqual(["sandbox", "restart", "9701903a", "--project", "/proj/root"]);
   });
 
   test("stop success reports the CLI's stdout", async () => {

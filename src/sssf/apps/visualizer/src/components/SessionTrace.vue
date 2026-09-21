@@ -494,7 +494,7 @@ const agentCosts = computed(() => {
     .sort((a, b) => b.cost - a.cost)
 })
 
-// Stop a live run (any phase in progress): the server shells `sssf run stop`,
+// Stop a live run (any phase in progress): the server shells `sssf sandbox stop`,
 // which kills the container — the ADW's kill-failsafe marks the run failed.
 async function stop() {
   try {

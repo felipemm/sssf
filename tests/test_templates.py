@@ -7,15 +7,22 @@ from sssf.adw_modules import agents
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "src" / "sssf" / "templates"
 
+# The shipped template set collapsed from the 13 one-off combos to the three
+# flow chains (#89). Already-stamped projects keep their legacy ADWs on disk
+# (init --refresh copies only missing files; removal is manual/optional).
+FLOW_CHAINS = ("adw_plan", "adw_implement", "adw_deploy")
 
-def test_thirteen_starter_chains():
-    adws = sorted((TEMPLATES / "adws" / "modules").glob("adw_*.py"))
-    assert len(adws) == 13
+
+def test_three_flow_chains():
+    adws = sorted(p.stem for p in (TEMPLATES / "adws" / "modules").glob("adw_*.py"))
+    assert adws == sorted(FLOW_CHAINS)
     for adw in adws:
-        spec = importlib.util.spec_from_file_location(adw.stem, adw)
+        path = TEMPLATES / "adws" / "modules" / f"{adw}.py"
+        spec = importlib.util.spec_from_file_location(adw, path)
         mod = importlib.util.module_from_spec(spec)
-        sys.modules[adw.stem] = mod
+        sys.modules[adw] = mod
         spec.loader.exec_module(mod)  # imports sssf.adw_modules — proves engine link
+        assert mod.CHAIN.name in ("plan", "implement", "deploy")
 
 
 def test_no_inline_uv_headers():
@@ -73,62 +80,20 @@ def test_builder_prompt_forbids_committing():
     assert "you never commit" in text.lower() and "git commit" in text
 
 
-def test_quality_design_variant_has_impeccable_phases():
-    """sdlc_full = simple_sdlc + designer: the design phases, their conditionals
-    and directives are all wired into the chain."""
-    text = (TEMPLATES / "adws" / "modules" / "adw_sdlc_full.py").read_text()
-    for needle in (
-        '"init"',
-        '"design"',
-        '"designer"',
-        '"documenter"',
-        '"document_design"',
-        "impeccable",
-        "QualityLoop",
-        "ReviewLoop",
-        "user_directive",
-        "_design_world_changed",
-        "PRODUCT.md",
-        "DESIGN.md",
-        # the impeccable init/document/design-pass directives must tell the
-        # roster model the mechanism is agent-conducted, not a script to run
-        # (field failure 9ff2d43a: the documenter hunted for scripts/init.mjs
-        # and npx, then failed instead of writing PRODUCT.md)
-        "scripts/init.mjs",
-        "reference/init.md",
-        "reference/document.md",
-    ):
-        assert needle in text, f"sdlc_full missing {needle}"
-    # the simple_sdlc tail is present (review -> retest -> commit_build)
-    for needle in ('"commit_plan"', '"commit_build"', '"retest"', "_commit_build"):
-        assert needle in text, f"sdlc_full missing simple_sdlc tail {needle}"
-    assert 'name="simple_sdlc"' not in text
-
-
 def test_template_scaffolds_prompts_specs_kb():
     for folder in ("prompts", "specs", "kb"):
         readme = TEMPLATES / "adws" / folder / "README.md"
         assert readme.is_file(), f"missing scaffold README in {folder}"
 
 
-def test_noop_rerun_walks_the_doc_chain():
-    """A no-op re-run must not silently skip documentation: it confirms an
-    existing write-up (success run, no updated doc) or produces the missing one.
-    (Field gap: the FTS5 work was committed by a failed run that never reached
-    the document phase, and the no-op re-run skipped docs entirely.)"""
-    text = (TEMPLATES / "adws" / "modules" / "adw_simple_sdlc.py").read_text()
-    assert "no updated doc" in text
-    assert "kb" in text
-    assert "run.repo_root" in text
-
-
-def test_document_chain_ends_in_commit():
-    """The standalone adw_document chain must commit the write-up — a doc left
-    uncommitted in the working tree is a lost record. (Field gap: adw_document
-    wrote adws/app_docs/<id>.md but never committed it.)"""
-    text = (TEMPLATES / "adws" / "modules" / "adw_document.py").read_text()
-    assert "commit_docs" in text
-    assert "CommitPhase" in text  # the commit lives in the shared executor
+def test_deploy_flow_ends_with_the_release_step():
+    """The deploy chain ships the AC phase list — sandbox → signoff → bump →
+    MR → e2e → release — with the human signoff gate and the release
+    close-by-commits anchor; deeper mechanics land with #96/#97."""
+    text = (TEMPLATES / "adws" / "modules" / "adw_deploy.py").read_text()
+    for needle in ('"sandbox"', '"signoff"', '"bump"', '"mr"', 'name="e2e"', '"release"',
+                   "ChainFailure", "sign off this batch", "input("):
+        assert needle in text, f"adw_deploy missing {needle}"
 
 
 def test_every_adw_lands_its_working_tree():
@@ -136,20 +101,15 @@ def test_every_adw_lands_its_working_tree():
     integration merges into dev — an ADW that never commits strands its work as
     uncommitted files and the merge is a no-op. (Field gap, session 36bbd3b3:
     adw_build_review approved the /explore viewport fix with the change still
-    uncommitted in .worktrees/36bbd3b3, so dev never received it.) Chain ADWs
-    end with CommitPhase; the raw-phase ADWs (prompt, quality) call
-    chains.commit_all in their own commit phase; scout no-ops on a clean tree
-    by design (read-only) via allow_empty."""
-    for name in ("adw_build", "adw_build_review", "adw_plan", "adw_scout"):
+    uncommitted in .worktrees/36bbd3b3, so dev never received it.) The plan and
+    implement chains end with the shared CommitPhase; deploy's producing code
+    phases (bump, mr) commit their own artifacts."""
+    for name in ("adw_plan", "adw_implement"):
         text = (TEMPLATES / "adws" / "modules" / f"{name}.py").read_text()
         assert "CommitPhase" in text, f"{name} missing CommitPhase"
-    for name in ("adw_prompt", "adw_quality"):
-        text = (TEMPLATES / "adws" / "modules" / f"{name}.py").read_text()
-        assert "commit_all" in text, f"{name} missing a commit phase"
-    # every commit that may legitimately find a clean tree opts into allow_empty
-    for name in ("adw_build", "adw_build_review", "adw_plan", "adw_scout"):
-        text = (TEMPLATES / "adws" / "modules" / f"{name}.py").read_text()
         assert "allow_empty=True" in text, f"{name} commit not no-op safe"
+    deploy = (TEMPLATES / "adws" / "modules" / "adw_deploy.py").read_text()
+    assert "commit_all" in deploy  # bump + mr payload commit their own work
 
 
 def test_template_ships_default_checks():
@@ -189,13 +149,7 @@ def test_fix_loop_adws_break_on_env_failure():
     import sssf.adw_modules.chains as chains_mod
 
     assert "quality.env_failure" in inspect.getsource(chains_mod._quality_loop)
-    for name in (
-        "adw_simple_sdlc",
-        "adw_build_test",
-        "adw_plan_build_test",
-        "adw_plan_build_test_quality",
-        "adw_sdlc_full",
-    ):
+    for name in ("adw_implement", "adw_deploy"):  # plan has no quality loop
         text = (TEMPLATES / "adws" / "modules" / f"{name}.py").read_text()
         assert "QualityLoop" in text, f"{name} missing the shared quality loop"
 
