@@ -28,8 +28,39 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
+def new(title: str, project: str | None = None) -> int:
+    """`sssf ticket new` — capture an idea as a title-only shell, born
+    needs-triage (blank spec, tracked, internal origin). The plan flow turns
+    it into a spec plus implementation tickets."""
+    root = _root(project)
+    if root is None:
+        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    paths.warn_if_legacy(root, command="ticket")
+    cfg = ticketing.load_config(root)
+    if cfg is None or "internal" not in cfg.providers:
+        print(
+            "sssf ticket: the internal provider is not enabled in adws/config/ticketing.yaml",
+            file=sys.stderr,
+        )
+        return 1
+    conn = _db(root)
+    ticket_id = ticketing.create_idea_ticket(conn, title, actor=_actor())
+    conn.commit()
+    conn.close()
+    print(
+        f"sssf ticket: added idea ticket {title!r} ({ticket_id}) — born needs-triage,"
+        " blank spec; run `sssf flow plan` (once landed) to spec and slice it"
+    )
+    return 0
+
+
 def add(title: str, project: str | None = None, *, description: str = "",
         prompt_file: str | None = None) -> int:
+    """The legacy `sssf ticket add` — keep its 'immediately implementable'
+    semantics on the machine: a tracked internal implementation ticket born
+    ready-for-agent (the backlog queue). prompt_file becomes the spec
+    reference."""
     root = _root(project)
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
@@ -50,14 +81,37 @@ def add(title: str, project: str | None = None, *, description: str = "",
         rel_prompt = str(Path(prompt_file).resolve().relative_to(root))
     conn.execute(
         "INSERT INTO tickets (id, provider, external_id, title, description, status,"
-        " source_url, prompt_file, created_at, updated_at)"
-        " VALUES (?,?,'',?,?,'backlog','',?,?,?)",
-        (ticket_id, "internal", title, description, rel_prompt, now, now),
+        " kind, tracked, origin, spec, source_url, prompt_file, created_at, updated_at)"
+        " VALUES (?,?,'',?,?,?,'implementation',1,'internal',?,'',?,?,?)",
+        (
+            ticket_id,
+            "internal",
+            title,
+            description,
+            ticketing.STATUS_READY,
+            rel_prompt,
+            rel_prompt,
+            now,
+            now,
+        ),
+    )
+    ticketing.add_ticket_event(
+        conn, ticket_id, "created", actor=_actor(), payload={"kind": "implementation"}
     )
     conn.commit()
     conn.close()
-    print(f"sssf ticket: added internal ticket {title!r} ({ticket_id})")
+    print(f"sssf ticket: added internal ticket {title!r} ({ticket_id}) — ready-for-agent")
     return 0
+
+
+def _actor() -> str:
+    """The operator behind a CLI mutation — the audit trail's actor."""
+    try:
+        import getpass
+
+        return getpass.getuser()
+    except Exception:
+        return "system"
 
 
 def sync(project: str | None = None) -> int:
@@ -82,7 +136,7 @@ def sync(project: str | None = None) -> int:
     return 0
 
 
-def list_tickets(project: str | None = None) -> int:
+def list_tickets(project: str | None = None, *, backlog_only: bool = False) -> int:
     root = _root(project)
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
@@ -96,13 +150,21 @@ def list_tickets(project: str | None = None) -> int:
         )
         return 1
     conn = _db(root)
-    rows = conn.execute(
-        "SELECT id, provider, title, status, adw_id FROM tickets ORDER BY created_at DESC"
-    ).fetchall()
+    if backlog_only:
+        # The backlog is exactly the ready-for-agent queue, nothing else.
+        rows = ticketing.backlog_tickets(conn)
+    else:
+        rows = conn.execute(
+            "SELECT id, provider, title, status, spec, adw_id FROM tickets"
+            " ORDER BY created_at DESC, rowid DESC"
+        ).fetchall()
     conn.close()
     for row in rows:
-        print(f"{row[0]:20} {row[1]:8} {row[2][:50]:50} {row[3]:8} {row[4] or ''}")
-    print(f"sssf ticket: {len(rows)} ticket(s)")
+        print(f"{row[0]:20} {row[1]:8} {row[2][:50]:50} {row[3]:14} {row[4] or ''} {row[5] or ''}")
+    if backlog_only:
+        print(f"sssf ticket: backlog ({len(rows)} ready-for-agent ticket(s))")
+    else:
+        print(f"sssf ticket: {len(rows)} ticket(s)")
     return 0
 
 
@@ -186,9 +248,17 @@ def run(
         conn.commit()
     else:
         context = stored_context or ""
-    if status == "running":
+    if status == ticketing.STATUS_IN_PROGRESS:
         conn.close()
         print(f"sssf ticket: {ticket_id} is already running", file=sys.stderr)
+        return 1
+    if status != ticketing.STATUS_READY:
+        conn.close()
+        print(
+            f"sssf ticket: {ticket_id} is {status!r} — only ready-for-agent tickets can"
+            " start a run",
+            file=sys.stderr,
+        )
         return 1
     slug = "".join(c if c.isalnum() else "-" for c in title.lower()).strip("-")[:40] or "ticket"
     adw_id = uuid.uuid4().hex[:8]
@@ -285,13 +355,14 @@ def run(
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            conn.execute(
-                "UPDATE tickets SET status='starting', adw_id=?, prompt_file=?, updated_at=? WHERE id=?",
-                (adw_id, str(rel_prompt), _now(), tid),
-            )
+            ticketing.transition_ticket(conn, tid, ticketing.STATUS_IN_PROGRESS, actor=_actor())
             conn.execute(
                 "INSERT OR IGNORE INTO ticket_runs (ticket_id, adw_id, created_at) VALUES (?,?,?)",
                 (tid, adw_id, _now()),
+            )
+            conn.execute(
+                "UPDATE tickets SET adw_id=?, prompt_file=?, updated_at=? WHERE id=?",
+                (adw_id, str(rel_prompt), _now(), tid),
             )
             conn.commit()
             conn.close()
@@ -312,16 +383,17 @@ def run(
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-    conn.execute(
-        "UPDATE tickets SET status='starting', adw_id=?, prompt_file=?, updated_at=? WHERE id=?",
-        (adw_id, str(rel_prompt), _now(), tid),
-    )
+    ticketing.transition_ticket(conn, tid, ticketing.STATUS_IN_PROGRESS, actor=_actor())
     # The run's history: every spawn is a row, so a retried ticket accumulates
     # its attempts (the failed run stays linked for the trace and the retry
     # color). tickets.adw_id remains the LATEST run.
     conn.execute(
         "INSERT OR IGNORE INTO ticket_runs (ticket_id, adw_id, created_at) VALUES (?,?,?)",
         (tid, adw_id, _now()),
+    )
+    conn.execute(
+        "UPDATE tickets SET adw_id=?, prompt_file=?, updated_at=? WHERE id=?",
+        (adw_id, str(rel_prompt), _now(), tid),
     )
     conn.commit()
     conn.close()
@@ -332,9 +404,12 @@ def run(
     return 0
 
 
-def backlog(ticket_id: str, project: str | None = None) -> int:
-    """Return a ticket to the backlog — the manual retry control.
+def backlog(ticket_id: str, project: str | None = None, *, feedback: str | None = None) -> int:
+    """Requeue a ticket to ready-for-agent — the manual retry control.
 
+    Legal from needs-triage (triage passes), in-progress (rejection,
+    fix-forward), ready-for-signoff (signoff rejection), or blocked (human
+    unblocks); `done` is terminal and `ready-to-deploy` stays in the pipeline.
     The adw_id link and ticket_runs history are PRESERVED: a retried ticket
     keeps its failed runs visible in the trace and in the ticket modal. The
     only refusal is a still-running session — no yanking a live run.
@@ -365,12 +440,17 @@ def backlog(ticket_id: str, project: str | None = None) -> int:
                 return 1
         except sqlite3.Error:
             pass  # no sessions table yet — nothing running
-    conn.execute(
-        "UPDATE tickets SET status='backlog', updated_at=? WHERE id=?", (_now(), ticket_id)
-    )
+    try:
+        ticketing.transition_ticket(
+            conn, ticket_id, ticketing.BACKLOG_STATUS, actor=_actor(), feedback=feedback
+        )
+    except ValueError as error:
+        conn.close()
+        print(f"sssf ticket: {error}", file=sys.stderr)
+        return 1
     conn.commit()
     conn.close()
-    print(f"sssf ticket: {ticket_id} back to backlog (adw_id kept — history preserved)")
+    print(f"sssf ticket: {ticket_id} back to the backlog (adw_id kept — history preserved)")
     return 0
 
 

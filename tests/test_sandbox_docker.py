@@ -248,7 +248,8 @@ def test_record_never_started_leaves_evidence(monkeypatch, tmp_path):
     assert "remediation" in payload
     assert "not in the worktree" in payload["remediation"]
     status = tracer.conn.execute("SELECT status FROM tickets WHERE id='internal:x'").fetchone()[0]
-    assert status == "failed"
+    # a spawn failure requeues the ticket (fix-forward, retryable)
+    assert status == "ready-for-agent"
 
 
 def test_record_never_started_zero_evidence_has_null_remediation(monkeypatch, tmp_path):

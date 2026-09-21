@@ -14,6 +14,7 @@ import shutil
 import sqlite3
 import subprocess
 import urllib.request
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,6 +24,55 @@ import yaml
 TICKETING_FILE = "adws/config/ticketing.yaml"
 LINEAR_API = "https://api.linear.app/graphql"
 
+# Ticket machine statuses (issue #87). `backlog` is gone: the backlog is
+# exactly the `ready-for-agent` queue.
+STATUS_NEEDS_TRIAGE = "needs-triage"
+STATUS_READY = "ready-for-agent"
+STATUS_IN_PROGRESS = "in-progress"
+STATUS_SIGNOFF = "ready-for-signoff"
+STATUS_DEPLOY = "ready-to-deploy"
+STATUS_DONE = "done"
+STATUS_BLOCKED = "blocked"
+
+MACHINE_STATUSES = frozenset(
+    {
+        STATUS_NEEDS_TRIAGE,
+        STATUS_READY,
+        STATUS_IN_PROGRESS,
+        STATUS_SIGNOFF,
+        STATUS_DEPLOY,
+        STATUS_DONE,
+        STATUS_BLOCKED,
+    }
+)
+
+# The implementable queue: what the unattended loop and the operator agree on
+# as "next to build".
+BACKLOG_STATUS = STATUS_READY
+
+# The canonical lifecycle. Rejection edges re-enter the implement flow
+# fix-forward (back to ready-for-agent with the human's feedback attached); a
+# canary failure parks the ticket in `blocked`; the human unblocks it back
+# into the queue. `done` is terminal.
+TRANSITIONS: dict[str, frozenset[str]] = {
+    STATUS_NEEDS_TRIAGE: frozenset({STATUS_READY}),
+    STATUS_READY: frozenset({STATUS_IN_PROGRESS}),
+    STATUS_IN_PROGRESS: frozenset({STATUS_SIGNOFF, STATUS_READY}),
+    STATUS_SIGNOFF: frozenset({STATUS_DEPLOY, STATUS_READY}),
+    STATUS_DEPLOY: frozenset({STATUS_DONE, STATUS_BLOCKED}),
+    STATUS_BLOCKED: frozenset({STATUS_READY}),
+    STATUS_DONE: frozenset(),
+}
+
+# Legacy `tickets.status` values (backlog era) -> machine vocabulary.
+_LEGACY_STATUS_MAP = {
+    "backlog": STATUS_READY,
+    "starting": STATUS_IN_PROGRESS,
+    "running": STATUS_IN_PROGRESS,
+    "failed": STATUS_READY,
+    "success": STATUS_DONE,
+}
+
 TICKETS_DDL = """
 CREATE TABLE IF NOT EXISTS tickets (
   id          TEXT PRIMARY KEY,
@@ -30,14 +80,36 @@ CREATE TABLE IF NOT EXISTS tickets (
   external_id TEXT,
   title       TEXT NOT NULL,
   description TEXT,
-  status      TEXT NOT NULL DEFAULT 'backlog',
+  status      TEXT NOT NULL DEFAULT 'needs-triage',
   prompt_file TEXT,
   adw_id      TEXT,
   source_url  TEXT,
   context     TEXT NOT NULL DEFAULT '',
+  kind        TEXT NOT NULL DEFAULT 'implementation',  -- idea | implementation
+  tracked     INTEGER NOT NULL DEFAULT 1,              -- permanent origin-of-creation flag
+  origin      TEXT NOT NULL DEFAULT 'internal',        -- internal | jira | gitlab | github
+  parent_id   TEXT,                                    -- lineage: implementation -> feature
+  spec        TEXT NOT NULL DEFAULT '',                -- spec reference once planned
+  rejection_feedback TEXT NOT NULL DEFAULT '',
   created_at  TEXT, updated_at TEXT
 );
 """
+
+# Audit trail: every mutation (transition, comment, label, creation) is a row
+# with actor and timestamp — traceable, never overwritten.
+TICKET_EVENTS_DDL = """
+CREATE TABLE IF NOT EXISTS ticket_events (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id  TEXT NOT NULL,
+  event_type TEXT NOT NULL,            -- created | transition | comment | label
+  actor      TEXT NOT NULL DEFAULT 'system',
+  payload    TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+"""
+TICKET_EVENTS_INDEX_DDL = (
+    "CREATE INDEX IF NOT EXISTS idx_ticket_events_ticket ON ticket_events (ticket_id, created_at)"
+)
 
 # One row per run of a ticket — history survives retries. `tickets.adw_id`
 # stays the LATEST run; this table keeps every earlier one so a retried
@@ -93,18 +165,202 @@ def load_config(root: Path) -> TicketingConfig | None:
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
-    """Create tables and add late columns (context) to existing ones. Never
-    re-creates: ALTER only when the column is missing, so pre-context
-    databases keep their rows."""
+    """Create tables and migrate existing ones in place. Never re-creates:
+    CREATE-IF-NOT-EXISTS for tables, ALTER only when a column is missing, so
+    pre-existing databases keep every row. Idempotent — safe on every open.
+
+    Adds the ticket-machine columns (kind, tracked, origin, parent_id, spec,
+    rejection_feedback), the `ticket_events` audit table, maps legacy status
+    values onto the machine vocabulary, and backfills the tracked flag for
+    synced rows once (tracked is permanent — later syncs never rewrite it).
+    """
     conn.execute(TICKETS_DDL)
     conn.execute(TICKET_RUNS_DDL)
+    conn.execute(TICKET_EVENTS_DDL)
+    conn.execute(TICKET_EVENTS_INDEX_DDL)
     cols = {r[1] for r in conn.execute("PRAGMA table_info(tickets)")}
-    if "context" not in cols:
-        conn.execute("ALTER TABLE tickets ADD COLUMN context TEXT NOT NULL DEFAULT ''")
+    added = set()
+    for column, ddl in (
+        ("context", "ALTER TABLE tickets ADD COLUMN context TEXT NOT NULL DEFAULT ''"),
+        ("created_at", "ALTER TABLE tickets ADD COLUMN created_at TEXT"),
+        ("updated_at", "ALTER TABLE tickets ADD COLUMN updated_at TEXT"),
+        ("kind", "ALTER TABLE tickets ADD COLUMN kind TEXT NOT NULL DEFAULT 'implementation'"),
+        ("tracked", "ALTER TABLE tickets ADD COLUMN tracked INTEGER NOT NULL DEFAULT 1"),
+        ("origin", "ALTER TABLE tickets ADD COLUMN origin TEXT NOT NULL DEFAULT 'internal'"),
+        ("parent_id", "ALTER TABLE tickets ADD COLUMN parent_id TEXT"),
+        ("spec", "ALTER TABLE tickets ADD COLUMN spec TEXT NOT NULL DEFAULT ''"),
+        (
+            "rejection_feedback",
+            "ALTER TABLE tickets ADD COLUMN rejection_feedback TEXT NOT NULL DEFAULT ''",
+        ),
+    ):
+        if column not in cols:
+            conn.execute(ddl)
+            added.add(column)
+    # Legacy status values -> machine vocabulary. Only touches rows still
+    # holding a legacy value, so this is idempotent across repeated opens.
+    for legacy, machine in _LEGACY_STATUS_MAP.items():
+        conn.execute(
+            "UPDATE tickets SET status=?, updated_at=? WHERE status=?",
+            (machine, _now(), legacy),
+        )
+    # One-time backfill for pre-machine rows: synced tickets were implementable
+    # backlog items created by a tracker, not by the plan flow — untracked with
+    # origin = their provider, and both flags are permanent from here on.
+    if "tracked" in added:
+        conn.execute("UPDATE tickets SET tracked=0 WHERE provider != 'internal' AND tracked=1")
+    if "origin" in added:
+        conn.execute(
+            "UPDATE tickets SET origin=provider WHERE provider != 'internal' AND origin='internal'"
+        )
 
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
+
+
+def can_transition(from_status: str, to_status: str) -> bool:
+    """True when the machine allows the edge. Every edge not in TRANSITIONS is
+    illegal — no self-loops, no jumps, `done` is terminal."""
+    return to_status in TRANSITIONS.get(from_status, frozenset())
+
+
+def add_ticket_event(
+    conn: sqlite3.Connection,
+    ticket_id: str,
+    event_type: str,
+    *,
+    actor: str = "system",
+    payload: dict | None = None,
+) -> None:
+    """Append one audit row; payload is stored as JSON."""
+    conn.execute(
+        "INSERT INTO ticket_events (ticket_id, event_type, actor, payload, created_at)"
+        " VALUES (?,?,?,?,?)",
+        (ticket_id, event_type, actor, json.dumps(payload or {}, ensure_ascii=False), _now()),
+    )
+
+
+def ticket_events(conn: sqlite3.Connection, ticket_id: str) -> list[dict]:
+    """A ticket's full audit trail, oldest first."""
+    rows = conn.execute(
+        "SELECT event_type, actor, payload, created_at FROM ticket_events"
+        " WHERE ticket_id=? ORDER BY id ASC",
+        (ticket_id,),
+    ).fetchall()
+    events = []
+    for event_type, actor, payload, created_at in rows:
+        try:
+            parsed = json.loads(payload or "{}")
+        except ValueError:
+            parsed = {}
+        events.append(
+            {
+                "event_type": event_type,
+                "actor": actor,
+                "payload": parsed,
+                "created_at": created_at,
+            }
+        )
+    return events
+
+
+def transition_ticket(
+    conn: sqlite3.Connection,
+    ticket_id: str,
+    to_status: str,
+    *,
+    actor: str = "system",
+    feedback: str | None = None,
+    comment: str | None = None,
+) -> None:
+    """Move a ticket through the machine. Every mutation writes a
+    `ticket_events` audit row; illegal edges raise ValueError and change
+    nothing. `feedback` attaches rejection feedback to the ticket; it is
+    cleared once the ticket reaches `done`.
+    """
+    row = conn.execute("SELECT status FROM tickets WHERE id=?", (ticket_id,)).fetchone()
+    if row is None:
+        raise KeyError(ticket_id)
+    from_status = row[0]
+    if not can_transition(from_status, to_status):
+        raise ValueError(
+            f"illegal transition {from_status!r} -> {to_status!r} for ticket {ticket_id}"
+        )
+    payload: dict = {"from": from_status, "to": to_status}
+    if feedback is not None:
+        payload["feedback"] = feedback
+    if comment is not None:
+        payload["comment"] = comment
+    new_feedback = feedback if feedback is not None else ("" if to_status == STATUS_DONE else None)
+    conn.execute(
+        "UPDATE tickets SET status=?, updated_at=?, rejection_feedback="
+        "COALESCE(?, rejection_feedback) WHERE id=?",
+        (to_status, _now(), new_feedback, ticket_id),
+    )
+    add_ticket_event(conn, ticket_id, "transition", actor=actor, payload=payload)
+
+
+def comment_ticket(
+    conn: sqlite3.Connection, ticket_id: str, text: str, *, actor: str = "system"
+) -> None:
+    add_ticket_event(conn, ticket_id, "comment", actor=actor, payload={"text": text})
+
+
+def label_ticket(
+    conn: sqlite3.Connection,
+    ticket_id: str,
+    label: str,
+    *,
+    add: bool = True,
+    actor: str = "system",
+) -> None:
+    add_ticket_event(
+        conn,
+        ticket_id,
+        "label",
+        actor=actor,
+        payload={"label": label, "action": "add" if add else "remove"},
+    )
+
+
+def create_idea_ticket(conn: sqlite3.Connection, title: str, *, actor: str = "system") -> str:
+    """A title-only idea shell: blank spec, born `needs-triage`, tracked,
+    internal origin. The plan flow turns it into a spec plus implementation
+    tickets."""
+    ticket_id = f"internal:{uuid.uuid4().hex[:12]}"
+    now = _now()
+    conn.execute(
+        "INSERT INTO tickets (id, provider, external_id, title, description, status,"
+        " kind, tracked, origin, spec, created_at, updated_at)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            ticket_id,
+            "internal",
+            "",
+            title,
+            "",
+            STATUS_NEEDS_TRIAGE,
+            "idea",
+            1,
+            "internal",
+            "",
+            now,
+            now,
+        ),
+    )
+    add_ticket_event(conn, ticket_id, "created", actor=actor, payload={"kind": "idea"})
+    return ticket_id
+
+
+def backlog_tickets(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """The backlog: exactly the `ready-for-agent` queue, oldest first.
+    Untracked tickets are invisible here until marked ready-for-agent."""
+    return conn.execute(
+        "SELECT id, provider, title, status, kind, tracked, spec, adw_id FROM tickets"
+        " WHERE status=? ORDER BY created_at ASC, rowid ASC",
+        (BACKLOG_STATUS,),
+    ).fetchall()
 
 
 def _adf_inline(node: dict) -> str:
@@ -300,9 +556,14 @@ def upsert_tickets(db_path: Path, records: list[TicketRecord]) -> int:
         count = 0
         for r in records:
             now = _now()
+            # Synced tickets are born needs-triage and untracked (permanent):
+            # invisible in the backlog until marked ready-for-agent. The
+            # conflict update refreshes CONTENT only — kind/tracked/origin/
+            # status are never rewritten by a later sync.
             cur = conn.execute(
                 "INSERT INTO tickets (id, provider, external_id, title, description, status,"
-                " source_url, created_at, updated_at) VALUES (?,?,?,?,?,'backlog',?,?,?)"
+                " kind, tracked, origin, source_url, created_at, updated_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
                 " ON CONFLICT(id) DO UPDATE SET title=excluded.title,"
                 " description=excluded.description, source_url=excluded.source_url,"
                 " updated_at=excluded.updated_at",
@@ -312,6 +573,10 @@ def upsert_tickets(db_path: Path, records: list[TicketRecord]) -> int:
                     r.external_id,
                     r.title,
                     r.description,
+                    STATUS_NEEDS_TRIAGE,
+                    "idea",
+                    0,
+                    r.provider,
                     r.source_url,
                     now,
                     now,

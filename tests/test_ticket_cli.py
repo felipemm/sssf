@@ -34,7 +34,7 @@ def test_add_internal_ticket(tmp_path, monkeypatch, capsys):
     conn = _db(root)
     row = conn.execute("SELECT provider, title, status FROM tickets").fetchone()
     conn.close()
-    assert row == ("internal", "Ship dark mode", "backlog")
+    assert row == ("internal", "Ship dark mode", "ready-for-agent")
     assert "added" in capsys.readouterr().out
 
 
@@ -56,7 +56,7 @@ def test_run_appends_context_to_prompt(tmp_path, monkeypatch):
     conn = _db(root)
     conn.execute(
         "INSERT INTO tickets (id, provider, external_id, title, description, status)"
-        " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'backlog')"
+        " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'ready-for-agent')"
     )
     conn.commit()
     conn.close()
@@ -78,7 +78,7 @@ def test_run_without_context_keeps_plain_prompt(tmp_path, monkeypatch):
     conn = _db(root)
     conn.execute(
         "INSERT INTO tickets (id, provider, external_id, title, description, status)"
-        " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'backlog')"
+        " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'ready-for-agent')"
     )
     conn.commit()
     conn.close()
@@ -95,7 +95,7 @@ def test_context_set_get_roundtrip(tmp_path, monkeypatch, capsys):
     conn = _db(root)
     conn.execute(
         "INSERT INTO tickets (id, provider, external_id, title, description, status)"
-        " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'backlog')"
+        " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'ready-for-agent')"
     )
     conn.commit()
     conn.close()
@@ -114,7 +114,7 @@ def test_run_persists_context_and_reuses_stored(tmp_path, monkeypatch):
     conn = _db(root)
     conn.execute(
         "INSERT INTO tickets (id, provider, external_id, title, description, status)"
-        " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'backlog')"
+        " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'ready-for-agent')"
     )
     conn.commit()
     conn.close()
@@ -128,6 +128,8 @@ def test_run_persists_context_and_reuses_stored(tmp_path, monkeypatch):
     stored = conn.execute("SELECT context FROM tickets WHERE id='internal:abc'").fetchone()[0]
     conn.close()
     assert stored == "steer for attempt 1"
+    # the machine parks a running ticket in in-progress — requeue before retry
+    assert ticket.backlog("internal:abc", None) == 0
 
     # a later run WITHOUT --context reuses the stored context
     assert ticket.run("internal:abc", None) == 0
@@ -158,7 +160,7 @@ def test_run_creates_prompt_and_spawns(tmp_path, monkeypatch, capsys):
     conn = _db(root)
     conn.execute(
         "INSERT INTO tickets (id, provider, external_id, title, description, status)"
-        " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'backlog')"
+        " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'ready-for-agent')"
     )
     conn.commit()
     conn.close()
@@ -188,7 +190,7 @@ def test_run_creates_prompt_and_spawns(tmp_path, monkeypatch, capsys):
     ).fetchone()
     conn.close()
     assert (
-        row[0] == "starting" and row[1] and row[2]
+        row[0] == "in-progress" and row[1] and row[2]
     )  # spawned — warms up before the session appears
 
 
@@ -197,7 +199,7 @@ def test_run_rejects_already_running(tmp_path, monkeypatch, capsys):
     conn = _db(root)
     conn.execute(
         "INSERT INTO tickets (id, provider, external_id, title, status)"
-        " VALUES ('internal:abc', 'internal', '', 'X', 'running')"
+        " VALUES ('internal:abc', 'internal', '', 'X', 'in-progress')"
     )
     conn.commit()
     conn.close()
@@ -213,7 +215,7 @@ def test_run_bumps_updated_at(tmp_path, monkeypatch):
     conn = _db(root)
     conn.execute(
         "INSERT INTO tickets (id, provider, external_id, title, status, updated_at)"
-        " VALUES ('internal:abc', 'internal', '', 'X', 'backlog', '2026-08-01T00:00:00+00:00')"
+        " VALUES ('internal:abc', 'internal', '', 'X', 'ready-for-agent', '2026-08-01T00:00:00+00:00')"
     )
     conn.commit()
     conn.close()
@@ -239,7 +241,7 @@ def test_run_records_run_history(tmp_path, monkeypatch, capsys):
     conn = _db(root)
     conn.execute(
         "INSERT INTO tickets (id, provider, external_id, title, description, status)"
-        " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'backlog')"
+        " VALUES ('internal:abc', 'internal', '', 'Dark mode', 'Make it dark', 'ready-for-agent')"
     )
     conn.commit()
     conn.close()
@@ -252,6 +254,7 @@ def test_run_records_run_history(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(ticket.subprocess, "Popen", lambda argv, **kw: P())
     assert ticket.run("internal:abc", None) == 0
     first_id = conn_adw_id(root)
+    assert ticket.backlog("internal:abc", None) == 0  # requeue (machine parks in in-progress)
     assert ticket.run("internal:abc", None) == 0  # retry — a second run
     second_id = conn_adw_id(root)
     assert first_id != second_id
@@ -287,7 +290,7 @@ def test_backlog_keeps_link_and_history(tmp_path, monkeypatch, capsys):
     _sessions_ddl(conn)
     conn.execute(
         "INSERT INTO tickets (id, provider, external_id, title, status, adw_id)"
-        " VALUES ('internal:abc', 'internal', '', 'X', 'starting', 'sess_fail')"
+        " VALUES ('internal:abc', 'internal', '', 'X', 'in-progress', 'sess_fail')"
     )
     conn.execute("INSERT INTO sessions (adw_id, status) VALUES ('sess_fail', 'fail')")
     conn.execute(
@@ -304,7 +307,7 @@ def test_backlog_keeps_link_and_history(tmp_path, monkeypatch, capsys):
         "SELECT COUNT(*) FROM ticket_runs WHERE ticket_id='internal:abc'"
     ).fetchone()[0]
     conn.close()
-    assert row == ("backlog", "sess_fail")  # link preserved
+    assert row == ("ready-for-agent", "sess_fail")  # link preserved
     assert runs == 1  # history preserved
 
 
@@ -314,7 +317,7 @@ def test_backlog_refuses_running_session(tmp_path, monkeypatch, capsys):
     _sessions_ddl(conn)
     conn.execute(
         "INSERT INTO tickets (id, provider, external_id, title, status, adw_id)"
-        " VALUES ('internal:abc', 'internal', '', 'X', 'starting', 'sess_run')"
+        " VALUES ('internal:abc', 'internal', '', 'X', 'in-progress', 'sess_run')"
     )
     conn.execute("INSERT INTO sessions (adw_id, status) VALUES ('sess_run', 'running')")
     conn.commit()
@@ -372,7 +375,7 @@ def test_run_honors_existing_prompt_file(tmp_path, monkeypatch, capsys):
     (root / "adws" / "modules" / "adw_simple_sdlc.py").write_text("print('adw stub')\n")
     conn = _db(root)
     conn.execute("INSERT INTO tickets (id, provider, title, description, status, prompt_file)"
-                 " VALUES ('internal:x','internal','X','','backlog','adws/prompts/01-x.md')")
+                 " VALUES ('internal:x','internal','X','','ready-for-agent','adws/prompts/01-x.md')")
     conn.commit()
     conn.close()
 
@@ -397,12 +400,13 @@ def test_run_rehonors_spec_prompt_file_after_runs(tmp_path, monkeypatch):
     conn = _db(root)
     conn.execute(
         "INSERT INTO tickets (id, provider, title, description, status, prompt_file)"
-        " VALUES ('internal:x','internal','X','','backlog','adws/prompts/01-x.md')"
+        " VALUES ('internal:x','internal','X','','ready-for-agent','adws/prompts/01-x.md')"
     )
     conn.commit()
     conn.close()
 
     assert ticket.run("internal:x", None) == 0  # first run honors the spec
+    assert ticket.backlog("internal:x", None) == 0  # requeue before the retry
     assert ticket.run("internal:x", None) == 0  # re-run still honors it
     assert sorted(p.name for p in (root / "adws" / "prompts").glob("*.md")) == ["01-x.md"]
 
@@ -446,7 +450,7 @@ def test_run_sandboxed_copies_interview_spec_into_worktree(tmp_path, monkeypatch
     conn = _db(root)
     conn.execute(
         "INSERT INTO tickets (id, provider, title, description, status, prompt_file)"
-        " VALUES ('internal:x','internal','X','','backlog','adws/prompts/01-spec.md')"
+        " VALUES ('internal:x','internal','X','','ready-for-agent','adws/prompts/01-spec.md')"
     )
     conn.commit()
     conn.close()
@@ -469,3 +473,101 @@ def test_run_sandboxed_copies_interview_spec_into_worktree(tmp_path, monkeypatch
     assert len(wt_prompts) == 1
     assert wt_prompts[0].read_text() == "# The spec\n\nAgent-written requirements.\n"
     assert "Generated from" not in wt_prompts[0].read_text()
+
+
+# ── ticket machine core + idea tickets (issue #87): CLI seam ───────────────
+
+
+def test_ticket_new_creates_idea_ticket(tmp_path, monkeypatch, capsys):
+    root = _project(tmp_path, monkeypatch, CONFIG)
+    assert ticket.new("Ship dark mode", None) == 0
+    out = capsys.readouterr().out
+    assert "idea ticket" in out and "needs-triage" in out
+    conn = _db(root)
+    row = conn.execute(
+        "SELECT title, description, status, kind, tracked, origin, spec"
+        " FROM tickets WHERE provider='internal'"
+    ).fetchone()
+    events = conn.execute("SELECT event_type, actor FROM ticket_events").fetchall()
+    conn.close()
+    assert row == ("Ship dark mode", "", "needs-triage", "idea", 1, "internal", "")
+    import getpass
+
+    assert ("created", getpass.getuser()) in events  # operator recorded as the actor
+
+
+def test_ticket_new_requires_internal_provider(tmp_path, monkeypatch, capsys):
+    _project(tmp_path, monkeypatch, "providers:\n  - jira\njira:\n  jql: 'x'\n")
+    assert ticket.new("nope", None) == 1
+    assert "internal provider is not enabled" in capsys.readouterr().err
+
+
+def test_ticket_add_creates_ready_for_agent_implementation(tmp_path, monkeypatch, capsys):
+    """The legacy `add` keeps its 'immediately implementable' semantics: the
+    machine's ready-for-agent status (the backlog queue), implementation kind,
+    tracked, origin internal, spec = prompt_file."""
+    root = _project(tmp_path, monkeypatch, CONFIG)
+    prompt = root / "adws" / "prompts" / "01-x.md"
+    prompt.parent.mkdir(parents=True, exist_ok=True)
+    prompt.write_text("spec")
+    assert ticket.add("Ship dark mode", None, prompt_file=str(prompt)) == 0
+    conn = _db(root)
+    row = conn.execute(
+        "SELECT status, kind, tracked, origin, spec FROM tickets WHERE provider='internal'"
+    ).fetchone()
+    conn.close()
+    assert row == ("ready-for-agent", "implementation", 1, "internal", "adws/prompts/01-x.md")
+
+
+def test_ticket_list_backlog_returns_only_ready_for_agent(tmp_path, monkeypatch, capsys):
+    root = _project(tmp_path, monkeypatch, CONFIG)
+    ticket.add("Build feature", None)
+    ticket.new("Idea first", None)
+    conn = _db(root)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, external_id, title, description, status)"
+        " VALUES ('internal:blocked1', 'internal', '', 'Blocked thing', '', 'blocked')"
+    )
+    conn.commit()
+    conn.close()
+    capsys.readouterr()  # consume prior output
+    assert ticket.list_tickets(None, backlog_only=True) == 0
+    out = capsys.readouterr().out
+    assert "Build feature" in out  # ready-for-agent -> in the backlog
+    assert "Idea first" not in out  # needs-triage idea -> not in the backlog
+    assert "Blocked thing" not in out  # blocked -> not in the backlog
+
+
+def test_backlog_retry_requeues_with_feedback(tmp_path, monkeypatch, capsys):
+    """The manual retry control moves a ticket back to ready-for-agent via the
+    machine and attaches the human's feedback to the audit trail."""
+    root = _project(tmp_path, monkeypatch, CONFIG)
+    conn = _db(root)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, external_id, title, description, status)"
+        " VALUES ('internal:abc', 'internal', '', 'X', '', 'in-progress')"
+    )
+    conn.commit()
+    conn.close()
+    assert ticket.backlog("internal:abc", None, feedback="needs tests") == 0
+    conn = _db(root)
+    row = conn.execute(
+        "SELECT status, rejection_feedback FROM tickets WHERE id='internal:abc'"
+    ).fetchone()
+    ev = conn.execute("SELECT payload FROM ticket_events WHERE ticket_id='internal:abc'").fetchone()
+    conn.close()
+    assert row == ("ready-for-agent", "needs tests")
+    assert '"needs tests"' in ev[0]
+
+
+def test_backlog_retry_rejects_illegal_from_status(tmp_path, monkeypatch, capsys):
+    root = _project(tmp_path, monkeypatch, CONFIG)
+    conn = _db(root)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, external_id, title, description, status)"
+        " VALUES ('internal:abc', 'internal', '', 'X', '', 'done')"
+    )
+    conn.commit()
+    conn.close()
+    assert ticket.backlog("internal:abc", None) == 1
+    assert "done" in capsys.readouterr().err

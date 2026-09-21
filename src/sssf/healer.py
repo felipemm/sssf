@@ -129,14 +129,14 @@ def diagnose(
         and last_event_min > NO_PROGRESS_MIN
     ):
         return "restart"
-    # A ticket still 'starting' too long with NO session at all (its spawn
+    # A ticket still 'in-progress' too long with NO session at all (its spawn
     # never produced one): put the ticket back in the backlog and clean up.
-    # The age is the time since the ticket was marked starting (updated_at).
+    # The age is the time since the ticket was marked in-progress (updated_at).
     # A ticket whose session EXISTS is never this case — a stale updated_at
     # (run() bumps it at spawn, but older retries may not) must not classify
     # a live or failed run as a spawn failure.
     if (
-        ticket_status == "starting"
+        ticket_status == "in-progress"
         and linked_session_status is None
         and ticket_age_min is not None
         and ticket_age_min > NO_PROGRESS_MIN
@@ -145,7 +145,11 @@ def diagnose(
     # A ticket whose RUN FAILED (its session went terminal-fail): back to the
     # backlog so it can be retried. History is preserved — the failed run
     # stays linked (see recover's ticket_backlog branch).
-    if ticket_status is not None and ticket_status != "backlog" and linked_session_status == "fail":
+    if (
+        ticket_status is not None
+        and ticket_status != "ready-for-agent"
+        and linked_session_status == "fail"
+    ):
         return "ticket_backlog"
     return None
 
@@ -256,13 +260,31 @@ def recover(
 
     if action == "ticket_backlog":
         try:
+            from sssf import ticketing
+
             conn = sqlite3.connect(str(project_db), isolation_level=None, timeout=5)
+            ticketing.ensure_schema(conn)  # ticket_events table + machine columns
             # History is preserved: the adw_id link stays, so the failed run
             # remains in the trace and in the ticket's run list.
+            row = conn.execute(
+                "SELECT id, status FROM tickets WHERE adw_id=?", (adw_id,)
+            ).fetchone()
             conn.execute(
-                "UPDATE tickets SET status='backlog', updated_at=? WHERE adw_id=?",
+                "UPDATE tickets SET status='ready-for-agent', updated_at=? WHERE adw_id=?",
                 (datetime.datetime.now(datetime.UTC).isoformat(), adw_id),
             )
+            if row:
+                ticketing.add_ticket_event(
+                    conn,
+                    row[0],
+                    "transition",
+                    actor="system",
+                    payload={
+                        "from": row[1],
+                        "to": "ready-for-agent",
+                        "reason": "healer: run failed or never started",
+                    },
+                )
             conn.commit()
             conn.close()
         except sqlite3.Error:
@@ -297,7 +319,7 @@ def heal_once(initial: dict | None = None) -> list[str]:
             tickets = conn.execute(
                 "SELECT t.adw_id, t.status, t.updated_at, s.status"
                 " FROM tickets t LEFT JOIN sessions s ON s.adw_id = t.adw_id"
-                " WHERE t.status != 'backlog' AND t.adw_id IS NOT NULL"
+                " WHERE t.status != 'ready-for-agent' AND t.adw_id IS NOT NULL"
             ).fetchall()
             conn.close()
         except sqlite3.Error:
