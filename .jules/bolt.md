@@ -1,0 +1,3 @@
+## 2023-10-27 - N+1 Query Anti-Pattern in Visualizer Backend
+**Learning:** The visualizer's Bun backend (specifically in `server/cockpit.ts` and `server/tickets.ts`) was iterating over ticket rows and executing a `SELECT` query per row to look up session statuses. Because SQLite is fast and local, this didn't cause an immediate application crash, but the performance cost still scales linearly with the number of tickets.
+**Action:** Replaced loop-based individual queries with single `LEFT JOIN` queries, handling cases where the joined table may not yet exist (using fallback `try/catch` queries).
