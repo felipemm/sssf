@@ -29,3 +29,7 @@
 ## 2024-05-18 - Lexicographical sorting for ISO 8601 strings
 **Learning:** Parsing ISO date strings repeatedly via `new Date(d).getTime()` (or `Date.parse`) within array sorting comparators creates a significant performance bottleneck, especially when polling and re-rendering lists or boards frequently. Because ISO 8601 string lengths and character sequences represent dates logically, they can be accurately sorted using direct lexicographical string comparisons (`a < b ? -1 : 1`) which is roughly 10x faster than object allocation and date parsing.
 **Action:** When sorting items by ISO 8601 dates (like `started_at` strings), compare the raw strings lexicographically instead of parsing them into timestamps first.
+
+## 2024-05-19 - [Date parsing bottleneck in polling cycles]
+**Learning:** In Vue components that poll data every 500ms (like `KanbanBoard.vue`), repeatedly calling `new Date(isoString).getTime()` for sorting large collections of items causes a measurable CPU overhead. JavaScript Date instantiation is surprisingly slow when executing in tight loops.
+**Action:** Memoize `Date.parse()` or `new Date(isoString).getTime()` behind an LRU cache or capped Map in utility functions to prevent repetitive parsing of the same timestamp strings during polling.
