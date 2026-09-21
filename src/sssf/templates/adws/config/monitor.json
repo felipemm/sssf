@@ -1,0 +1,4 @@
+{
+  "gitlab_url": "https://gitlab.com",
+  "token_env": "GITLAB_TOKEN"
+}
