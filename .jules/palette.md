@@ -1,3 +1,23 @@
-## 2024-10-27 - Custom Disclosure Widgets Lack Implicit ARIA States
-**Learning:** This codebase relies heavily on custom collapsible panels/disclosure widgets (e.g., DetailSection, KanbanBoard columns, PhaseDetail prompt panels) built with standard `<button>` elements that control `v-if` visibility elsewhere. Because they are not native `<details>` elements, they lack implicit ARIA expanded states, leaving screen reader users blind to whether the widget is open or closed, and decorative chevrons add noise if not hidden.
-**Action:** When working on or reviewing custom collapsible widgets in this repository, always ensure the controlling button has `:aria-expanded="state"` and that any decorative state indicator (like a chevron or +/- icon) has `aria-hidden="true"`. Use `:aria-pressed="state"` for toggle buttons that change a view state (like raw/rendered text views).
+## 2026-09-09 - Disclosure Widget Accessibility
+**Learning:** Disclosure widgets (like accordions or collapsible sections) across this app's components (DetailSection, PhaseDetail) lacked proper accessibility states (`aria-expanded`, `aria-controls`), making them hard to navigate for screen reader users. Visual-only cues like carets (`▾` / `▸`) were not hidden from screen readers.
+**Action:** Always map toggle buttons with `aria-expanded` and `aria-controls` to their corresponding content blocks (using uniquely generated IDs via Vue's `useId`), and mark decorative visual indicators with `aria-hidden="true"`.
+
+## 2026-09-10 - Add aria-expanded to collapsibles
+**Learning:** Interactive collapsible elements (accordions/panels) without 'aria-expanded' attributes do not communicate their state (open/closed) to screen readers. Adding this attribute to existing button toggles based on component state significantly improves a11y.
+**Action:** Use existing open/closed state variables to bind ':aria-expanded' to toggle buttons for expanding panels (e.g., in Vue: ':aria-expanded="open"').
+
+## 2026-09-11 - Added aria-expanded to collapsible buttons
+**Learning:** Some toggle buttons for collapsible panels/accordions in Vue components lacked the `aria-expanded` attribute, limiting screen reader accessibility.
+**Action:** Always add `:aria-expanded="state"` to the toggle `<button>` when building or maintaining a collapsible UI component.
+
+## 2024-09-14 - [Add loading spinners to inline async buttons]
+**Learning:** When implementing async actions in inline cards (like TicketCard), disabled states alone are insufficient feedback. Users need an active loading indicator (like LoaderCircle) directly on the action button to confirm their click registered, especially since board refetches can take a second.
+**Action:** Add spinners and `aria-busy` attributes to disabled action buttons.
+
+## 2024-09-17 - Missing aria-expanded on collapsible sections
+**Learning:** Collapsible/accordion patterns in this app (like `DetailSection` and Kanban column toggles) were completely missing the `aria-expanded` state, impacting screen reader usability as users would not know if a section was expanded or collapsed. Purely visual icons (chevrons) were also lacking `aria-hidden="true"`.
+**Action:** When working with togglable or collapsible UI elements in this codebase, always ensure `aria-expanded` is bound to the open state, and decorative icons have `aria-hidden="true"`.
+
+## 2026-09-17 - [Missing ARIA attributes on Vue interactive elements]
+**Learning:** Icon-only or mini functional buttons (e.g. collapse/expand chevrons, mini refresh buttons, inline retry links) and collapsible sections across the Vue components commonly lacked proper `aria-label`, `aria-expanded`, and `aria-pressed` attributes, which impairs screen reader accessibility.
+**Action:** When adding new interactive toggle regions or icon-only controls, always include `aria-expanded`/`aria-pressed` bound to the same reactive state as the visual indicator, along with a descriptive `aria-label` explaining the target action.

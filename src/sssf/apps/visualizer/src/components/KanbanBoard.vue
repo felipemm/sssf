@@ -287,7 +287,6 @@ function toggleCollapsed(key: string) {
             :aria-expanded="!collapsed[col.key]"
             :aria-label="`Toggle ${col.label} column`"
             :title="collapsed[col.key] ? 'Expand stage' : 'Collapse stage'"
-            :aria-expanded="!collapsed[col.key]"
             @click="toggleCollapsed(col.key)"
           >
             <ChevronRight v-if="collapsed[col.key]" :size="15" :stroke-width="2" class="chev" aria-hidden="true" />
