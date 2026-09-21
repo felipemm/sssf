@@ -16,7 +16,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fetchMrState as defaultFetchMrState } from "./gitlab.ts";
-import type { Fetcher, MrPipeline, MrState, MrStateResult } from "./gitlab.ts";
+import type { MrStateResult } from "./gitlab.ts";
 import type { ProjectRegistry } from "./registry.ts";
 
 export const MONITOR_CONFIG_FILE = "adws/config/monitor.json";
