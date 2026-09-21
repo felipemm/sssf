@@ -97,8 +97,8 @@ async function refresh() {
 onMounted(() => {
   void refresh()
   void fetchContribs()
-  timer = setInterval(() => { if (!document.hidden) void refresh() }, POLL_MS) // ⚡ Bolt: pause background polling
-  contribTimer = setInterval(() => { if (!document.hidden) void fetchContribs() }, CONTRIB_POLL_MS) // ⚡ Bolt: pause background polling
+  timer = setInterval(() => void refresh(), POLL_MS)
+  contribTimer = setInterval(() => void fetchContribs(), CONTRIB_POLL_MS)
 })
 onBeforeUnmount(() => {
   clearInterval(timer)
@@ -185,7 +185,7 @@ async function toggleLogs(name: string) {
   logLines.value = []
   await fetchLogs()
   clearInterval(logTimer)
-  logTimer = setInterval(() => { if (!document.hidden) void fetchLogs() }, 5000) // ⚡ Bolt: pause background polling; tail: refresh while open
+  logTimer = setInterval(() => void fetchLogs(), 5000) // tail: refresh while open
 }
 
 function onLogTailChange() {

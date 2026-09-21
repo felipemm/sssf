@@ -88,7 +88,7 @@ async function pull() {
 
 onMounted(() => {
   void pull()
-  if (props.session.status === 'running') timer = setInterval(() => { if (!document.hidden) void pull() }, 500) // ⚡ Bolt: pause background polling when tab is hidden
+  if (props.session.status === 'running') timer = setInterval(() => void pull(), 500)
 })
 
 onUnmounted(stopPolling)
@@ -96,7 +96,7 @@ onUnmounted(stopPolling)
 watch(
   () => props.session.status,
   (status) => {
-    if (status === 'running' && !timer) timer = setInterval(() => { if (!document.hidden) void pull() }, 500) // ⚡ Bolt: pause background polling when tab is hidden
+    if (status === 'running' && !timer) timer = setInterval(() => void pull(), 500)
     // On the transition out of running, one last pull drains the tail and stops the timer.
     else if (status !== 'running') void pull()
   },

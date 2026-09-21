@@ -40,7 +40,7 @@ async function tick() {
 
 onMounted(() => {
   void tick()
-  timer = setInterval(() => { if (!document.hidden) void tick() }, 500) // ⚡ Bolt: pause background polling when tab is hidden
+  timer = setInterval(() => void tick(), 500)
 })
 
 onUnmounted(() => clearInterval(timer))
