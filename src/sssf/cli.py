@@ -10,6 +10,7 @@ from sssf.commands import (
     heal,
     init,
     misc,
+    mr,
     notify_cmd,
     obs_cmds,
     sandbox_cmd,
@@ -300,6 +301,23 @@ def main(argv: list[str] | None = None) -> int:
             tompero=a.tompero,
         )
     )
+
+    p_mr = sub.add_parser("mr", help="register an MR against a ticket (monitor scan set)")
+    msub = p_mr.add_subparsers(dest="mr_action", required=True)
+    p_mr_add = msub.add_parser("add", help="attach one MR to a ticket (upsert)")
+    p_mr_add.add_argument("ticket_id")
+    p_mr_add.add_argument("repo", help="GitLab project path, e.g. group/project")
+    p_mr_add.add_argument("iid")
+    p_mr_add.add_argument("--url", default="", help="human-facing MR URL (notified)")
+    p_mr_add.add_argument("--project", default=None)
+    p_mr_add.set_defaults(func=lambda a: mr.add(a.ticket_id, a.repo, a.iid, a.project, url=a.url))
+    p_mr_list = msub.add_parser("list", help="list every registered MR")
+    p_mr_list.add_argument("--project", default=None)
+    p_mr_list.set_defaults(func=lambda a: mr.list_mrs(a.project))
+    p_mr_rm = msub.add_parser("rm", help="drop a ticket's MR reference")
+    p_mr_rm.add_argument("ticket_id")
+    p_mr_rm.add_argument("--project", default=None)
+    p_mr_rm.set_defaults(func=lambda a: mr.rm(a.ticket_id, a.project))
 
     p_heal = sub.add_parser("heal", help="self-healing monitor daemon (start / stop / status)")
     p_heal.add_argument("action", nargs="?", default="status", choices=["start", "stop", "status"])

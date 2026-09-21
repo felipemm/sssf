@@ -88,6 +88,11 @@ export function axisTicks(spanMs: number, maxTicks = 8): { pct: number; label: s
 // have no ok key and count as ok.
 export function payloadOk(raw: string | null | undefined): boolean {
   if (!raw) return true
+  // Fast path: if the payload doesn't contain both '"ok"' and 'false',
+  // we know it won't evaluate to `ok: false`. This skips expensive JSON parsing
+  // for the vast majority of valid tool calls in the trace.
+  if (!raw.includes('"ok"') || !raw.includes('false')) return true
+
   try {
     const p: unknown = JSON.parse(raw)
     if (p && typeof p === 'object' && 'ok' in p) return (p as { ok?: unknown }).ok !== false
