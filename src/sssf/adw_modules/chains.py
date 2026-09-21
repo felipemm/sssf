@@ -87,6 +87,7 @@ class QualityLoop:
 class ReviewLoop:
     """The reviewer/revise loop: review until approved (bounded)."""
 
+    name: str = "review"
     max_loops: int = 3
     description: str = "Confirm the build matches the plan"
 

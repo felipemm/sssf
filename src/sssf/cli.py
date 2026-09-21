@@ -6,13 +6,13 @@ from pathlib import Path
 
 from sssf import __version__
 from sssf.commands import (
+    flow,
     heal,
     init,
     misc,
     mr,
     notify_cmd,
     obs_cmds,
-    run,
     sandbox_cmd,
     spec,
     sweep,
@@ -82,6 +82,10 @@ def _dispatch_sandbox(a) -> int:
         return sandbox_cmd.list_(a.project)
     if action == "prune":
         return sandbox_cmd.prune(a.project, a.adw_id, a.all)
+    if action == "stop":
+        return sandbox_cmd.stop(a.project, a.adw_id)
+    if action == "restart":
+        return sandbox_cmd.restart(a.project, a.adw_id)
     return 1
 
 
@@ -116,18 +120,62 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
 
-    p_run = sub.add_parser(
-        "run", help='execute an ADW chain: sssf run <adw> "<prompt>" [--adw-id X]'
+    p_flow = sub.add_parser(
+        "flow", help="the three flows — the ONLY entry point for work: plan / implement / deploy"
     )
-    p_run.add_argument("adw", help="chain name; the adw_ prefix is optional")
-    p_run.add_argument("args", nargs=argparse.REMAINDER, help="passed through to the ADW")
-    p_run.add_argument("--project", default=None)
-    p_run.add_argument(
+    fsub = p_flow.add_subparsers(dest="flow_action", required=True)
+    p_fplan = fsub.add_parser(
+        "plan", help="plan a feature: exploration → grill-with-docs → spec → tickets"
+    )
+    p_fplan.add_argument(
+        "ticket_id",
+        nargs="?",
+        help="idea ticket to plan; omit to run exploration-first on the cwd",
+    )
+    p_fplan.add_argument("--project", default=None)
+    p_fplan.add_argument(
+        "--skip-exploration",
+        action="store_true",
+        help="skip the scout exploration pass — the problem is already well understood",
+    )
+    p_fplan.add_argument(
         "--no-sandbox",
         action="store_true",
         help="run in the current dir instead of a sandbox container",
     )
-    p_run.set_defaults(func=lambda a: run.run(Path.cwd(), a.adw, a.args, a.project, a.no_sandbox))
+    p_fplan.set_defaults(
+        func=lambda a: flow.plan(
+            Path.cwd(), a.ticket_id, a.project, a.skip_exploration, a.no_sandbox
+        )
+    )
+    p_fimpl = fsub.add_parser(
+        "implement", help="implement one ready-for-agent ticket: triage → build → review"
+    )
+    p_fimpl.add_argument("ticket_id", help="the ticket to implement (ready-for-agent)")
+    p_fimpl.add_argument("--project", default=None)
+    p_fimpl.add_argument(
+        "--no-sandbox",
+        action="store_true",
+        help="run in the current dir instead of a sandbox container",
+    )
+    p_fimpl.set_defaults(
+        func=lambda a: flow.implement(Path.cwd(), a.ticket_id, a.project, a.no_sandbox)
+    )
+    p_fdep = fsub.add_parser(
+        "deploy", help="release train: batch signoff on dev → bump → MR → e2e → release"
+    )
+    p_fdep.add_argument("--project", default=None)
+    p_fdep.add_argument(
+        "--yes",
+        action="store_true",
+        help="auto-approve the signoff gate (explicit automation escape)",
+    )
+    p_fdep.add_argument(
+        "--no-sandbox",
+        action="store_true",
+        help="run in the current dir instead of a sandbox container",
+    )
+    p_fdep.set_defaults(func=lambda a: flow.deploy(Path.cwd(), a.project, a.yes, a.no_sandbox))
 
     _register_obs(sub)
 
@@ -284,7 +332,9 @@ def main(argv: list[str] | None = None) -> int:
     p_sc.set_defaults(func=lambda a: spec.create(a.mode, a.title, Path.cwd(), a.project))
 
 
-    p_sb = sub.add_parser("sandbox", help="sandbox lifecycle (build / list / prune)")
+    p_sb = sub.add_parser(
+        "sandbox", help="sandbox lifecycle (build / list / prune / stop / restart)"
+    )
     sbsub = p_sb.add_subparsers(dest="sandbox_action", required=True)
     p_build = sbsub.add_parser(
         "build", help="build/refresh the sssf-runner image (streams docker progress)"
@@ -296,6 +346,14 @@ def main(argv: list[str] | None = None) -> int:
     p_prune.add_argument("adw_id", nargs="?", help="specific run; omit with --all")
     p_prune.add_argument("--all", action="store_true")
     p_prune.add_argument("--project", default=None)
+    p_stop = sbsub.add_parser("stop", help="stop a live run (container + session)")
+    p_stop.add_argument("adw_id")
+    p_stop.add_argument("--project", default=None)
+    p_restart = sbsub.add_parser(
+        "restart", help="re-run a session in its existing sandbox branch"
+    )
+    p_restart.add_argument("adw_id")
+    p_restart.add_argument("--project", default=None)
     p_sb.set_defaults(func=lambda a: _dispatch_sandbox(a))
 
     args = parser.parse_args(argv)

@@ -1,4 +1,7 @@
-"""`sssf sandbox build|list|prune` — deterministic sandbox lifecycle commands."""
+"""`sssf sandbox build|list|prune|stop|restart` — sandbox lifecycle commands.
+
+stop/restart are the run-control operations that moved here when ad-hoc
+`sssf run` was removed (#89) — the viz trace page shells them."""
 
 from __future__ import annotations
 
@@ -117,3 +120,80 @@ def prune(explicit: str | None, adw_id: str | None, all_: bool) -> int:
             return 0
         print(f"pruned {_id}")
     return 0
+
+
+def stop(explicit: str | None, adw_id: str) -> int:
+    """`sssf sandbox stop <adw_id>` — stop a live run's container and session."""
+    from sssf.sandbox import sandbox_env, stop_run
+
+    root = _root(explicit)
+    if root is None:
+        print("sssf: no project here.", file=sys.stderr)
+        return 1
+    data_dir, _pi, _env = sandbox_env(root)
+    return stop_run(root, adw_id, data_dir)
+
+
+def restart(explicit: str | None, adw_id: str) -> int:
+    """`sssf sandbox restart <adw_id>` — re-run a session, reusing its adw_id
+    (the ADW joins and reaps the old state) with the original request as the
+    prompt. The sandbox attaches to the existing sssf/<adw_id> branch. The ADW
+    that ORIGINALLY ran the session is re-run — never a hardcoded default."""
+    import sqlite3
+
+    from sssf.sandbox import _session_status, project_db_path, reopen_session, sandbox_env
+
+    root = _root(explicit)
+    if root is None:
+        print("sssf: no project here.", file=sys.stderr)
+        return 1
+    data_dir, _pi, _env = sandbox_env(root)
+    if _session_status(data_dir, adw_id) is None:
+        print(f"sssf: no session {adw_id}", file=sys.stderr)
+        return 1
+    db_path = project_db_path(data_dir)
+    conn = sqlite3.connect(str(db_path), isolation_level=None)
+    row = conn.execute(
+        "SELECT request, adw_name FROM sessions WHERE adw_id=?", (adw_id,)
+    ).fetchone()
+    conn.close()
+    if not row or not row[0]:
+        print(f"sssf: session {adw_id} has no request to re-run", file=sys.stderr)
+        return 1
+    # Re-open the host session row: a restart attaches to the existing branch,
+    # and the monitor's forward-merge never flips a TERMINAL host row back to
+    # running — without this the UI keeps showing the previous run's fail/end
+    # state and the restarted run's own outcome is never recorded either.
+    reopen_session(data_dir, adw_id)
+    # Re-run the ADW that ORIGINALLY ran the session, never a hardcoded
+    # default. sessions.adw_name records every ADW that joined, newest
+    # appended; the FIRST is the original run.
+    original = (row[1] or "").split(" + ", 1)[0].strip()
+    if original and not original.startswith("adw_"):
+        original = f"adw_{original}"
+    adw_file = _adw_file(root, original) if original else None
+    if adw_file is None:
+        print(
+            f"sssf: session {adw_id} ran '{row[1] or '?'}' — no adw module or "
+            "installed template by that name to re-run",
+            file=sys.stderr,
+        )
+        return 1
+    return _run_sandboxed(root, adw_file, [row[0]], adw_id=adw_id, attach=True)
+
+
+def _adw_file(root: Path, name: str) -> Path | None:
+    """Prefer the INSTALLED template for standard ADWs; custom ADWs fall back
+    to the project's file. (Shared with sssf.commands.flow.)"""
+    from sssf.commands.flow import _adw_file as flow_adw_file
+
+    return flow_adw_file(root, name)
+
+
+def _run_sandboxed(
+    root: Path, adw_file: Path, args: list[str], adw_id: str | None = None, attach: bool = False
+) -> int:
+    """Run an ADW inside the per-run sandbox. (Shared with sssf.commands.flow.)"""
+    from sssf.commands.flow import _run_sandboxed as flow_run_sandboxed
+
+    return flow_run_sandboxed(root, adw_file, args, adw_id=adw_id, attach=attach)

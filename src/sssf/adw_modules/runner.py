@@ -76,13 +76,16 @@ class Run:
             json.loads(self._agent_map_path.read_text()) if self._agent_map_path.exists() else {}
         )
         # Runtime stash for chain-executor state (simple_sdlc's verified/no-op
-        # bookkeeping). Typed here so code phases can set them without mypy
-        # attr-defined errors; the chain layer owns the values.
+        # bookkeeping, the flow chains' flags). Typed here so code phases can
+        # set them without mypy attr-defined errors; the chain layer owns the
+        # values.
         self._quality_result = None
         self._review_approved = False
         self._sdlc_baseline = ""
         self._sdlc_plan_sha = ""
         self._sdlc_no_op = False
+        self._skip_exploration = False  # adw_plan: --skip-exploration
+        self._deploy_yes = False  # adw_deploy: --yes (signoff gate)
 
     # ── agent map (adw_id -> per-agent coding-agent session ids) ────────────
     def save_agent_map(self, agent: str, entry: dict) -> None:

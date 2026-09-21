@@ -1,0 +1,7 @@
+# adws/config/deploy.yaml — the deploy flow's deterministic steps (#89)
+#
+# version_files: the files whose patch version the deploy bump step advances.
+# Only files that exist are touched; add/remove per project.
+version_files:
+  - pyproject.toml
+  - package.json

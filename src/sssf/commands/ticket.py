@@ -262,10 +262,18 @@ def run(
         return 1
     slug = "".join(c if c.isalnum() else "-" for c in title.lower()).strip("-")[:40] or "ticket"
     adw_id = uuid.uuid4().hex[:8]
+    # The LEGACY ticket-run path: runs the project's own adw_simple_sdlc.py.
+    # Already-stamped projects keep theirs after the chain-set reduction (#89);
+    # fresh projects use the implement flow instead.
     adw_file = paths.modules_dir(root) / "adw_simple_sdlc.py"
     if not adw_file.exists():
         conn.close()
-        print(f"sssf ticket: no adws/modules/adw_simple_sdlc.py in {root}", file=sys.stderr)
+        print(
+            f"sssf ticket: no adws/modules/adw_simple_sdlc.py in {root} — this"
+            " legacy path exists for already-stamped projects; fresh projects run"
+            " `sssf flow implement <ticket-id>`",
+            file=sys.stderr,
+        )
         return 1
 
     sandboxed = not no_sandbox and _sandbox_enabled(root)

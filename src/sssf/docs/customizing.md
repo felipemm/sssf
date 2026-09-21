@@ -13,7 +13,7 @@ adws/
 ├── modules/                 adw_*.py chains
 ├── config/                  sssf.config.yaml, ticketing.yaml
 ├── data/                    sssf.db, sessions/, prompt_engineering/, harness_engineering/
-├── prompts/                 your prompt files, e.g. sssf run <adw> "run prompt adws/prompts/x.md"
+├── prompts/                 your prompt files — the flows generate ticket prompts here
 ├── specs/                   plans the planner commits (adws/specs/<adw_id>_<slug>.md)
 └── kb/                      write-ups the documenter commits (adws/kb/<adw_id>_<slug>.md)
 ```

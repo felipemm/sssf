@@ -14,7 +14,10 @@ def test_init_stamps_project(tmp_path, monkeypatch):
     root.mkdir()
     assert _run_init(root, monkeypatch) == 0
     assert (root / "adws/config/sssf.config.yaml").exists()
-    assert (root / "adws/modules/adw_prompt.py").exists()
+    # the shipped template set is the three flow chains (#89)
+    for chain in ("adw_plan", "adw_implement", "adw_deploy"):
+        assert (root / f"adws/modules/{chain}.py").exists()
+    assert (root / "adws/config/deploy.yaml").exists()
     assert (root / "adws/data/prompt_engineering/planner/system.md").exists()
     assert (root / ".env.sample").exists()
     agents_md = (root / "AGENTS.md").read_text()
@@ -35,7 +38,7 @@ def test_init_is_idempotent_and_does_not_clobber(tmp_path, monkeypatch):
     root = tmp_path / "proj"
     root.mkdir()
     _run_init(root, monkeypatch)
-    adw = root / "adws/modules/adw_prompt.py"
+    adw = root / "adws/modules/adw_plan.py"
     original = adw.read_text()
     adw.write_text(original + "\n# user edit\n")
     assert _run_init(root, monkeypatch) == 0
@@ -69,10 +72,10 @@ def test_refresh_adds_missing_only(tmp_path, monkeypatch):
     root = tmp_path / "proj"
     root.mkdir()
     _run_init(root, monkeypatch)
-    (root / "adws/modules/adw_prompt.py").unlink()
+    (root / "adws/modules/adw_plan.py").unlink()
     monkeypatch.setattr("builtins.input", lambda prompt="": "n")
     assert _run_init(root, monkeypatch, ["--refresh"]) == 0
-    assert (root / "adws/modules/adw_prompt.py").exists()
+    assert (root / "adws/modules/adw_plan.py").exists()
 
 
 def test_init_stamps_ticketing_template_with_internal_enabled(tmp_path, monkeypatch):
@@ -94,7 +97,7 @@ def test_refresh_prompts_and_keeps_on_no(tmp_path, monkeypatch):
     root = tmp_path / "proj"
     root.mkdir()
     _run_init(root, monkeypatch)
-    adw = root / "adws/modules/adw_prompt.py"
+    adw = root / "adws/modules/adw_plan.py"
     original = adw.read_text()
     adw.write_text(original + "\n# user edit\n")
     monkeypatch.setattr("builtins.input", lambda prompt="": "n")
@@ -106,7 +109,7 @@ def test_refresh_overwrites_on_yes(tmp_path, monkeypatch):
     root = tmp_path / "proj"
     root.mkdir()
     _run_init(root, monkeypatch)
-    adw = root / "adws/modules/adw_prompt.py"
+    adw = root / "adws/modules/adw_plan.py"
     template = adw.read_text()
     adw.write_text(template + "\n# user edit\n")
     monkeypatch.setattr("builtins.input", lambda prompt="": "y")
@@ -118,7 +121,7 @@ def test_refresh_yes_to_all_overwrites_every_adw(tmp_path, monkeypatch):
     root = tmp_path / "proj"
     root.mkdir()
     _run_init(root, monkeypatch)
-    adw = root / "adws/modules/adw_prompt.py"
+    adw = root / "adws/modules/adw_plan.py"
     adw.write_text(adw.read_text() + "\n# user edit\n")
     monkeypatch.setattr("builtins.input", lambda prompt="": "a")
     assert _run_init(root, monkeypatch, ["--refresh"]) == 0
@@ -130,7 +133,7 @@ def test_refresh_auto_accepts_all_without_stdin(tmp_path, monkeypatch):
     root = tmp_path / "proj"
     root.mkdir()
     assert _run_init(root, monkeypatch) == 0  # initial stamp
-    target = root / "adws" / "modules" / "adw_simple_sdlc.py"
+    target = root / "adws" / "modules" / "adw_plan.py"
     target.write_text("OLD")  # drift it
     monkeypatch.setattr(
         "builtins.input", lambda *a, **k: (_ for _ in ()).throw(AssertionError("prompted!"))
@@ -145,7 +148,7 @@ def test_refresh_without_auto_still_prompts(tmp_path, monkeypatch):
     root = tmp_path / "proj"
     root.mkdir()
     assert _run_init(root, monkeypatch) == 0
-    target = root / "adws" / "modules" / "adw_simple_sdlc.py"
+    target = root / "adws" / "modules" / "adw_plan.py"
     target.write_text("OLD")
     calls: list[str] = []
     monkeypatch.setattr("builtins.input", lambda prompt: calls.append(str(prompt)) or "n")
@@ -158,7 +161,7 @@ def test_init_stamps_v2_layout(tmp_path, monkeypatch):
     root = tmp_path / "proj"
     root.mkdir()
     assert _run_init(root, monkeypatch) == 0
-    assert (root / "adws/modules/adw_prompt.py").exists()
+    assert (root / "adws/modules/adw_plan.py").exists()
     assert (root / "adws/config/sssf.config.yaml").exists()
     assert (root / "adws/config/ticketing.yaml").exists()
     assert (root / "adws/data/prompt_engineering/planner/system.md").exists()
@@ -212,4 +215,32 @@ def test_refresh_on_v2_is_idempotent(tmp_path, monkeypatch):
     monkeypatch.setattr("builtins.input", lambda prompt="": "n")
     assert _run_init(root, monkeypatch, ["--refresh"]) == 0
     assert not list(root.glob("adws.backup.*"))
-    assert (root / "adws/modules/adw_prompt.py").exists()
+    assert (root / "adws/modules/adw_plan.py").exists()
+
+
+def test_refresh_lands_flow_chains_alongside_legacy_combos(tmp_path, monkeypatch):
+    """#89 AC: `init --refresh` lands the three flow chains alongside legacy
+    combos in an already-stamped project — legacy ADWs and edited chains are
+    never removed or clobbered; removal is manual."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    # an already-stamped project from before the chain-set reduction: a legacy
+    # combo exists on disk and an edited chain carries a user change
+    modules = root / "adws" / "modules"
+    modules.mkdir(parents=True)
+    (root / "adws" / "config").mkdir(parents=True)
+    (root / "adws" / "data").mkdir(parents=True)
+    (root / "adws" / "prompts").mkdir(parents=True)
+    legacy = modules / "adw_simple_sdlc.py"
+    legacy.write_text("LEGACY")
+    edited = modules / "adw_plan.py"
+    edited.write_text("USER EDIT")
+    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+    assert _run_init(root, monkeypatch, ["--refresh"]) == 0
+    # the legacy combo survives (manual/optional removal)
+    assert legacy.read_text() == "LEGACY"
+    # the edited chain is untouched
+    assert edited.read_text() == "USER EDIT"
+    # the three flow chains landed alongside
+    for chain in ("adw_plan", "adw_implement", "adw_deploy"):
+        assert (root / f"adws/modules/{chain}.py").exists()

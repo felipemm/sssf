@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Flows as the only entry point + chain set reduction (#89)** — work starts
+  only through `sssf flow plan|implement|deploy`; ad-hoc `sssf run <adw> "<prompt>"`
+  is removed. The shipped `adws/modules/` template set collapses from the 13
+  one-off combos to the three flow chains: `adw_plan` (exploration →
+  grill-with-docs → spec → tickets, exploration skippable), `adw_implement`
+  (triage → build → quality → builder self-review → review), and `adw_deploy`
+  (sandbox → terminal signoff → bump → MR → e2e → release, with `--yes` as the
+  explicit signoff automation escape). `init --refresh` lands the three chains
+  alongside legacy combos without touching edited chains; legacy removal is
+  manual. Already-stamped projects' legacy ADWs stay runnable via the legacy
+  `sssf ticket run` path and `sssf sandbox restart` (which re-runs the original
+  ADW). Run control moved to `sssf sandbox stop|restart`; the viz trace page
+  shells the new form. Per-flow deep semantics (ticket transforms, machine
+  transitions, workbench, canary/promote/close-by-commits) land in #91/#92/#96/#97.
+
 ### Added
 
 - **MR monitor inside the viz service (#98)** — the viz server now sweeps every
