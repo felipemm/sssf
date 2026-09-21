@@ -102,6 +102,52 @@ def _seed_session(root: Path, adw_id: str, adw_name: str, request: str) -> None:
     conn.close()
 
 
+def test_no_sandbox_flag_after_prompt_is_honored(tmp_path, monkeypatch):
+    """`sssf run simple_sdlc "<prompt>" --no-sandbox` — argparse's REMAINDER
+    swallows flags typed after the prompt into args; run() must pull the flag
+    back out and honor it, never forward the literal token to the ADW. Field
+    case cce4c966: the sandboxed ADW died with 'unrecognized arguments:
+    --no-sandbox' (exit 2, 'run never started')."""
+    from sssf.commands import run as run_cmd
+
+    root = tmp_path / "proj"
+    (root / "adws" / "modules").mkdir(parents=True)
+    (root / "adws" / "config").mkdir(parents=True)
+    (root / "adws" / "config" / "sssf.config.yaml").write_text(
+        "defaults:\n  model: openai/gpt-4o-mini\n"  # no sandbox key → enabled
+    )
+    (root / "adws" / "modules" / "adw_stub_check.py").write_text("print('STUB_OK')\n")
+
+    def boom(*a, **k):
+        raise AssertionError("must not sandbox when --no-sandbox is present")
+
+    monkeypatch.setattr(run_cmd, "_run_sandboxed", boom)
+    assert run_cmd.run(root, "stub_check", ["hello world", "--no-sandbox"], None) == 0
+
+
+def test_sandboxed_args_never_carry_no_sandbox(tmp_path, monkeypatch):
+    """A genuinely sandboxed run forwards ONLY the prompt to the ADW — the
+    --no-sandbox token must never reach the container command."""
+    from sssf.commands import run as run_cmd
+
+    root = tmp_path / "proj"
+    (root / "adws" / "modules").mkdir(parents=True)
+    (root / "adws" / "config").mkdir(parents=True)
+    (root / "adws" / "config" / "sssf.config.yaml").write_text(
+        "defaults:\n  model: openai/gpt-4o-mini\n"
+    )
+    (root / "adws" / "modules" / "adw_stub_check.py").write_text("print('STUB_OK')\n")
+
+    captured: dict = {}
+    monkeypatch.setattr(
+        run_cmd,
+        "_run_sandboxed",
+        lambda root_, adw_file, args, adw_id=None, attach=False: captured.update(args=args) or 0,
+    )
+    assert run_cmd.run(root, "stub_check", ["bound the page"], None) == 0
+    assert captured["args"] == ["bound the page"]
+
+
 def test_restart_reruns_the_original_adw(tmp_path, monkeypatch):
     """`sssf run restart` re-runs the ADW that ORIGINALLY ran the session, not
     a hardcoded simple_sdlc. (Field case, session 36bbd3b3: a build_review
