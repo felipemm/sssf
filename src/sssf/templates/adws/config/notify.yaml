@@ -1,0 +1,9 @@
+# Notify adapter (optional). Uncomment to enable — the flows and the monitor
+# post to one thread per ticket, alerting only (human checkpoints stay in the
+# terminal and the tracker).
+#
+channel: '#sssf-alerts'
+token_env: SLACK_BOT_TOKEN   # bot token from the project .env (chat.postMessage)
+# retries: 5                 # extra attempts after the first, exponential backoff
+# backoff_base: 1.0          # seconds; sleeps base * 2 ** (attempt - 1)
+# timeout: 30.0              # seconds per HTTP request

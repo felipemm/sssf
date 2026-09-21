@@ -1,8 +1,21 @@
+const tsCache = new Map<string, number>()
+
 export function ts(iso: string | null | undefined): number {
   if (!iso) return NaN
-  // ⚡ Bolt: Date.parse(iso) is ~3-4x faster than new Date(iso).getTime() in tight loops
-  // by avoiding object allocation and garbage collection for intermediate Dates.
-  return Date.parse(iso)
+  let val = tsCache.get(iso)
+  if (val === undefined) {
+    val = new Date(iso).getTime()
+    if (tsCache.size > 10000) tsCache.clear()
+    tsCache.set(iso, val)
+  }
+  return val
+}
+
+/** Lexicographically compares two ISO 8601 strings, avoiding costly Date parsing */
+export function cmpTs(a: string | null | undefined, b: string | null | undefined): number {
+  const as = a || ''
+  const bs = b || ''
+  return as === bs ? 0 : as < bs ? -1 : 1
 }
 
 export function fmtDuration(ms: number): string {
