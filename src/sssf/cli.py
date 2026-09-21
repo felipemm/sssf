@@ -5,7 +5,19 @@ import sys
 from pathlib import Path
 
 from sssf import __version__
-from sssf.commands import heal, init, misc, obs_cmds, run, sandbox_cmd, spec, sweep, ticket, viz
+from sssf.commands import (
+    heal,
+    init,
+    misc,
+    notify_cmd,
+    obs_cmds,
+    run,
+    sandbox_cmd,
+    spec,
+    sweep,
+    ticket,
+    viz,
+)
 from sssf.project import data_dir, find_project
 
 
@@ -191,6 +203,28 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_context.add_argument("--project", default=None)
     p_ticket.set_defaults(func=lambda a: _dispatch_ticket(a))
+
+    p_notify = sub.add_parser(
+        "notify", help="post an alert to a ticket's Slack thread (alerting only)"
+    )
+    p_notify.add_argument("ticket_id")
+    p_notify.add_argument("text")
+    p_notify.add_argument("--workbench", default=None, help="workbench URL")
+    p_notify.add_argument("--mr", default=None, help="merge-request URL")
+    p_notify.add_argument("--release", default=None, help="release URL")
+    p_notify.add_argument("--tompero", default=None, help="tompero deployment URL")
+    p_notify.add_argument("--project", default=None)
+    p_notify.set_defaults(
+        func=lambda a: notify_cmd.run(
+            a.ticket_id,
+            a.text,
+            a.project,
+            workbench=a.workbench,
+            mr=a.mr,
+            release=a.release,
+            tompero=a.tompero,
+        )
+    )
 
     p_heal = sub.add_parser("heal", help="self-healing monitor daemon (start / stop / status)")
     p_heal.add_argument("action", nargs="?", default="status", choices=["start", "stop", "status"])
