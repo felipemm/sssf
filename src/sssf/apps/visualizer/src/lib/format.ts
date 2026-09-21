@@ -1,8 +1,14 @@
+const tsCache = new Map<string, number>()
+
 export function ts(iso: string | null | undefined): number {
   if (!iso) return NaN
-  // ⚡ Bolt: Use Date.parse() to avoid allocating a new Date object.
-  // Approximately ~30% faster string-to-timestamp parsing.
-  return Date.parse(iso)
+  let val = tsCache.get(iso)
+  if (val === undefined) {
+    val = new Date(iso).getTime()
+    if (tsCache.size > 10000) tsCache.clear()
+    tsCache.set(iso, val)
+  }
+  return val
 }
 
 export function fmtDuration(ms: number): string {
