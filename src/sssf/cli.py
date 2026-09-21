@@ -11,6 +11,8 @@ from sssf.project import data_dir, find_project
 
 def _dispatch_ticket(a) -> int:
     action = a.ticket_action
+    if action == "new":
+        return ticket.new(a.title, a.project)
     if action == "add":
         return ticket.add(
             a.title, a.project, description=a.description or "", prompt_file=a.prompt_file
@@ -18,13 +20,13 @@ def _dispatch_ticket(a) -> int:
     if action == "sync":
         return ticket.sync(a.project)
     if action == "list":
-        return ticket.list_tickets(a.project)
+        return ticket.list_tickets(a.project, backlog_only=a.backlog)
     if action == "run":
         return ticket.run(a.ticket_id, a.project, a.no_sandbox, a.context or "")
     if action == "context":
         return ticket.ticket_context(a.ticket_id, a.project, a.set_text)
     if action == "backlog":
-        return ticket.backlog(a.ticket_id, a.project)
+        return ticket.backlog(a.ticket_id, a.project, feedback=a.feedback)
     return 1
 
 
@@ -146,9 +148,16 @@ def main(argv: list[str] | None = None) -> int:
     p_sweep.add_argument("--days", type=int, default=30)
     p_sweep.set_defaults(func=lambda a: sweep.run(a.project, a.days))
 
-    p_ticket = sub.add_parser("ticket", help="ticketing integration (add / sync / list / run)")
+    p_ticket = sub.add_parser(
+        "ticket", help="ticketing integration (new / add / sync / list / run)"
+    )
     tsub = p_ticket.add_subparsers(dest="ticket_action", required=True)
-    p_add = tsub.add_parser("add", help="create an internal ticket")
+    p_new = tsub.add_parser("new", help="create an idea ticket (title-only, born needs-triage)")
+    p_new.add_argument("title")
+    p_new.add_argument("--project", default=None)
+    p_add = tsub.add_parser(
+        "add", help="create an internal implementation ticket (ready-for-agent)"
+    )
     p_add.add_argument("title")
     p_add.add_argument("--description", default=None, help="short summary stored on the ticket")
     p_add.add_argument(
@@ -157,10 +166,17 @@ def main(argv: list[str] | None = None) -> int:
         help="relative path to the interview spec (adws/prompts/NN-<slug>.md) linked to this ticket",
     )
     p_add.add_argument("--project", default=None)
-    p_sync = tsub.add_parser("sync", help="fetch external tickets into the backlog")
+    p_sync = tsub.add_parser(
+        "sync", help="fetch external tickets into the queue (born needs-triage, untracked)"
+    )
     p_sync.add_argument("--project", default=None)
     p_list = tsub.add_parser("list", help="list tickets")
     p_list.add_argument("--project", default=None)
+    p_list.add_argument(
+        "--backlog",
+        action="store_true",
+        help="list only the backlog — exactly the ready-for-agent queue",
+    )
     p_run = tsub.add_parser("run", help="spawn simple_sdlc for a ticket")
     p_run.add_argument("ticket_id")
     p_run.add_argument("--project", default=None)
@@ -175,9 +191,14 @@ def main(argv: list[str] | None = None) -> int:
         help="run in the current dir instead of a sandbox container",
     )
     p_backlog = tsub.add_parser(
-        "backlog", help="return a ticket to the backlog (keeps run history)"
+        "backlog", help="requeue a ticket to ready-for-agent (keeps run history)"
     )
     p_backlog.add_argument("ticket_id")
+    p_backlog.add_argument(
+        "--feedback",
+        default=None,
+        help="rejection feedback attached to the ticket on requeue",
+    )
     p_backlog.add_argument("--project", default=None)
     p_context = tsub.add_parser(
         "context", help="read or set a ticket's persisted extra context"

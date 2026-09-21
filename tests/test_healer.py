@@ -31,19 +31,21 @@ def test_hung_phase_restarts():
 
 def test_failed_spawn_returns_ticket():
     assert (
-        diagnose(None, "starting", False, True, False, None, NO_PROGRESS_MIN + 1)
+        diagnose(None, "in-progress", False, True, False, None, NO_PROGRESS_MIN + 1)
         == "ticket_backlog"
     )
-    assert diagnose(None, "starting", True, True, False, 1.0, 1.0) is None  # still warming up
+    assert diagnose(None, "in-progress", True, True, False, 1.0, 1.0) is None  # still warming up
 
 
 def test_failed_session_ticket_returns_ticket():
     """A ticket whose RUN FAILED goes back to the backlog (history preserved)
     — the new linked_session_status branch, distinct from spawn failures."""
-    assert diagnose(None, "starting", False, True, False, None, 1.0, "fail") == "ticket_backlog"
-    assert diagnose(None, "starting", True, True, False, 1.0, 1.0, "running") is None
-    assert diagnose(None, "starting", True, True, False, 1.0, 1.0, "success") is None
-    assert diagnose(None, "backlog", True, True, False, 1.0, 1.0, "fail") is None  # already backlog
+    assert diagnose(None, "in-progress", False, True, False, None, 1.0, "fail") == "ticket_backlog"
+    assert diagnose(None, "in-progress", True, True, False, 1.0, 1.0, "running") is None
+    assert diagnose(None, "in-progress", True, True, False, 1.0, 1.0, "success") is None
+    assert (
+        diagnose(None, "ready-for-agent", True, True, False, 1.0, 1.0, "fail") is None
+    )  # already backlog
 
 
 def test_starting_ticket_with_live_session_is_never_spawn_fail():
@@ -52,14 +54,15 @@ def test_starting_ticket_with_live_session_is_never_spawn_fail():
     failed spawn — that killed a healthy run (abort_sandbox on a live
     container). Spawn-fail is only for tickets with NO session at all."""
     assert (
-        diagnose(None, "starting", True, True, False, 1.0, NO_PROGRESS_MIN + 99, "running") is None
+        diagnose(None, "in-progress", True, True, False, 1.0, NO_PROGRESS_MIN + 99, "running")
+        is None
     )
     assert (
-        diagnose(None, "starting", True, True, False, 1.0, NO_PROGRESS_MIN + 99, "fail")
+        diagnose(None, "in-progress", True, True, False, 1.0, NO_PROGRESS_MIN + 99, "fail")
         == "ticket_backlog"
     )
     assert (
-        diagnose(None, "starting", True, True, False, 1.0, NO_PROGRESS_MIN + 99, None)
+        diagnose(None, "in-progress", True, True, False, 1.0, NO_PROGRESS_MIN + 99, None)
         == "ticket_backlog"
     )
 
@@ -128,7 +131,7 @@ def test_recover_ticket_backlog_keeps_history(tmp_path, monkeypatch):
     conn.execute("INSERT INTO sessions VALUES ('dead1', 'fail', '2026-08-16T00:00:00+00:00')")
     conn.execute(
         "INSERT INTO tickets (id, provider, external_id, title, status, adw_id)"
-        " VALUES ('internal:retry', 'internal', '', 'X', 'starting', 'dead1')"
+        " VALUES ('internal:retry', 'internal', '', 'X', 'in-progress', 'dead1')"
     )
     conn.execute(
         "INSERT INTO ticket_runs VALUES ('internal:retry', 'dead1', '2026-08-16T00:00:00+00:00')"
@@ -145,7 +148,7 @@ def test_recover_ticket_backlog_keeps_history(tmp_path, monkeypatch):
         "SELECT COUNT(*) FROM ticket_runs WHERE ticket_id='internal:retry'"
     ).fetchone()[0]
     conn.close()
-    assert row == ("backlog", "dead1")  # link preserved — history intact
+    assert row == ("ready-for-agent", "dead1")  # link preserved — history intact
     assert runs == 1
 
 

@@ -1097,9 +1097,31 @@ def record_never_started(project_root: Path, adw_id: str, tracer, per_run_db: Pa
         )
     )
     tracer.conn.execute(
-        "UPDATE tickets SET status='failed', updated_at=? WHERE adw_id=?",
+        "UPDATE tickets SET status='ready-for-agent', updated_at=? WHERE adw_id=?",
         (now, adw_id),
     )
+    try:
+        from sssf import ticketing
+
+        ticketing.ensure_schema(tracer.conn)  # ticket_events + machine columns
+        row = tracer.conn.execute(
+            "SELECT id, status FROM tickets WHERE adw_id=?", (adw_id,)
+        ).fetchone()
+        if row:
+            ticketing.add_ticket_event(
+                tracer.conn,
+                row[0],
+                "transition",
+                actor="system",
+                payload={
+                    "from": row[1],
+                    "to": "ready-for-agent",
+                    "reason": "spawn failure: container exited before the ADW started",
+                    "exit_code": exit_code,
+                },
+            )
+    except sqlite3.Error:
+        pass  # audit write is best-effort — the status flip above is the truth
 
 
 def monitor_run(project_root: Path, adw_id: str) -> int:
