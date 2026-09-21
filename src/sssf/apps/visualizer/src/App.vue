@@ -10,6 +10,7 @@ import StatusPage from './components/StatusPage.vue'
 import MissionControl from './components/MissionControl.vue'
 import ProjectPicker from './components/ProjectPicker.vue'
 import Toasts from './components/Toasts.vue'
+import UpdateBanner from './components/UpdateBanner.vue'
 
 const route = useRoute()
 const { selectedProject } = useProjects()
@@ -185,6 +186,7 @@ async function onSweep() {
         <span class="live-hint"><span class="live-dot" /> live</span>
       </div>
     </header>
+    <UpdateBanner />
     <main>
       <MissionControl v-if="view === 'cockpit'" />
       <KanbanBoard v-else-if="view === 'board'" />
