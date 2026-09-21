@@ -37,6 +37,9 @@ def _advance_origin(origin: Path, n: int = 1) -> None:
         subprocess.run(["git", "-C", str(work), "pull", "-q", "--ff-only"], check=True)
     else:
         subprocess.run(["git", "clone", "-q", str(origin), str(work)], check=True)
+    # Scratch clones have no git identity on CI runners; set one so commits work.
+    subprocess.run(["git", "-C", str(work), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(work), "config", "user.name", "T"], check=True)
     for i in range(n):
         (work / "f.txt").write_text(f"remote {i}\n")
         subprocess.run(["git", "-C", str(work), "add", "-A"], check=True)
@@ -131,6 +134,8 @@ def test_check_tracks_feature_branch_upstream(tmp_path):
     # advance dev on the origin
     work = origin.parent / "advance-work"
     subprocess.run(["git", "clone", "-q", str(origin), str(work)], check=True)
+    subprocess.run(["git", "-C", str(work), "config", "user.email", "t@t"], check=True)
+    subprocess.run(["git", "-C", str(work), "config", "user.name", "T"], check=True)
     subprocess.run(["git", "-C", str(work), "checkout", "-q", "dev"], check=True)
     (work / "f.txt").write_text("dev remote\n")
     subprocess.run(["git", "-C", str(work), "add", "-A"], check=True)
