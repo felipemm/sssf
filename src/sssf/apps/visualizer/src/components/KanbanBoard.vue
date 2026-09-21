@@ -29,7 +29,7 @@ let inflight = false
 async function tick() {
   if (document.hidden) return
   nowMs.value = Date.now()
-  if (inflight) return
+  if (inflight || document.hidden) return
   if (!projectsLoaded.value) return   // wait for the project situation before fetching
   inflight = true
   try {
