@@ -24,3 +24,9 @@ adws/adw_data/
 
 # git worktrees (isolated dev environments)
 .worktrees/
+
+# agent workflow ledger (SDD progress) — not product content
+.superpowers/
+
+# agent scratch journals (Bolt/Palette learnings) — not product content
+.jules/
