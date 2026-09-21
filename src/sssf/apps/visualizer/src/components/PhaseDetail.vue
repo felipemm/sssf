@@ -462,12 +462,12 @@ function togglePanel(id: string) {
           <template v-else-if="promptsState === 'ready'">
             <div v-if="!promptPanels.length" class="faint">no compiled prompts recorded</div>
             <div v-for="panel in promptPanels" :key="panel.id" class="prompt-panel">
-              <button class="prompt-head" @click="togglePanel(panel.id)">
-                <span class="chev">{{ openPanels.has(panel.id) ? '▾' : '▸' }}</span>
+              <button class="prompt-head" @click="togglePanel(panel.id)" :aria-expanded="openPanels.has(panel.id)" :aria-controls="openPanels.has(panel.id) ? `prompt-panel-${panel.id}` : undefined">
+                <span class="chev" aria-hidden="true">{{ openPanels.has(panel.id) ? '▾' : '▸' }}</span>
                 <span class="prompt-title">{{ panel.title }}</span>
                 <span class="dim">{{ panel.lines }} lines</span>
               </button>
-              <div v-if="openPanels.has(panel.id)" class="prompt-body">
+              <div v-if="openPanels.has(panel.id)" :id="`prompt-panel-${panel.id}`" class="prompt-body">
                 <div class="prompt-tools">
                   <button
                     :class="{ active: !rawView.has(panel.id) }"
@@ -497,9 +497,9 @@ function togglePanel(id: string) {
           <div v-if="!phaseGates.length" class="faint">no gate results</div>
           <div v-for="g in phaseGates" :key="g.id" class="gate" :class="g.passed ? 'pass' : 'fail'">
             <template v-if="gateChecks(g)">
-              <button class="gate-line gate-toggle" @click="toggleGate(g.id)">
-                <span class="chev">{{ openGates.has(g.id) ? '▾' : '▸' }}</span>
-                <span class="gate-mark">{{ g.passed ? '✓' : '✗' }}</span>
+              <button class="gate-line gate-toggle" @click="toggleGate(g.id)" :aria-expanded="openGates.has(g.id)" :aria-controls="openGates.has(g.id) ? `gate-checks-${g.id}` : undefined">
+                <span class="chev" aria-hidden="true">{{ openGates.has(g.id) ? '▾' : '▸' }}</span>
+                <span class="gate-mark" aria-hidden="true">{{ g.passed ? '✓' : '✗' }}</span>
                 <span class="gate-name">{{ g.gate }}</span>
                 <span class="tag" :class="{ 'tag-fail': !g.passed }">
                   <span class="tag-k">checks</span>
@@ -511,7 +511,7 @@ function togglePanel(id: string) {
                 </span>
                 <span class="dim gate-time">{{ fmtClock(g.created_at) }}</span>
               </button>
-              <div v-if="openGates.has(g.id)" class="gate-checks">
+              <div v-if="openGates.has(g.id)" :id="`gate-checks-${g.id}`" class="gate-checks">
                 <div v-if="!gateChecks(g)?.length" class="faint">
                   nothing to check — the gate inspected no items
                 </div>
@@ -618,7 +618,7 @@ function togglePanel(id: string) {
         <h3><Activity class="h3-icon" :size="19" :stroke-width="2" /> events ({{ phaseEvents.length }})</h3>
         <div v-if="!phaseEvents.length" class="faint">no events</div>
         <div v-for="e in phaseEvents" :key="e.event_id" class="event">
-          <button class="event-row" :class="{ open: expanded.has(e.event_id) }" @click="toggle(e)">
+          <button class="event-row" :class="{ open: expanded.has(e.event_id) }" @click="toggle(e)" :aria-expanded="expanded.has(e.event_id)" :aria-controls="expanded.has(e.event_id) ? `event-payload-${e.event_id}` : undefined">
             <span class="e-time dim">{{ fmtClock(e.started_at) }}</span>
             <span class="e-type" :class="typeClass[e.type ?? '']">{{ e.type }}</span>
             <span
@@ -638,7 +638,7 @@ function togglePanel(id: string) {
             </span>
           </button>
 
-          <div v-if="expanded.has(e.event_id)" class="payload-panel">
+          <div v-if="expanded.has(e.event_id)" :id="`event-payload-${e.event_id}`" class="payload-panel">
             <template v-if="richCall(e)">
               <div class="p-meta">
                 <span class="p-tool">{{ richCall(e)?.tool }}</span>
