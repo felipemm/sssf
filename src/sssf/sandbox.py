@@ -462,10 +462,47 @@ def docker_available() -> bool:
     return r.returncode == 0
 
 
-def build_image(image: str, dockerfile: Path, context: Path | None = None, *, timeout_s: int = 1800) -> None:
-    # -t is mandatory: an untagged build leaves the image dangling and every
-    # run keeps using the stale sssf-runner:latest.
-    r = _docker("build", "-t", image, "-f", str(dockerfile), str(context or dockerfile.parent), timeout_s=timeout_s)
+def build_image(
+    image: str,
+    dockerfile: Path,
+    context: Path | None = None,
+    *,
+    timeout_s: int = 1800,
+    stream: bool = False,
+) -> None:
+    """docker build the runner image.
+
+    Captured mode (the default) is for daemon callers whose stdout feeds a log
+    (the healer). stream=True is for the interactive CLI: docker's own progress
+    goes straight to the terminal, so a cache-cold build (it downloads
+    pi/bun/snyk/Chrome — many minutes) never reads as a silent freeze, and a
+    failure shows the real docker output instead of a 500-char tail.
+
+    -t is mandatory: an untagged build leaves the image dangling and every
+    run keeps using the stale sssf-runner:latest.
+    """
+    cmd = ["build", "-t", image, "-f", str(dockerfile), str(context or dockerfile.parent)]
+    if stream:
+        try:
+            docker = shutil.which("docker") or "docker"
+            proc = subprocess.run([docker, *cmd], timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            raise SandboxError(
+                f"docker build timed out after {timeout_s}s — the runner image installs "
+                "pi/bun/snyk/Chrome from the network; check connectivity and Docker "
+                "resources, then retry"
+            ) from None
+        if proc.returncode != 0:
+            raise SandboxError(
+                f"docker build failed (exit {proc.returncode}) — see the build output above"
+            )
+        return
+    try:
+        r = _docker(*cmd, timeout_s=timeout_s)
+    except subprocess.TimeoutExpired:
+        raise SandboxError(
+            f"docker build timed out after {timeout_s}s — check Docker/network and retry"
+        ) from None
     if r.returncode != 0:
         raise SandboxError(f"docker build failed: {r.stderr.strip()[:500]}")
 
@@ -722,20 +759,22 @@ def image_is_current(image: str) -> bool:
     return image_engine_fingerprint(image) == _engine_fingerprint()
 
 
-def build_runner_image(image: str) -> None:
+def build_runner_image(image: str, *, stream: bool = False) -> None:
     """Build (or rebuild) the runner image with the current engine baked in.
 
     Uses a generous timeout (a full build installs pi/bun/snyk/impeccable) and
     clears the in-process fingerprint cache afterwards: the cache would
     otherwise keep reporting the OLD marker, and the next guard would still
-    refuse the freshly rebuilt image.
+    refuse the freshly rebuilt image. stream=True forwards docker's progress to
+    the terminal (interactive `sssf sandbox build`); daemon callers (healer)
+    leave it captured.
     """
     df = runner_dockerfile()
     if df is None:
         raise SandboxError("docker/sssf-runner.Dockerfile not found")
     src = runner_source_root()
     context = src if (src / "pyproject.toml").exists() else df.parent
-    build_image(image, df, context)
+    build_image(image, df, context, stream=stream)
     _fingerprint_cache.pop(image, None)
 
 

@@ -66,6 +66,50 @@ def test_build_failure_raises(fake_docker, tmp_path, monkeypatch):
         build_image("sssf-runner", tmp_path / "Dockerfile")
 
 
+def test_build_image_stream_invokes_docker_with_progress(fake_docker, tmp_path):
+    """stream=True (the interactive CLI) runs docker build with output attached
+    to the terminal — never the silent-capture path that reads as a freeze."""
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text("FROM scratch\n")
+    build_image("sssf-runner", dockerfile, stream=True)
+    calls = fake_docker.read_text().splitlines()
+    build = next(c for c in calls if c.startswith("build"))
+    assert "-t sssf-runner" in build and "Dockerfile" in build
+
+
+def test_build_image_stream_failure_raises(fake_docker, tmp_path):
+    """A streamed build that exits non-zero raises SandboxError (docker output
+    already reached the terminal, so the message points at it)."""
+    bin_dir = fake_docker.parent / "bin"
+    (bin_dir / "docker").write_text("#!/usr/bin/env python3\nimport sys\nsys.exit(2)\n")
+    (bin_dir / "docker").chmod((bin_dir / "docker").stat().st_mode | stat.S_IEXEC)
+    with pytest.raises(SandboxError, match="exit 2"):
+        build_image("sssf-runner", tmp_path / "Dockerfile", stream=True)
+
+
+def test_build_image_captured_timeout_raises_helpful(fake_docker, tmp_path, monkeypatch):
+    """A docker build that exceeds the ceiling must surface a readable
+    SandboxError (healer/captured path), not a raw TimeoutExpired traceback."""
+
+    def slow(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout_s", 300))
+
+    monkeypatch.setattr(sandbox, "_docker", slow)
+    with pytest.raises(SandboxError, match="timed out"):
+        build_image("sssf-runner", tmp_path / "Dockerfile")
+
+
+def test_build_image_stream_timeout_raises_helpful(fake_docker, tmp_path, monkeypatch):
+    """Same readable timeout error on the streaming (CLI) path."""
+
+    def slow(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout", 1800))
+
+    monkeypatch.setattr(subprocess, "run", slow)
+    with pytest.raises(SandboxError, match="timed out"):
+        build_image("sssf-runner", tmp_path / "Dockerfile", stream=True)
+
+
 def test_run_sandbox_flags(fake_docker, tmp_path):
     run_sandbox(
         "sssf-runner",
