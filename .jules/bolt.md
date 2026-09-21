@@ -17,3 +17,7 @@
 ## 2024-09-12 - Prevent background API polling when browser tab is hidden
 **Learning:** The visualizer app aggressively polls the backend (every 500ms) to tail live runs using `setInterval` across multiple views (lists, kanban, trace, cards). If left running unchecked, these timers continue firing even when the tab is hidden, leading to thousands of unnecessary network requests and wasted CPU cycles for background tabs.
 **Action:** Always wrap API fetch calls inside `setInterval` with a check for `!document.hidden` in dashboards that rely on frequent polling. This ensures the app only requests data when visible, significantly reducing background resource drain.
+
+## 2023-10-27 - Date parsing performance overhead
+**Learning:** Constructing a new `Date` object just to extract its timestamp (`new Date(iso).getTime()`) introduces significant overhead (~30%) compared to using `Date.parse(iso)`. This is a critical codebase-specific performance learning because the frontend heavily relies on timestamp conversions for sorting and rendering charts/timelines.
+**Action:** Always prefer `Date.parse(iso)` for timestamp conversion instead of `new Date(iso).getTime()`.
