@@ -27,21 +27,25 @@ let timer: ReturnType<typeof setInterval> | undefined
 let inflight = false
 
 async function tick() {
+  if (document.hidden) return
   nowMs.value = Date.now()
-  if (inflight) return
+  if (inflight || document.hidden) return
   if (!projectsLoaded.value) return   // wait for the project situation before fetching
   inflight = true
   try {
     sessions.value = await fetchSessions()
     // Guard: the API is deduplicated, so a repeated adw_id here is a real bug.
-    // Optimization: Use an O(n) Set instead of O(n²) filter+findIndex for performance during 500ms poll
+    // O(N) duplicate check using a Set to avoid O(N²) findIndex inside filter
     const seenIds = new Set<string>()
-    const dupes: string[] = []
+    const dupes = []
     for (const s of sessions.value) {
-      if (seenIds.has(s.adw_id)) dupes.push(`${s.adw_id}:${s.status}`)
-      else seenIds.add(s.adw_id)
+      if (seenIds.has(s.adw_id)) {
+        dupes.push(s)
+      } else {
+        seenIds.add(s.adw_id)
+      }
     }
-    if (dupes.length) console.warn('[board] DUPLICATE adw_id in response:', dupes)
+    if (dupes.length) console.warn('[board] DUPLICATE adw_id in response:', dupes.map((d) => `${d.adw_id}:${d.status}`))
     apiError.value = null
     loaded.value = true
   } catch (err) {

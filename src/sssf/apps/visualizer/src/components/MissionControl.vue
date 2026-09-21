@@ -72,6 +72,7 @@ const chartWindowLabel = computed(
 )
 
 async function fetchContribs() {
+  if (document.hidden) return
   try {
     contribDays.value = await fetchCockpitContributions()
   } catch {
@@ -80,6 +81,7 @@ async function fetchContribs() {
 }
 
 async function refresh() {
+  if (document.hidden) return
   if (loading.value) return
   loading.value = true
   error.value = ''
@@ -153,6 +155,7 @@ let logTimer: ReturnType<typeof setInterval> | undefined
 let contribTimer: ReturnType<typeof setInterval> | undefined
 
 async function fetchLogs() {
+  if (document.hidden) return
   if (!logName.value || logLoading.value) return
   logLoading.value = true
   logError.value = ''
@@ -409,7 +412,7 @@ function fmtRel(iso: string | null): string {
             <td colspan="6" class="log-cell">
               <div class="logbar">
                 <span class="log-title">docker logs --tail {{ logTail }} <code>{{ logName }}</code></span>
-                <select v-model.number="logTail" class="tail-select" @change="onLogTailChange">
+                <select v-model.number="logTail" class="tail-select" aria-label="Number of log lines to tail" @change="onLogTailChange">
                   <option :value="50">50</option><option :value="100">100</option><option :value="250">250</option>
                 </select>
                 <button class="mini" :disabled="logLoading" @click="fetchLogs">
@@ -465,7 +468,7 @@ function fmtRel(iso: string | null): string {
     <section class="panel add">
       <h3>Add project</h3>
       <form class="add-form" @submit.prevent="onAdd">
-        <input v-model="newRoot" class="root-input hint" data-hint="Filesystem path to a project (must contain adws/). Registered in ~/.sssf/projects.json — the project's runs become visible to the cockpit." placeholder="/path/to/project (with adws/)" spellcheck="false" />
+        <input v-model="newRoot" class="root-input hint" data-hint="Filesystem path to a project (must contain adws/). Registered in ~/.sssf/projects.json — the project's runs become visible to the cockpit." placeholder="/path/to/project (with adws/)" aria-label="Project path" spellcheck="false" />
         <button class="primary" type="submit" :disabled="adding || !newRoot.trim()">
           <Plus :size="15" style="vertical-align: -2px; margin-right: 5px" />Add
         </button>
