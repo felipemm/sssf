@@ -1,8 +1,10 @@
 /**
  * SSSF visualizer server — JSON API over registered projects' sssf.db files
  * (the global `sssf viz` mode), plus the single-db adhoc mode it replaced, plus
- * the built UI when ./dist exists. Reads are read-only; the single write is
- * POST /api/sessions/:adw_id/archive, which sets one review flag on a row.
+ * the built UI when ./dist exists. Reads are read-only; the two writes are
+ * POST /api/sessions/:adw_id/archive (one review flag on a row) and the
+ * timer-driven batch writers — the archival sweep and the MR monitor's
+ * last-seen state (both write only to the trace dbs).
  *
  * There is no ingest endpoint and no websocket. The data path is
  * agents → sqlite → web ui, and the UI gets there by polling.
@@ -26,6 +28,7 @@ import { isEnabled, readTickets } from "./tickets.ts";
 import { syncTickets, runTicket, backlogTicket, setTicketContext } from "./ticketRoutes.ts";
 import { computeStatus } from "./status.ts";
 import { updateCheck } from "./updates.ts";
+import { sweepMonitorAll, monitorStatus, DEFAULT_INTERVAL_MS as DEFAULT_MONITOR_INTERVAL_MS } from "./monitor.ts";
 import { computeCockpit, computeCockpitContributions, containerLogs, defaultSpawnCli, handleControl, reviewFor, sandboxLogs, sessionControl } from "./cockpit.ts";
 import type { AgentPrompts, ApiError, ControlResult, HealthResponse } from "../shared/types.ts";
 
@@ -371,7 +374,8 @@ const server = Bun.serve({
     },
 
     // Manual archival sweep across every registered project (the `sssf sweep`
-    // CLI equivalent) — review triage, the only batch write the server makes.
+    // CLI equivalent) — review triage, one of the two timer-driven batch
+    // writes (the MR monitor's monitor_state is the other).
     "/api/sweep": {
       POST: safely(() => json({ results: sweepAll(projects, adhocDb?.path ?? null) })),
     },
@@ -395,6 +399,14 @@ const server = Bun.serve({
       const db = dbForProject(name);
       if (!db) return notFound("no trace db for project");
       return json({ enabled: isEnabled(root), tickets: readTickets(db.path) });
+    }),
+    "/api/projects/:project/monitor": scoped((req) => {
+      const name = param(req, "project");
+      const root = projectRoot(name);
+      if (!root) return notFound(`no project ${name}`);
+      const db = dbForProject(name);
+      if (!db) return notFound("no trace db for project");
+      return json(monitorStatus(db.path, root));
     }),
     "/api/projects/:project/status": scoped((req) => {
       const name = param(req, "project");
@@ -505,6 +517,8 @@ console.log(
 );
 
 process.on("SIGINT", () => {
+  clearInterval(sweepTimer);
+  clearInterval(monitorTimer);
   adhocDb?.close();
   for (const db of projectDbs.values()) db.close();
   process.exit(0);
@@ -517,5 +531,23 @@ function runSweep(): void {
     else if (r.archived > 0) console.log(`[sssf] sweep ${r.project}: archived ${r.archived} session(s)`);
   }
 }
+const sweepTimer = setInterval(runSweep, 6 * 60 * 60 * 1000);
 runSweep();
-setInterval(runSweep, 6 * 60 * 60 * 1000);
+
+// ── MR monitor (issue #98): scans ready-to-deploy tickets with an open MR
+// and alerts on pipeline green/failed/merged — lives and dies with this
+// process, no separate daemon. Boot sweep, then every 10 minutes.
+const rawInterval = Number(process.env.SSSF_MONITOR_INTERVAL_MS ?? DEFAULT_MONITOR_INTERVAL_MS);
+const monitorIntervalMs = Number.isFinite(rawInterval) && rawInterval > 0 ? rawInterval : DEFAULT_MONITOR_INTERVAL_MS;
+function runMonitor(): void {
+  sweepMonitorAll(projects, adhocDb?.path ?? null)
+    .then((results) => {
+      for (const r of results) {
+        if (r.error) console.log(`[sssf] monitor ${r.project}: ${r.error}`);
+        else if (r.notified > 0) console.log(`[sssf] monitor ${r.project}: ${r.notified} alert(s)`);
+      }
+    })
+    .catch((error) => console.error("[sssf] monitor sweep failed:", (error as Error).message));
+}
+const monitorTimer = setInterval(runMonitor, monitorIntervalMs);
+runMonitor();

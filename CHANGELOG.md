@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **MR monitor inside the viz service (#98)** — the viz server now sweeps every
+  registered project's `ready-to-deploy` tickets with a registered MR every 10
+  minutes, polls GitLab for pipeline/merge state, and alerts through the notify
+  adapter (`sssf notify`) on pipeline green, failed, and merged — exactly once
+  per transition (last-seen state in `monitor_state`; a replaced MR resets it).
+  Lives and dies with the server: boot sweep + interval, cleared on SIGINT. No
+  separate daemon. MRs attach to tickets via the new `sssf mr add/list/rm`
+  command (ticket_mrs table, audited); per-project config in
+  `adws/config/monitor.json` (gitlab_url + token_env, token from env or the
+  project .env). New `/api/projects/:project/monitor` status route.
+
+### Added
+
 - **Integration branch (post-success auto-merge)** — when enabled (default) in
   `sssf.config.yaml`, fresh sandboxed runs branch from an integration branch
   (`integration.branch`, default `dev`) and successful runs merge back into it

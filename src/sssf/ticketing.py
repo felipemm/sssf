@@ -123,6 +123,19 @@ CREATE TABLE IF NOT EXISTS ticket_runs (
 );
 """
 
+# One MR per ticket, registered by `sssf mr add` (and later by the deploy
+# flow): the monitor polls GitLab for its pipeline/merge state. The url is the
+# human-facing action link carried into notifications.
+TICKET_MRS_DDL = """
+CREATE TABLE IF NOT EXISTS ticket_mrs (
+  ticket_id  TEXT PRIMARY KEY,
+  repo       TEXT NOT NULL,
+  iid        TEXT NOT NULL,
+  url        TEXT NOT NULL DEFAULT '',
+  created_at TEXT
+);
+"""
+
 
 @dataclass
 class TicketRecord:
@@ -176,6 +189,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     """
     conn.execute(TICKETS_DDL)
     conn.execute(TICKET_RUNS_DDL)
+    conn.execute(TICKET_MRS_DDL)
     conn.execute(TICKET_EVENTS_DDL)
     conn.execute(TICKET_EVENTS_INDEX_DDL)
     cols = {r[1] for r in conn.execute("PRAGMA table_info(tickets)")}
@@ -351,6 +365,84 @@ def create_idea_ticket(conn: sqlite3.Connection, title: str, *, actor: str = "sy
     )
     add_ticket_event(conn, ticket_id, "created", actor=actor, payload={"kind": "idea"})
     return ticket_id
+
+
+@dataclass
+class MrRecord:
+    """The MR registered against a ticket (issue #98)."""
+
+    ticket_id: str
+    repo: str
+    iid: str
+    url: str = ""
+    created_at: str = ""
+
+
+def _mr_row(row: sqlite3.Row) -> MrRecord:
+    return MrRecord(
+        ticket_id=row[0], repo=row[1], iid=row[2], url=row[3] or "", created_at=row[4] or ""
+    )
+
+
+def register_mr(
+    conn: sqlite3.Connection,
+    ticket_id: str,
+    repo: str,
+    iid: str,
+    url: str = "",
+    *,
+    actor: str = "system",
+) -> None:
+    """Attach one MR to a ticket (upsert) and audit it. A ticket has at most
+    one MR: registering again replaces the reference in place."""
+    conn.execute(
+        "INSERT INTO ticket_mrs (ticket_id, repo, iid, url, created_at)"
+        " VALUES (?,?,?,?,?) ON CONFLICT(ticket_id) DO UPDATE SET"
+        " repo=excluded.repo, iid=excluded.iid, url=excluded.url, created_at=excluded.created_at",
+        (ticket_id, repo, iid, url, _now()),
+    )
+    add_ticket_event(
+        conn,
+        ticket_id,
+        "mr",
+        actor=actor,
+        payload={"action": "register", "repo": repo, "iid": iid, "url": url},
+    )
+
+
+def unregister_mr(conn: sqlite3.Connection, ticket_id: str, *, actor: str = "system") -> None:
+    """Drop a ticket's MR reference (the deploy flow calls this when the MR
+    is closed or the ticket is rejected before it). Audited like every write."""
+    conn.execute("DELETE FROM ticket_mrs WHERE ticket_id=?", (ticket_id,))
+    add_ticket_event(conn, ticket_id, "mr", actor=actor, payload={"action": "remove"})
+
+
+def mr_for_ticket(conn: sqlite3.Connection, ticket_id: str) -> MrRecord | None:
+    """A ticket's registered MR, or None when it has none."""
+    row = conn.execute(
+        "SELECT ticket_id, repo, iid, url, created_at FROM ticket_mrs WHERE ticket_id=?",
+        (ticket_id,),
+    ).fetchone()
+    return _mr_row(row) if row else None
+
+
+def ticket_mrs(conn: sqlite3.Connection) -> list[MrRecord]:
+    """Every registered MR, oldest first."""
+    rows = conn.execute(
+        "SELECT ticket_id, repo, iid, url, created_at FROM ticket_mrs ORDER BY created_at ASC"
+    ).fetchall()
+    return [_mr_row(row) for row in rows]
+
+
+def mrs_for_status(conn: sqlite3.Connection, status: str) -> list[MrRecord]:
+    """MRs of tickets currently in `status` — the monitor's scan set."""
+    rows = conn.execute(
+        "SELECT m.ticket_id, m.repo, m.iid, m.url, m.created_at"
+        " FROM ticket_mrs m JOIN tickets t ON t.id = m.ticket_id"
+        " WHERE t.status=? ORDER BY m.created_at ASC",
+        (status,),
+    ).fetchall()
+    return [_mr_row(row) for row in rows]
 
 
 def backlog_tickets(conn: sqlite3.Connection) -> list[sqlite3.Row]:
