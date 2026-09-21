@@ -9,3 +9,7 @@
 ## 2026-09-11 - Added aria-expanded to collapsible buttons
 **Learning:** Some toggle buttons for collapsible panels/accordions in Vue components lacked the `aria-expanded` attribute, limiting screen reader accessibility.
 **Action:** Always add `:aria-expanded="state"` to the toggle `<button>` when building or maintaining a collapsible UI component.
+
+## 2024-09-14 - [Add loading spinners to inline async buttons]
+**Learning:** When implementing async actions in inline cards (like TicketCard), disabled states alone are insufficient feedback. Users need an active loading indicator (like LoaderCircle) directly on the action button to confirm their click registered, especially since board refetches can take a second.
+**Action:** Add spinners and `aria-busy` attributes to disabled action buttons.
