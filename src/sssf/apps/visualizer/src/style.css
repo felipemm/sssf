@@ -242,3 +242,16 @@ pre {
 .hint-line {
   border-bottom: 1px dotted rgba(255, 255, 255, 0.3);
 }
+
+/* Accessibility: Consistent keyboard focus ring for interactive elements */
+:focus-visible {
+  outline: 2px solid var(--purple);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Ensure focus-visible takes precedence over :focus reset styles */
+*:focus-visible {
+  outline: 2px solid var(--purple) !important;
+  outline-offset: 2px !important;
+}
