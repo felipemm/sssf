@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { CircleCheck, CircleX, ExternalLink, LoaderCircle, Play, X } from 'lucide-vue-next'
 import { runTicket, saveTicketContext } from '../lib/api'
 import { notify } from '../lib/toast'
@@ -28,7 +28,16 @@ function scheduleSave() {
   saveTimer = setTimeout(saveSteer, 600)
 }
 
+function handleKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') emit('close')
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', handleKeydown)
+})
+
 onBeforeUnmount(() => {
+  document.removeEventListener('keydown', handleKeydown)
   clearTimeout(saveTimer)
   saveSteer()  // flush any pending edit — closing the modal must not lose it
 })
