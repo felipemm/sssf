@@ -17,3 +17,7 @@
 ## 2024-09-17 - Missing aria-expanded on collapsible sections
 **Learning:** Collapsible/accordion patterns in this app (like `DetailSection` and Kanban column toggles) were completely missing the `aria-expanded` state, impacting screen reader usability as users would not know if a section was expanded or collapsed. Purely visual icons (chevrons) were also lacking `aria-hidden="true"`.
 **Action:** When working with togglable or collapsible UI elements in this codebase, always ensure `aria-expanded` is bound to the open state, and decorative icons have `aria-hidden="true"`.
+
+## 2026-09-17 - [Missing ARIA attributes on Vue interactive elements]
+**Learning:** Icon-only or mini functional buttons (e.g. collapse/expand chevrons, mini refresh buttons, inline retry links) and collapsible sections across the Vue components commonly lacked proper `aria-label`, `aria-expanded`, and `aria-pressed` attributes, which impairs screen reader accessibility.
+**Action:** When adding new interactive toggle regions or icon-only controls, always include `aria-expanded`/`aria-pressed` bound to the same reactive state as the visual indicator, along with a descriptive `aria-label` explaining the target action.

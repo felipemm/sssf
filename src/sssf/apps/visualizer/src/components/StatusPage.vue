@@ -61,12 +61,12 @@ watch(selectedProject, () => {
           <span v-if="status.project.last_run"> · last run {{ status.project.last_run.slice(0, 10) }}</span>
         </p>
       </div>
-      <button class="btn" type="button" :disabled="loading" @click="load">
+      <button class="btn" type="button" aria-label="Refresh status" :disabled="loading" @click="load">
         <RefreshCw :size="15" :class="{ spin: loading }" /> refresh
       </button>
     </header>
 
-    <div v-if="apiError" class="banner">{{ apiError }} — <button class="link" @click="load">retry</button></div>
+    <div v-if="apiError" class="banner">{{ apiError }} — <button class="link" aria-label="Retry loading status" @click="load">retry</button></div>
 
     <template v-if="status">
       <!-- main info strip -->

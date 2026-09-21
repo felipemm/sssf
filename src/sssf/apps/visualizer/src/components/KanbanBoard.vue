@@ -284,8 +284,9 @@ function toggleCollapsed(key: string) {
           <button
             type="button"
             class="col-toggle"
-            :title="collapsed[col.key] ? 'Expand stage' : 'Collapse stage'"
             :aria-expanded="!collapsed[col.key]"
+            :aria-label="`Toggle ${col.label} column`"
+            :title="collapsed[col.key] ? 'Expand stage' : 'Collapse stage'"
             @click="toggleCollapsed(col.key)"
           >
             <ChevronRight v-if="collapsed[col.key]" :size="15" :stroke-width="2" class="chev" aria-hidden="true" />
@@ -298,6 +299,7 @@ function toggleCollapsed(key: string) {
             v-if="col.key === 'backlog'"
             class="sync-link"
             type="button"
+            aria-label="Fetch external tickets"
             :disabled="syncing"
             :title="'Fetch external tickets'"
             @click="onSync"
