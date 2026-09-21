@@ -31,6 +31,7 @@ export type {
   HealSummary,
   ActivityItem,
   ControlResult,
+  UpdateReport,
   SessionStatus,
   PhaseStatus,
   PhaseKind,
