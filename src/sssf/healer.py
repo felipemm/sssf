@@ -260,15 +260,31 @@ def recover(
 
     if action == "ticket_backlog":
         try:
-            from sssf import ticketing
+            from pydantic import ValidationError
+
+            from sssf import db_schema, ticketing
 
             conn = sqlite3.connect(str(project_db), isolation_level=None, timeout=5)
+            conn.row_factory = sqlite3.Row
             ticketing.ensure_schema(conn)  # ticket_events table + machine columns
             # History is preserved: the adw_id link stays, so the failed run
             # remains in the trace and in the ticket's run list.
             row = conn.execute(
                 "SELECT id, status FROM tickets WHERE adw_id=?", (adw_id,)
             ).fetchone()
+            # Write-through: merge onto the current row and validate against
+            # the contract before the UPDATE — the heal cannot invent columns
+            # (ensure_schema above has already migrated a legacy-shaped db).
+            current = conn.execute("SELECT * FROM tickets WHERE adw_id=?", (adw_id,)).fetchone()
+            if current:
+                merged = dict(zip(current.keys(), current, strict=True))
+                merged.update(
+                    {
+                        "status": "ready-for-agent",
+                        "updated_at": datetime.datetime.now(datetime.UTC).isoformat(),
+                    }
+                )
+                db_schema.TicketsRow.model_validate(merged)
             conn.execute(
                 "UPDATE tickets SET status='ready-for-agent', updated_at=? WHERE adw_id=?",
                 (datetime.datetime.now(datetime.UTC).isoformat(), adw_id),
@@ -287,7 +303,7 @@ def recover(
                 )
             conn.commit()
             conn.close()
-        except sqlite3.Error:
+        except (sqlite3.Error, ValidationError):
             pass
         abort_sandbox(root, adw_id)
         return f"{adw_id}: ticket back to backlog (history kept)"

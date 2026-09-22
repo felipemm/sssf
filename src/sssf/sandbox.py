@@ -15,6 +15,10 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
+from sssf import db_schema
+
 if TYPE_CHECKING:
     from sssf.adw_modules.data_types import IntegrationConfig
 
@@ -957,6 +961,17 @@ def _forward_merge(
         pass
 
 
+def _row_obeys(model: type[db_schema.Row], row: sqlite3.Row) -> bool:
+    """True when a copied row validates against the contract. Extra columns
+    from a newer source db are tolerated (the host may lag one image); a row
+    the models reject is drift and is never copied."""
+    try:
+        model.model_validate(dict(zip(row.keys(), row, strict=True)))
+        return True
+    except ValidationError:
+        return False
+
+
 def sync_run_db(conn: sqlite3.Connection, per_run_db: Path, adw_id: str) -> None:
     """Merge a run's per-run db (written by the ADW inside the container) into
     the project db via the given connection. The per-run db is COPIED first —
@@ -976,6 +991,7 @@ def sync_run_db(conn: sqlite3.Connection, per_run_db: Path, adw_id: str) -> None
         return
     try:
         src = sqlite3.connect(str(tmp), isolation_level=None)
+        src.row_factory = sqlite3.Row
         try:
             # tickets is PROJECT-owned (the host's ticket commands write it; the
             # per-run db never contains tickets) — syncing it would DELETE the
@@ -996,6 +1012,9 @@ def sync_run_db(conn: sqlite3.Connection, per_run_db: Path, adw_id: str) -> None
                         f"SELECT * FROM {table} WHERE adw_id=?", (adw_id,)
                     ).fetchall()
                     if rows:
+                        model = db_schema.TABLES.get(table)
+                        if model is not None:
+                            rows = [r for r in rows if _row_obeys(model, r)]
                         q = ",".join("?" * len(cols))
                         conn.executemany(
                             f"INSERT INTO {table} ({','.join(cols)}) VALUES ({q})", rows

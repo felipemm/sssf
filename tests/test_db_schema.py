@@ -287,3 +287,34 @@ def test_apply_schema_tolerates_existing_machine_columns(tmp_path):
 
     db_schema.apply_schema(conn)  # must not raise "duplicate column"
     assert conn.execute("PRAGMA user_version").fetchone()[0] == db_schema.SCHEMA_VERSION
+
+
+# ── Task 5: generic writers validate copied rows ───────────────────────────
+
+
+def test_sync_run_db_skips_rows_outside_the_contract(tmp_path):
+    """sync_run_db validates copied rows against the models: a row the
+    contract rejects (an unknown event type from a foreign/newer writer) is
+    dropped, never copied into the project db."""
+    from sssf.sandbox import sync_run_db
+
+    project = sqlite3.connect(tmp_path / "project.db")
+    db_schema.apply_schema(project)
+
+    per_db = tmp_path / "run.db"
+    src = sqlite3.connect(per_db)
+    db_schema.apply_schema(src)
+    src.execute(
+        "INSERT INTO events (event_id, adw_id, type) VALUES ('evt_ok', 'r1', 'phase_start')"
+    )
+    src.execute(
+        "INSERT INTO events (event_id, adw_id, type) VALUES ('evt_bad', 'r1', 'not-a-real-type')"
+    )
+    src.commit()
+    src.close()
+
+    sync_run_db(project, per_db, "r1")
+
+    rows = project.execute("SELECT event_id FROM events WHERE adw_id='r1'").fetchall()
+    assert [r[0] for r in rows] == ["evt_ok"]
+    project.close()
