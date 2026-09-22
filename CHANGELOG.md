@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Sandbox lifecycle split into a package (#109, architecture review)** —
+  the monolithic `src/sssf/sandbox.py` (1406 lines) is now
+  `src/sssf/sandbox/` with one concern per module: `orchestrator` (run
+  lifecycle: spawn/monitor/stop/abort/teardown + the sandbox decision),
+  `worktree_git` (worktrees + the integration merge), `docker` (image +
+  container lifecycle, incl. the fingerprint guard and the runner-image
+  upkeep), `rundb` (project db + the forward-only per-run sync), and
+  `session_env` (container env + session reopen). `sssf.sandbox` re-exports
+  only the run-lifecycle verbs — `spawn_sandbox`, `spawn_monitor`,
+  `stop_run`, `abort_sandbox`, `teardown_sandbox`, `enabled`,
+  `SandboxError`, `sandbox_dir` — and callers that need more import the
+  concern module (healer → docker/rundb/orchestrator/session_env, ticket →
+  worktree_git, sweep → docker verb + worktree_git + rundb, `sandbox` cmd →
+  per-module). `sweep`'s private `sandbox._docker` reach is replaced by the
+  public docker-module verb `list_container_names()`. Zero behavior change:
+  same db rows, same CLI surface, same fake-docker test seam; the test files
+  now mirror the modules and a new orchestrator-level test drives the full
+  spawn → monitor → teardown lifecycle through the verbs.
+
 - **Schema contract: the pydantic models are the single source of truth for
   the per-project db (#109, architecture review)** — `src/sssf/db_schema.py`
   declares one `Row` model per table (trace + tickets + notify), and everything
