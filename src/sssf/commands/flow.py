@@ -25,6 +25,7 @@ import json
 import sqlite3
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -575,6 +576,110 @@ def _run_release_train(
             " register it for the monitor"
         )
     return 0
+
+
+def implement_afk(
+    cwd: Path,
+    explicit_project: str | None = None,
+    cap: int = 30,
+    wait_seconds: int = 7200,
+    no_sandbox: bool = False,
+) -> int:
+    """`sssf flow implement afk` — work the ready-for-agent queue unattended
+    (issue #93): one ticket per round, each round a fresh run (a new ADW
+    process/container under its own adw_id), until the queue is empty or the
+    round cap is hit.
+
+    Each round queries the backlog (ready-for-agent, oldest first), delegates
+    to `implement()` for the claim/spawn/settle, and — when the run went to
+    the sandbox — waits for the machine settle to land before the next round
+    (sandboxed runs settle in the detached monitor; without the wait, rounds
+    would stack concurrent sandboxes). A failed run requeues its ticket
+    fix-forward, so the next round re-picks it — the cap bounds the retries.
+    """
+    import sqlite3
+
+    from sssf import ticketing
+    from sssf.adw_modules import paths
+
+    root = _root(cwd, explicit_project)
+    if root is None:
+        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    sandboxed = not no_sandbox and _sandbox_enabled(root)
+
+    rounds = 0
+    while rounds < cap:
+        conn = sqlite3.connect(str(paths.data_dir(root) / "sssf.db"))
+        ticketing.ensure_schema(conn)
+        queue = ticketing.backlog_tickets(conn)
+        conn.close()
+        if not queue:
+            print(f"sssf flow: afk — queue empty after {rounds} round(s)")
+            return 0
+        # backlog_tickets rows: id, provider, title, status, kind, tracked, spec, adw_id
+        ticket_id = queue[0][0]
+        rounds += 1
+        title = queue[0][2]
+        print(f"sssf flow: afk round {rounds}/{cap} — {ticket_id} ({title})")
+        code = implement(cwd, ticket_id, explicit_project, no_sandbox)
+        if code != 0 and sandboxed:
+            # Sandboxed implement() is non-zero only when the round did not
+            # start: the spawn itself failed (the run never started; the claim
+            # was requeued) or the claim was refused (already in-progress /
+            # live run — e.g. a concurrent afk). Retrying in this loop would
+            # just burn the cap — stop and let the operator re-run afk later.
+            print(
+                f"sssf flow: afk — round {rounds} did not start (spawn or claim);"
+                " aborting (fix the sandbox, then re-run afk)",
+                file=sys.stderr,
+            )
+            return 1
+        if code == 0 and sandboxed and not _wait_for_run_settle(root, ticket_id, wait_seconds):
+            # The sandboxed run executes detached (the monitor settles it);
+            # wait for the machine settle before picking the next ticket so
+            # rounds never stack concurrent sandboxes.
+            print(
+                f"sssf flow: afk — round {rounds} run {ticket_id} still live after"
+                f" {wait_seconds}s; re-run afk to continue",
+                file=sys.stderr,
+            )
+            return 1
+
+    print(f"sssf flow: afk — cap reached at {cap} round(s)")
+    return 0
+
+
+def _wait_for_run_settle(root: Path, ticket_id: str, timeout_s: int,
+                         poll_s: int = 15) -> bool:
+    """Block until the ticket's current run has fully settled: its linked
+    session is no longer 'running' (the run ended) AND the ticket has left
+    in-progress (the monitor's machine settle landed — it runs right after
+    the final db sync, so session-end alone can race it). Returns False on
+    timeout."""
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if not _has_live_run(root, ticket_id) and not _ticket_is(root, ticket_id, "in-progress"):
+            return True
+        time.sleep(poll_s)
+    return False
+
+
+def _ticket_is(root: Path, ticket_id: str, status: str) -> bool:
+    """True when the ticket's current machine status equals `status`."""
+    import sqlite3
+
+    from sssf.adw_modules import paths
+
+    try:
+        conn = sqlite3.connect(str(paths.data_dir(root) / "sssf.db"))
+        row = conn.execute(
+            "SELECT status FROM tickets WHERE id=?", (ticket_id,)
+        ).fetchone()
+        conn.close()
+        return bool(row and row[0] == status)
+    except sqlite3.Error:
+        return False
 
 
 def deploy(

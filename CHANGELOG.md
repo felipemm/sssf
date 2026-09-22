@@ -41,6 +41,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`workbench_runs` table (schema v5)** — one row per deploy workbench
   (adw_id, container, worktree, ports, url, status); created by
   `db_schema.apply_schema`, generated into the viz TS types.
+- **Issue tracker page in the visualizer (#94)** — a new `tracker` tab
+  (`#/p/:project/tracker`) shows every ticket sssf knows — tracked and
+  untracked — grouped by the ticket machine's state (needs-triage →
+  ready-for-agent → in-progress → ready-for-signoff → ready-to-deploy →
+  done/blocked), each card carrying its origin (internal / jira / linear /
+  github / gitlab badge), kind (idea vs implementation), untracked marker,
+  run count, and parent/child lineage (implementation tickets trace to their
+  idea; idea tickets expand to their slices). The backlog is exactly the
+  ready-for-agent column; untracked synced tickets sit in needs-triage and
+  are adopted via an in-page action that runs the audited machine transition.
+  The server's ticket read now surfaces the machine fields (kind, tracked,
+  origin, parent_id, spec) and treats stored machine states as authoritative
+  — never re-derived from a linked session — with a migration for pre-machine
+  dbs that mirrors db_schema's defaults.
+- **Multi-source sync + untracked tickets (#90)** — the internal db is the
+  truth for a mixed project: `sssf ticket sync` fetches from all four origins
+  (`internal`, `jira` via acli, `github` via gh, `gitlab` via glab) and
+  records `origin` + `external_id`. GitHub/GitLab providers resolve their repo
+  from the git remote origin (yaml `repo:` override wins; otherwise the origin
+  host must match the cloud standard URL, or `custom_url` when
+  `self_hosted`); a host mismatch skips the provider with a warning, never an
+  error. Synced tickets are born `needs-triage` + `untracked` (permanent —
+  re-syncs refresh content only) and never appear in the backlog until marked
+  `ready-for-agent`. New `sssf ticket writeback <id> --state/--comment/
+  --label/--remove-label` mirrors state/label/comment changes to origin
+  trackers best-effort through gh/glab; failures are recorded as
+  `ticket_events` (`writeback_failed`) and never block the flow. Requeueing a
+  synced ticket (`sssf ticket backlog`) reopens it on its origin. `sync
+  --provider <p>` syncs one provider; per-provider skip warnings print
+  distinctly.
+- **afk: the unattended implement loop (#93)** — `sssf flow implement afk`
+  works the whole `ready-for-agent` queue without an operator: one ticket
+  per round, each round a fresh run (a new ADW process/container under its
+  own adw_id — never a shared context window), until the queue is empty or
+  `--cap` rounds are hit (default 30; re-run afk to continue). Every round
+  delegates to the single-ticket implement flow (claim → spawn → settle),
+  so a failed round requeues its ticket fix-forward and the next round
+  re-picks it — the cap bounds the retries, and every attempt stays in the
+  ticket's run history. Sandboxed rounds spawn detached and settle in the
+  monitor, so afk waits for the machine settle before dispatching the next
+  ticket (rounds never stack concurrent sandboxes); `--wait-seconds` bounds
+  one round's wait (default 7200) — a timeout exits 1 without stacking a
+  second run on a live one. A sandboxed spawn failure aborts the loop (the
+  environment is broken; retrying would just burn the cap).
 
 - **Implement flow drives the ticket machine (#92)** — `sssf flow implement
   <ticket>` now runs one `ready-for-agent` ticket unattended end-to-end

@@ -1,10 +1,12 @@
 # Ticketing integration (optional). Uncomment to enable — the kanban Backlog
 # stage stays hidden until this file configures at least one provider.
 #
-providers:            # any subset of jira | linear | internal
+providers:            # any subset of jira | linear | github | gitlab | internal
   - internal
 #   # - jira
 #   # - linear
+#   # - github
+#   # - gitlab
 #
 # jira:                 # via the acli CLI (install and authenticate it first)
 #   jql: 'project = ACME AND status in (Backlog, "To Do")'
@@ -13,3 +15,15 @@ providers:            # any subset of jira | linear | internal
 #   team: ENG
 #   token_env: LINEAR_TOKEN
 #   states: [Backlog, "To Do"]
+#
+# github:               # via the gh CLI (gh owns auth + host: gh auth login)
+#   labels: []          # optional OR filter — repeat entries fetch any of them
+#   self_hosted: false  # true for GitHub Enterprise — origin must match custom_url
+#   # custom_url: https://github.company.com
+#   # repo: owner/repo  # optional override; default = parsed from the git origin
+#
+# gitlab:               # via the glab CLI (glab owns per-host auth + GITLAB_HOST)
+#   labels: []
+#   self_hosted: false  # true for self-hosted GitLab (e.g. git.ifoodcorp.com.br)
+#   # custom_url: https://git.ifoodcorp.com.br
+#   # repo: group/project

@@ -42,6 +42,7 @@ sssf viz start --project P    # use a specific project's registry</code></pre>
       <tr><td><code class="hl">#/</code></td><td><strong>Mission control</strong>: the default landing, cross-project</td></tr>
       <tr><td><code class="hl">#/p/:project</code></td><td><strong>Status dashboard</strong> for one project (default tab)</td></tr>
       <tr><td><code class="hl">#/p/:project/board</code></td><td>Kanban board for one project</td></tr>
+      <tr><td><code class="hl">#/p/:project/tracker</code></td><td>Issue tracker: every ticket by machine state</td></tr>
       <tr><td><code class="hl">#/p/:project/sessions</code></td><td>Session list for one project</td></tr>
       <tr><td><code class="hl">#/p/:project/archived</code></td><td>Archived sessions + sweep control</td></tr>
       <tr><td><code class="hl">#/p/:project/s/:adwId</code></td><td>Session trace (the phase waterfall)</td></tr>
@@ -99,6 +100,28 @@ sssf viz start --project P    # use a specific project's registry</code></pre>
     entire roster; nothing clips. Clicking a card opens a detail modal; backlog tickets can be run
     or closed from the board.
   </p>
+
+  <h2>Issue tracker (<code class="hl">#/p/:project/tracker</code>)</h2>
+  <p>
+    Every ticket sssf knows &mdash; tracked and untracked &mdash; grouped by the ticket
+    machine&rsquo;s state (<code class="hl">needs-triage</code> &rarr; <code class="hl">ready-for-agent</code>
+    &rarr; <code class="hl">in-progress</code> &rarr; <code class="hl">ready-for-signoff</code> &rarr;
+    <code class="hl">ready-to-deploy</code> &rarr; <code class="hl">done</code> / <code class="hl">blocked</code>):
+  </p>
+  <ul>
+    <li><strong>Origin &amp; state</strong>: every card carries its origin (internal / jira / linear /
+      github / gitlab badge), kind (idea vs implementation), and the untracked marker &mdash;
+      synced tickets are born <code class="hl">needs-triage</code> and are invisible to the backlog
+      until adopted.</li>
+    <li><strong>The backlog is exactly the <code class="hl">ready-for-agent</code> column</strong>.
+      Untracked tickets carry an <em>add to backlog</em> button that marks them
+      <code class="hl">ready-for-agent</code> (the machine transition is audited like every other
+      move); an &ldquo;untracked only&rdquo; toggle filters the page to them.</li>
+    <li><strong>Lineage</strong>: implementation tickets show the idea ticket they trace to;
+      idea tickets show their implementation slices (click through to either).</li>
+    <li>The <em>sync</em> button fetches external providers so new untracked tickets surface here
+      first; a <em>Done</em> column starts folded so the page opens on the live pipeline.</li>
+  </ul>
 
   <h2>Sessions &amp; archived</h2>
   <p>

@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -1037,4 +1038,431 @@ def test_finish_plan_run_reads_artifacts_from_the_sandbox_worktree(tmp_path):
         "SELECT title FROM tickets WHERE parent_id=?", (parent,)
     ).fetchall()
     assert [c[0] for c in children] == ["Toggle component", "Persist the choice"]
+    conn.close()
+
+
+# ── multi-source sync: origin resolution (issue #90) ───────────────────────
+
+
+def _git_repo(root: Path, origin_url: str | None = None) -> Path:
+    """A tmp git repo with an optional origin remote (sync tests shell git)."""
+    repo = root / "repo"
+    repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    if origin_url is not None:
+        subprocess.run(["git", "remote", "add", "origin", origin_url], cwd=repo, check=True)
+    return repo
+
+
+def test_detect_origin_parses_ssh_form(tmp_path):
+    repo = _git_repo(tmp_path, "git@github.com:owner/repo.git")
+    assert ticketing.detect_origin(repo) == ("github.com", "owner/repo")
+
+
+def test_detect_origin_parses_https_form(tmp_path):
+    repo = _git_repo(tmp_path, "https://github.com/owner/repo.git")
+    assert ticketing.detect_origin(repo) == ("github.com", "owner/repo")
+
+
+def test_detect_origin_parses_ssh_url_form(tmp_path):
+    repo = _git_repo(tmp_path, "ssh://git@gitlab.com/group/project.git")
+    assert ticketing.detect_origin(repo) == ("gitlab.com", "group/project")
+
+
+def test_detect_origin_missing_is_none(tmp_path):
+    repo = _git_repo(tmp_path)  # no origin remote
+    assert ticketing.detect_origin(repo) is None
+
+
+def test_origin_repo_override_wins_without_host_matching(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    cfg.github = {"repo": "acme/override"}
+    repo, warning = ticketing.github_repo(cfg, ("gitlab.com", "other/repo"))
+    assert repo == "acme/override"
+    assert warning is None
+
+
+def test_origin_repo_cloud_host_matches(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    repo, warning = ticketing.github_repo(cfg, ("github.com", "acme/app"))
+    assert repo == "acme/app"
+    assert warning is None
+
+
+def test_origin_repo_cloud_mismatch_warns_self_hosted(tmp_path):
+    cfg = _cfg(tmp_path, providers=("gitlab",))
+    repo, warning = ticketing.gitlab_repo(cfg, ("git.ifoodcorp.com.br", "acme/app"))
+    assert repo is None
+    assert warning is not None and "self_hosted" in warning and "custom_url" in warning
+
+
+def test_origin_repo_self_hosted_custom_url_match(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    cfg.github = {"self_hosted": True, "custom_url": "https://github.company.com"}
+    repo, warning = ticketing.github_repo(cfg, ("github.company.com", "acme/app"))
+    assert repo == "acme/app"
+    assert warning is None
+
+
+def test_origin_repo_self_hosted_custom_url_mismatch_warns(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    cfg.github = {"self_hosted": True, "custom_url": "https://github.company.com"}
+    repo, warning = ticketing.github_repo(cfg, ("github.com", "acme/app"))
+    assert repo is None
+    assert warning is not None and "fix custom_url" in warning
+
+
+def test_origin_repo_self_hosted_without_custom_url_accepts_any_host(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    cfg.github = {"self_hosted": True}
+    repo, warning = ticketing.github_repo(cfg, ("forge.example.net", "acme/app"))
+    assert repo == "acme/app"
+    assert warning is None
+
+
+def test_origin_repo_no_origin_warns_repo_override(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    repo, warning = ticketing.github_repo(cfg, None)
+    assert repo is None
+    assert warning is not None and "repo:" in warning
+
+
+def test_fetch_github_parses_gh_output(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(args, capture_output, text, timeout):
+        calls.append(args)
+
+        class R:
+            returncode = 0
+            stdout = json.dumps(
+                [
+                    {
+                        "number": 12,
+                        "title": "Dark mode",
+                        "body": "The app needs a dark theme.",
+                        "url": "https://github.com/owner/repo/issues/12",
+                        "state": "open",
+                        "labels": [{"name": "bug"}],
+                    }
+                ]
+            )
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/gh")
+    records = ticketing.fetch_github(_cfg(tmp_path, providers=("github",)), "owner/repo")
+    assert calls[0] == [
+        "gh",
+        "issue",
+        "list",
+        "--repo",
+        "owner/repo",
+        "--state",
+        "open",
+        "--json",
+        "number,title,body,url,state,labels",
+        "--limit",
+        "100",
+    ]
+    assert records[0].external_id == "owner/repo#12"
+    assert records[0].provider == "github"
+    assert records[0].source_url == "https://github.com/owner/repo/issues/12"
+
+
+def test_fetch_github_repeats_label_flags(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(args, capture_output, text, timeout):
+        calls.append(args)
+
+        class R:
+            returncode = 0
+            stdout = "[]"
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/gh")
+    cfg = _cfg(tmp_path, providers=("github",))
+    cfg.github = {"labels": ["bug", "p1"]}
+    ticketing.fetch_github(cfg, "owner/repo")
+    assert calls[0] == [
+        "gh",
+        "issue",
+        "list",
+        "--repo",
+        "owner/repo",
+        "--state",
+        "open",
+        "--label",
+        "bug",
+        "--label",
+        "p1",
+        "--json",
+        "number,title,body,url,state,labels",
+        "--limit",
+        "100",
+    ]
+
+
+def test_fetch_github_missing_gh_raises_actionable(tmp_path, monkeypatch):
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: None)
+    with pytest.raises(RuntimeError, match="install gh"):
+        ticketing.fetch_github(_cfg(tmp_path, providers=("github",)), "owner/repo")
+
+
+def test_fetch_github_nonzero_exit_raises(tmp_path, monkeypatch):
+    def fake_run(args, capture_output, text, timeout):
+        class R:
+            returncode = 1
+            stdout = ""
+            stderr = "gh: not authenticated"
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/gh")
+    with pytest.raises(RuntimeError, match="gh failed"):
+        ticketing.fetch_github(_cfg(tmp_path, providers=("github",)), "owner/repo")
+
+
+def test_fetch_gitlab_parses_glab_output(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(args, capture_output, text, timeout):
+        calls.append(args)
+
+        class R:
+            returncode = 0
+            stdout = json.dumps(
+                [
+                    {
+                        "iid": 5,
+                        "title": "Dark mode",
+                        "description": "The app needs a dark theme.",
+                        "web_url": "https://gitlab.com/group/proj/-/issues/5",
+                        "labels": ["bug"],
+                    }
+                ]
+            )
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/glab")
+    records = ticketing.fetch_gitlab(_cfg(tmp_path, providers=("gitlab",)), "group/proj")
+    assert calls[0] == [
+        "glab",
+        "issue",
+        "list",
+        "--repo",
+        "group/proj",
+        "--state",
+        "opened",
+        "--output",
+        "json",
+    ]
+    assert records[0].external_id == "group/proj#5"
+    assert records[0].provider == "gitlab"
+    assert records[0].source_url == "https://gitlab.com/group/proj/-/issues/5"
+
+
+def test_fetch_gitlab_label_flags_and_missing_binary(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(args, capture_output, text, timeout):
+        calls.append(args)
+
+        class R:
+            returncode = 0
+            stdout = "[]"
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/glab")
+    cfg = _cfg(tmp_path, providers=("gitlab",))
+    cfg.gitlab = {"labels": ["bug"]}
+    ticketing.fetch_gitlab(cfg, "group/proj")
+    assert calls[0] == [
+        "glab",
+        "issue",
+        "list",
+        "--repo",
+        "group/proj",
+        "--state",
+        "opened",
+        "--label",
+        "bug",
+        "--output",
+        "json",
+    ]
+
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: None)
+    with pytest.raises(RuntimeError, match="install glab"):
+        ticketing.fetch_gitlab(cfg, "group/proj")
+
+
+def _sync_cfg(tmp_path, providers, github=None, gitlab=None):
+    cfg = _cfg(tmp_path, providers=providers)
+    cfg.github = github or {}
+    cfg.gitlab = gitlab or {}
+    return cfg
+
+
+def test_config_parses_github_gitlab_blocks(tmp_path):
+    _write(
+        tmp_path,
+        (
+            "providers:\n  - internal\n  - github\n  - gitlab\n"
+            "github:\n  repo: acme/override\n  labels: [bug]\n"
+            "gitlab:\n  self_hosted: true\n  custom_url: https://git.ifoodcorp.com.br\n"
+        ),
+    )
+    cfg = ticketing.load_config(tmp_path)
+    assert cfg is not None
+    assert cfg.github["repo"] == "acme/override"
+    assert cfg.gitlab["self_hosted"] is True
+    assert cfg.gitlab["custom_url"] == "https://git.ifoodcorp.com.br"
+
+
+def test_sync_tickets_upserts_all_four_origins(tmp_path, monkeypatch):
+    root = _git_repo(tmp_path, "git@github.com:owner/repo.git")
+    cfg = _sync_cfg(tmp_path, ("internal", "jira", "github", "gitlab"))
+    cfg.github = {"repo": "owner/repo"}  # override — no host matching
+    cfg.gitlab = {"repo": "group/proj"}
+
+    def fake_run(args, capture_output, text, timeout):
+        binary = args[0]
+
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        if binary == "gh":
+            R.stdout = json.dumps(
+                [{"number": 12, "title": "Dark mode", "body": "b", "url": "https://github.com/owner/repo/issues/12", "state": "open", "labels": []}]
+            )
+        elif binary == "glab":
+            R.stdout = json.dumps(
+                [{"iid": 5, "title": "Light mode", "description": "d", "web_url": "https://gitlab.com/group/proj/-/issues/5"}]
+            )
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+    results = ticketing.sync_tickets(root, cfg)
+    by_provider = {r.provider: r for r in results}
+    assert by_provider["github"].tickets == 1
+    assert by_provider["gitlab"].tickets == 1
+    assert "internal" not in by_provider  # nothing to fetch
+    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    rows = conn.execute(
+        "SELECT id, status, kind, tracked, origin FROM tickets"
+        " WHERE origin IN ('github','gitlab') ORDER BY id"
+    ).fetchall()
+    conn.close()
+    assert rows == [
+        ("github:owner/repo#12", "needs-triage", "idea", 0, "github"),
+        ("gitlab:group/proj#5", "needs-triage", "idea", 0, "gitlab"),
+    ]
+
+
+def test_sync_tickets_origin_mismatch_skips_with_warning(tmp_path, monkeypatch):
+    """A cloud gitlab provider with a non-standard origin host is skipped
+    with a warning — never fetched against the wrong forge."""
+    root = _git_repo(tmp_path, "git@git.ifoodcorp.com.br:acme/app.git")
+    cfg = _sync_cfg(tmp_path, ("gitlab",))
+    shells = []
+
+    def fake_run(args, capture_output, text, timeout):
+        if args[0] == "git":
+            # origin resolution runs real git — hand it the configured origin
+            class G:
+                returncode = 0
+                stdout = "git@git.ifoodcorp.com.br:acme/app.git"
+                stderr = ""
+
+            return G()
+        shells.append(args[0])
+        raise AssertionError(f"must not shell {args[0]} when the origin mismatches")
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+    results = ticketing.sync_tickets(root, cfg)
+    (result,) = results
+    assert result.provider == "gitlab"
+    assert result.tickets == 0
+    assert result.error is None
+    assert result.warning is not None and "self_hosted" in result.warning
+    assert shells == []
+
+
+def test_sync_tickets_provider_subset_fetches_only_that_provider(tmp_path, monkeypatch):
+    root = _git_repo(tmp_path, "git@github.com:owner/repo.git")
+    cfg = _sync_cfg(tmp_path, ("github", "gitlab"))
+    cfg.github = {"repo": "owner/repo"}
+    cfg.gitlab = {"repo": "group/proj"}
+    seen = []
+
+    def fake_run(args, capture_output, text, timeout):
+        seen.append(args[0])
+
+        class R:
+            returncode = 0
+            stdout = "[]"
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+    results = ticketing.sync_tickets(root, cfg, providers=["github"])
+    assert [r.provider for r in results] == ["github"]
+    assert seen == ["git", "gh"]  # origin resolution shells git, then gh only
+
+
+def test_sync_tickets_failing_provider_does_not_stop_others(tmp_path, monkeypatch):
+    root = _git_repo(tmp_path, "git@github.com:owner/repo.git")
+    cfg = _sync_cfg(tmp_path, ("jira", "github"))
+    cfg.github = {"repo": "owner/repo"}
+
+    def fake_run(args, capture_output, text, timeout):
+        class R:
+            returncode = 0
+            stdout = "[]"
+            stderr = ""
+
+        if args[0] == "gh":
+            R.returncode = 1
+            R.stderr = "gh: not authenticated"
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+    # jira syncs fine while github errors — the failure never blocks the others.
+    results = ticketing.sync_tickets(root, cfg)
+    by_provider = {r.provider: r for r in results}
+    assert by_provider["jira"].tickets == 0 and by_provider["jira"].error is None
+    assert by_provider["github"].error is not None and "gh failed" in by_provider["github"].error
+
+
+def test_untracked_synced_tickets_invisible_in_backlog_until_marked(tmp_path):
+    """AC3: synced (untracked) tickets never appear in the backlog — only an
+    explicit needs-triage → ready-for-agent transition brings them in."""
+    db = tmp_path / "sssf.db"
+    rec = ticketing.TicketRecord("github", "owner/repo#12", "Dark mode", "d", "u")
+    ticketing.upsert_tickets(db, [rec])
+    conn = _machine_conn(db)
+    assert ticketing.backlog_tickets(conn) == []
+    ticketing.transition_ticket(conn, "github:owner/repo#12", ticketing.STATUS_READY, actor="human")
+    rows = ticketing.backlog_tickets(conn)
+    assert [r[0] for r in rows] == ["github:owner/repo#12"]
     conn.close()

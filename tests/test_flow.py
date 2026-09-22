@@ -451,6 +451,236 @@ def test_flow_implement_missing_ticket_is_loud(tmp_path, monkeypatch, capsys):
 # workbench's random host port. The tests cross the same PATH seam the
 # real docker shim does (resolved per call).
 _DOCKER_SHIM = "#!/usr/bin/env python3\nimport sys\nif sys.argv[1:] and sys.argv[1] == 'port':\n    print('0.0.0.0:41234')\nsys.exit(0)\n"
+# ── implement afk: the unattended queue loop (#93) ──────────────────────────
+
+
+def test_flow_implement_afk_iterates_the_queue_to_empty(tmp_path, monkeypatch, capsys):
+    """afk works the ready-for-agent queue one ticket per round; every round
+    settles before the next (no-sandbox rounds settle synchronously), and an
+    empty queue ends the loop with 0."""
+    root = _setup_project(tmp_path, monkeypatch, sandbox_key=True)
+    for tid in ("internal:a", "internal:b", "internal:c"):
+        _seed_ticket(root, tid, title=tid)
+    calls: list[list[str]] = []
+    adw_ids: list[str] = []
+
+    def fake_call(argv, **kw):
+        _session_for_argv(root, argv, "success")
+        adw_ids.append(argv[argv.index("--adw-id") + 1])
+        calls.append(argv)
+        return 0
+
+    monkeypatch.setattr(flow.subprocess, "call", fake_call)
+    assert flow.implement_afk(
+        Path.cwd(), cap=30, wait_seconds=60, no_sandbox=True
+    ) == 0
+    assert len(calls) == 3  # one round per ticket
+    assert len(set(adw_ids)) == 3  # each round is a fresh run / context window
+    conn = _adb(root)
+    rows = conn.execute("SELECT id, status FROM tickets ORDER BY id").fetchall()
+    conn.close()
+    assert rows == [
+        ("internal:a", "ready-for-signoff"),
+        ("internal:b", "ready-for-signoff"),
+        ("internal:c", "ready-for-signoff"),
+    ]
+    out = capsys.readouterr().out
+    assert "round 1/30" in out and "round 3/30" in out
+    assert "queue empty after 3 round(s)" in out
+
+
+def test_flow_implement_afk_empty_queue_terminates_immediately(tmp_path, monkeypatch, capsys):
+    _root = _setup_project(tmp_path, monkeypatch, sandbox_key=True)
+    calls = _capture_call(monkeypatch)
+    assert flow.implement_afk(
+        Path.cwd(), cap=30, wait_seconds=60, no_sandbox=True
+    ) == 0
+    assert calls == []  # nothing spawned
+    assert "queue empty after 0 round(s)" in capsys.readouterr().out
+
+
+def test_flow_implement_afk_cap_stops_the_loop(tmp_path, monkeypatch, capsys):
+    """--cap bounds ROUNDS: the loop stops at the cap with work still queued
+    (exit 0 — the operator re-runs afk to continue)."""
+    root = _setup_project(tmp_path, monkeypatch, sandbox_key=True)
+    for tid in ("internal:a", "internal:b", "internal:c", "internal:d", "internal:e"):
+        _seed_ticket(root, tid)
+    calls: list[list[str]] = []
+
+    def fake_call(argv, **kw):
+        _session_for_argv(root, argv, "success")
+        calls.append(argv)
+        return 0
+
+    monkeypatch.setattr(flow.subprocess, "call", fake_call)
+    assert flow.implement_afk(
+        Path.cwd(), cap=2, wait_seconds=60, no_sandbox=True
+    ) == 0
+    assert len(calls) == 2
+    conn = _adb(root)
+    done = conn.execute(
+        "SELECT COUNT(*) FROM tickets WHERE status='ready-for-signoff'"
+    ).fetchone()[0]
+    pending = conn.execute(
+        "SELECT COUNT(*) FROM tickets WHERE status='ready-for-agent'"
+    ).fetchone()[0]
+    conn.close()
+    assert (done, pending) == (2, 3)  # only the cap's rounds ran
+    assert "cap reached at 2 round(s)" in capsys.readouterr().out
+
+
+def test_flow_implement_afk_failed_round_requeues_and_is_retried(tmp_path, monkeypatch):
+    """A failed round returns the ticket to ready-for-agent with feedback; the
+    next round re-picks it (fix-forward retry), bounded by the cap — and every
+    attempt stays in the ticket's run history."""
+    root = _setup_project(tmp_path, monkeypatch, sandbox_key=True)
+    _seed_ticket(root, "internal:a")
+    calls: list[list[str]] = []
+
+    def fake_call(argv, **kw):
+        adw_id = argv[argv.index("--adw-id") + 1]
+        conn = _adb(root)
+        conn.execute(
+            "INSERT INTO sessions (adw_id, adw_name, status, started_at, ended_at)"
+            " VALUES (?,?,?, '2026-09-01T00:00:00+00:00', '2026-09-01T01:00:00+00:00')",
+            (adw_id, "adw_implement", "fail"),
+        )
+        conn.execute(
+            "INSERT INTO envelopes (envelope_id, adw_id, agent, output_type, payload_json,"
+            " valid, attempt, created_at) VALUES (?,?, 'reviewer', 'ReviewOutput',"
+            " '{\"approved\": false, \"blocking\": [\"fix the redirect\"]}',"
+            " 1, 1, '2026-09-01T01:00:00+00:00')",
+            (f"env1-{adw_id}", adw_id),
+        )
+        conn.commit()
+        conn.close()
+        calls.append(argv)
+        return 1
+
+    monkeypatch.setattr(flow.subprocess, "call", fake_call)
+    assert flow.implement_afk(
+        Path.cwd(), cap=3, wait_seconds=60, no_sandbox=True
+    ) == 0
+    assert len(calls) == 3  # the requeued ticket is picked again each round
+    conn = _adb(root)
+    row = conn.execute(
+        "SELECT status, rejection_feedback FROM tickets WHERE id='internal:a'"
+    ).fetchone()
+    runs = conn.execute(
+        "SELECT COUNT(*) FROM ticket_runs WHERE ticket_id='internal:a'"
+    ).fetchone()[0]
+    conn.close()
+    assert row[0] == "ready-for-agent"
+    assert "fix the redirect" in row[1]
+    assert runs == 3  # every attempt is in the run history
+
+
+def test_flow_implement_afk_sandboxed_waits_for_the_settle(tmp_path, monkeypatch):
+    """Sandboxed rounds spawn detached and settle in the monitor; afk must
+    not dispatch the next round until the machine settle lands — one ticket
+    live at a time (no concurrent sandboxes)."""
+    root = _setup_project(tmp_path, monkeypatch)  # sandbox enabled (default)
+    _seed_ticket(root, "internal:a")
+    _seed_ticket(root, "internal:b")
+    seen: list[tuple[str, list[str]]] = []
+
+    def fake_dispatch(root_, adw_name, prompt, extra, no_sandbox, adw_id=None):
+        conn = _adb(root_)
+        ticket_id = conn.execute(
+            "SELECT id FROM tickets WHERE adw_id=?", (adw_id,)
+        ).fetchone()[0]
+        # exactly the round's own claim may be in-progress at spawn time — a
+        # previous round's ticket must already be settled
+        in_progress = sorted(
+            r[0] for r in conn.execute(
+                "SELECT id FROM tickets WHERE status='in-progress'"
+            ).fetchall()
+        )
+        conn.execute(
+            "INSERT INTO sessions (adw_id, adw_name, status, started_at, ended_at)"
+            " VALUES (?,?,?, '2026-09-01T00:00:00+00:00', '2026-09-01T01:00:00+00:00')",
+            (adw_id, "adw_implement", "success"),
+        )
+        conn.commit()
+        conn.close()
+        # simulate the monitor's settle: success → ready-for-signoff
+        conn = _adb(root_)
+        ticketing.transition_ticket(
+            conn, ticket_id, ticketing.STATUS_SIGNOFF, actor="test"
+        )
+        conn.commit()
+        conn.close()
+        seen.append((ticket_id, in_progress))
+        return 0
+
+    monkeypatch.setattr(flow, "_dispatch_chain", fake_dispatch)
+    monkeypatch.setattr(flow.time, "sleep", lambda s: None)
+    assert flow.implement_afk(
+        Path.cwd(), cap=30, wait_seconds=60, no_sandbox=False
+    ) == 0
+    # each round spawned with only its own claim in-progress — the previous
+    # round had settled before the next dispatch
+    assert seen == [("internal:a", ["internal:a"]), ("internal:b", ["internal:b"])]
+    conn = _adb(root)
+    rows = conn.execute("SELECT id, status FROM tickets ORDER BY id").fetchall()
+    conn.close()
+    assert rows == [
+        ("internal:a", "ready-for-signoff"),
+        ("internal:b", "ready-for-signoff"),
+    ]
+
+
+def test_flow_implement_afk_sandboxed_wait_timeout_is_loud(tmp_path, monkeypatch, capsys):
+    """A sandboxed run that never settles must not hang the loop forever: the
+    per-round wait times out, afk exits 1, and no further round is dispatched
+    on top of the live run."""
+    root = _setup_project(tmp_path, monkeypatch)  # sandbox enabled (default)
+    _seed_ticket(root, "internal:a")
+    _seed_ticket(root, "internal:b")
+    spawned: list[str] = []
+
+    def fake_dispatch(root_, adw_name, prompt, extra, no_sandbox, adw_id=None):
+        conn = _adb(root_)
+        ticket_id = conn.execute(
+            "SELECT id FROM tickets WHERE adw_id=?", (adw_id,)
+        ).fetchone()[0]
+        conn.close()
+        spawned.append(ticket_id)
+        return 0  # the run never settles (no session row, ticket stays in-progress)
+
+    monkeypatch.setattr(flow, "_dispatch_chain", fake_dispatch)
+    monkeypatch.setattr(flow.time, "sleep", lambda s: None)
+    assert flow.implement_afk(
+        Path.cwd(), cap=30, wait_seconds=1, no_sandbox=False
+    ) == 1
+    assert spawned == ["internal:a"]  # never stacked round 2 on the live run
+    assert "still live after 1s" in capsys.readouterr().err
+
+
+def test_flow_implement_afk_sandboxed_spawn_failure_aborts(tmp_path, monkeypatch, capsys):
+    """A sandboxed spawn failure means the run never started — afk aborts
+    instead of burning the cap retrying the same broken environment."""
+    root = _setup_project(tmp_path, monkeypatch)  # sandbox enabled (default)
+    _seed_ticket(root, "internal:a")
+    _seed_ticket(root, "internal:b")
+
+    def fake_dispatch(root_, adw_name, prompt, extra, no_sandbox, adw_id=None):
+        return 1  # sandbox spawn failed → implement() requeues the claim
+
+    monkeypatch.setattr(flow, "_dispatch_chain", fake_dispatch)
+    assert flow.implement_afk(
+        Path.cwd(), cap=30, wait_seconds=60, no_sandbox=False
+    ) == 1
+    assert "did not start" in capsys.readouterr().err
+    conn = _adb(root)
+    row = conn.execute(
+        "SELECT status FROM tickets WHERE id='internal:a'"
+    ).fetchone()
+    conn.close()
+    assert row[0] == "ready-for-agent"  # the claim was requeued, not stuck
+
+
+# ── deploy ───────────────────────────────────────────────────────────────────
 
 
 def _deploy_project(

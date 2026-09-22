@@ -82,6 +82,8 @@ class TicketingConfig:
     providers: list[str]
     jira: dict = field(default_factory=dict)
     linear: dict = field(default_factory=dict)
+    github: dict = field(default_factory=dict)
+    gitlab: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -89,6 +91,7 @@ class ProviderSyncResult:
     provider: str
     tickets: int = 0
     error: str | None = None
+    warning: str | None = None
 
 
 def load_config(root: Path) -> TicketingConfig | None:
@@ -104,7 +107,11 @@ def load_config(root: Path) -> TicketingConfig | None:
     if not providers:
         return None
     return TicketingConfig(
-        providers=list(providers), jira=data.get("jira") or {}, linear=data.get("linear") or {}
+        providers=list(providers),
+        jira=data.get("jira") or {},
+        linear=data.get("linear") or {},
+        github=data.get("github") or {},
+        gitlab=data.get("gitlab") or {},
     )
 
 
@@ -1002,7 +1009,196 @@ def fetch_linear(cfg: TicketingConfig) -> list[TicketRecord]:
     return records
 
 
+def detect_origin(root: Path) -> tuple[str, str] | None:
+    """The project's git remote origin as (host, repo); None when missing.
+
+    Runs `git config --get remote.origin.url` in the project and parses the
+    common forms (SSH scp-like, HTTPS, ssh://); a trailing `.git` is
+    stripped. Sync adapters for the hosted-git providers (github/gitlab)
+    key off this — the repo must live on the forge they fetch from.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "config", "--get", "remote.origin.url"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    url = result.stdout.strip() if result.returncode == 0 else ""
+    return _parse_origin_url(url) if url else None
+
+
+def _parse_origin_url(url: str) -> tuple[str, str] | None:
+    """Parse a remote URL into (host, repo); None when unparseable."""
+    url = url.strip()
+    if url.endswith(".git"):
+        url = url[:-4]
+    if not url:
+        return None
+    if url.startswith("ssh://"):
+        rest = url[len("ssh://") :]
+        host, _, path = rest.partition("/")
+        if "@" in host:
+            host = host.rsplit("@", 1)[1]
+        if not path:
+            return None
+        return host, path
+    if "://" in url:
+        _, _, rest = url.partition("://")
+        if "@" in rest:
+            rest = rest.rsplit("@", 1)[1]
+        host, _, path = rest.partition("/")
+        if not path:
+            return None
+        return host, path
+    # scp-like form: git@host:owner/repo
+    if "@" in url and ":" in url:
+        host = url.rsplit("@", 1)[1].split(":", 1)[0]
+        path = url.split(":", 1)[1]
+        if not host or not path:
+            return None
+        return host, path
+    return None
+
+
+def _origin_repo(
+    block: dict,
+    origin: tuple[str, str] | None,
+    cloud_host: str,
+    provider: str,
+) -> tuple[str | None, str | None]:
+    """Resolve the repo a provider fetches from → (repo, warning).
+
+    The yaml `repo:` override wins outright (no host matching); otherwise
+    the origin host must be the provider's expected host — the cloud
+    standard URL, or the custom_url host when self_hosted (any host when
+    self-hosted without custom_url). A mismatch or a missing origin returns
+    (None, warning): the provider is SKIPPED, never fetched against the
+    wrong forge.
+    """
+    if block.get("repo"):
+        return str(block["repo"]), None
+    if origin is None:
+        return None, "no git remote origin — add a `repo:` override in ticketing.yaml"
+    host, repo = origin
+    if block.get("self_hosted"):
+        custom = str(block.get("custom_url") or "").strip().rstrip("/")
+        if custom:
+            expected = custom.split("://")[-1].split("/", 1)[0]
+            if host != expected:
+                return None, (
+                    f"{provider} configured with custom_url {custom} but origin is {host}"
+                    " — fix custom_url or add a `repo:` override"
+                )
+            return repo, None
+        return repo, None  # self-hosted without custom_url: any host
+    if host != cloud_host:
+        return None, (
+            f"{provider} configured but origin is {host} — the cloud host is {cloud_host};"
+            " is this a self-hosted instance? set `self_hosted: true` and `custom_url:`"
+            " (or add a `repo:` override)"
+        )
+    return repo, None
+
+
+def github_repo(cfg: TicketingConfig, origin: tuple[str, str] | None) -> tuple[str | None, str | None]:
+    """The repo github sync fetches from, or (None, warning) to skip."""
+    return _origin_repo(cfg.github or {}, origin, "github.com", "github")
+
+
+def gitlab_repo(cfg: TicketingConfig, origin: tuple[str, str] | None) -> tuple[str | None, str | None]:
+    """The repo gitlab sync fetches from, or (None, warning) to skip."""
+    return _origin_repo(cfg.gitlab or {}, origin, "gitlab.com", "gitlab")
+
+
+def _run_gh(args: list[str]) -> list[dict]:
+    """Shell the user-authenticated gh CLI and parse its JSON stdout."""
+    if shutil.which("gh") is None:
+        raise RuntimeError(
+            "the github provider needs the gh CLI — install gh and run `gh auth login`: "
+            "https://cli.github.com"
+        )
+    result = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"gh failed ({result.returncode}): {result.stderr.strip() or result.stdout.strip()}"
+        )
+    return json.loads(result.stdout or "[]")
+
+
+def fetch_github(cfg: TicketingConfig, repo: str) -> list[TicketRecord]:
+    """Open GitHub issues for a repo via `gh issue list` (gh owns auth+host).
+
+    external_id is `<repo>#<number>` so the db id (`github:<repo>#<n>`) is
+    the same dedupe key shape as jira/linear.
+    """
+    cmd = ["issue", "list", "--repo", repo, "--state", "open"]
+    for label in cfg.github.get("labels") or []:
+        cmd += ["--label", str(label)]
+    cmd += ["--json", "number,title,body,url,state,labels", "--limit", "100"]
+    records = []
+    for issue in _run_gh(cmd):
+        number = str(issue.get("number") or "")
+        if not number:
+            continue
+        records.append(
+            TicketRecord(
+                provider="github",
+                external_id=f"{repo}#{number}",
+                title=str(issue.get("title") or ""),
+                description=str(issue.get("body") or ""),
+                source_url=str(issue.get("url") or ""),
+            )
+        )
+    return records
+
+
+def _run_glab(args: list[str]) -> list[dict]:
+    """Shell the user-authenticated glab CLI and parse its JSON stdout."""
+    if shutil.which("glab") is None:
+        raise RuntimeError(
+            "the gitlab provider needs the glab CLI — install glab and run `glab auth login`: "
+            "https://gitlab.com/gitlab-org/cli"
+        )
+    result = subprocess.run(["glab", *args], capture_output=True, text=True, timeout=60)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"glab failed ({result.returncode}): {result.stderr.strip() or result.stdout.strip()}"
+        )
+    return json.loads(result.stdout or "[]")
+
+
+def fetch_gitlab(cfg: TicketingConfig, repo: str) -> list[TicketRecord]:
+    """Open GitLab issues for a repo via `glab issue list` (glab owns auth+host).
+
+    external_id is `<repo>#<iid>`; labels are normalized defensively (glab
+    may return a string or a `{"name": …}` object).
+    """
+    cmd = ["issue", "list", "--repo", repo, "--state", "opened"]
+    for label in cfg.gitlab.get("labels") or []:
+        cmd += ["--label", str(label)]
+    cmd += ["--output", "json"]
+    records = []
+    for issue in _run_glab(cmd):
+        iid = str(issue.get("iid") or "")
+        if not iid:
+            continue
+        records.append(
+            TicketRecord(
+                provider="gitlab",
+                external_id=f"{repo}#{iid}",
+                title=str(issue.get("title") or ""),
+                description=str(issue.get("description") or ""),
+                source_url=str(issue.get("web_url") or ""),
+            )
+        )
+    return records
+
+
 def upsert_tickets(db_path: Path, records: list[TicketRecord]) -> int:
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     try:
         ensure_schema(conn)
@@ -1042,8 +1238,17 @@ def upsert_tickets(db_path: Path, records: list[TicketRecord]) -> int:
         conn.close()
 
 
-def sync_tickets(root: Path, cfg: TicketingConfig) -> list[ProviderSyncResult]:
-    """Load .env, fetch every enabled provider, upsert; one result per provider."""
+def sync_tickets(
+    root: Path, cfg: TicketingConfig, providers: list[str] | None = None
+) -> list[ProviderSyncResult]:
+    """Load .env, fetch every enabled provider (or the `providers` subset),
+    upsert; one result per provider.
+
+    Hosted-git providers (github/gitlab) resolve their repo from the git
+    remote origin first — a host mismatch or a missing origin SKIPS the
+    provider with a warning (never an error, never a fetch against the
+    wrong forge). `internal` is a no-op: its tickets already live in the db.
+    """
     try:
         from dotenv import load_dotenv
 
@@ -1053,17 +1258,39 @@ def sync_tickets(root: Path, cfg: TicketingConfig) -> list[ProviderSyncResult]:
     from sssf.adw_modules import paths
 
     db_path = paths.data_dir(root) / "sssf.db"
+    origin = detect_origin(root)
     results: list[ProviderSyncResult] = []
-    for provider in cfg.providers:
+    requested = set(providers) if providers is not None else None
+    enabled = [p for p in cfg.providers if requested is None or p in requested]
+    if requested is not None:
+        for p in sorted(requested - set(cfg.providers)):
+            results.append(
+                ProviderSyncResult(p, error=f"{p!r} is not enabled in ticketing.yaml")
+            )
+    for provider in enabled:
         try:
             if provider == "jira":
                 records = fetch_jira(cfg)
             elif provider == "linear":
                 records = fetch_linear(cfg)
+            elif provider == "github":
+                repo, warning = github_repo(cfg, origin)
+                if repo is None:
+                    results.append(ProviderSyncResult(provider, warning=warning))
+                    continue
+                records = fetch_github(cfg, repo)
+            elif provider == "gitlab":
+                repo, warning = gitlab_repo(cfg, origin)
+                if repo is None:
+                    results.append(ProviderSyncResult(provider, warning=warning))
+                    continue
+                records = fetch_gitlab(cfg, repo)
             elif provider == "internal":
                 continue  # internal tickets already live in the db
             else:
-                results.append(ProviderSyncResult(provider, error=f"unknown provider {provider!r}"))
+                results.append(
+                    ProviderSyncResult(provider, error=f"unknown provider {provider!r}")
+                )
                 continue
             results.append(ProviderSyncResult(provider, tickets=upsert_tickets(db_path, records)))
         except (RuntimeError, OSError, sqlite3.Error) as error:

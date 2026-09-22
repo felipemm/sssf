@@ -6,6 +6,7 @@ import { fetchProjects, runSweep, setProject, useProjects } from './lib/api'
 import SessionsList from './components/SessionsList.vue'
 import SessionTrace from './components/SessionTrace.vue'
 import KanbanBoard from './components/KanbanBoard.vue'
+import IssueTracker from './components/IssueTracker.vue'
 import StatusPage from './components/StatusPage.vue'
 import MissionControl from './components/MissionControl.vue'
 import ProjectPicker from './components/ProjectPicker.vue'
@@ -69,7 +70,7 @@ function onProjectSelect(name: string) {
   const current = view.value
   const tab =
     current === 'list' ? 'sessions'
-    : current === 'status' || current === 'board' || current === 'archived' ? current
+    : current === 'status' || current === 'board' || current === 'tracker' || current === 'archived' ? current
     : 'status'
   navigate({ project: name, tab })
 }
@@ -142,6 +143,14 @@ async function onSweep() {
             >board</a
           >
           <a
+            :href="tabHref('tracker')"
+            class="tab"
+            :class="{ active: view === 'tracker' }"
+            role="tab"
+            :aria-selected="view === 'tracker'"
+            >tracker</a
+          >
+          <a
             :href="tabHref('sessions')"
             class="tab"
             :class="{ active: view === 'list' }"
@@ -190,6 +199,7 @@ async function onSweep() {
     <main>
       <MissionControl v-if="view === 'cockpit'" />
       <KanbanBoard v-else-if="view === 'board'" />
+      <IssueTracker v-else-if="view === 'tracker'" />
       <StatusPage v-else-if="view === 'status'" />
       <SessionsList v-else-if="view === 'list'" />
       <SessionsList v-else-if="view === 'archived'" archived />
