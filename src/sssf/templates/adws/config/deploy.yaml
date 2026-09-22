@@ -1,7 +1,52 @@
-# adws/config/deploy.yaml — the deploy flow's deterministic steps (#89)
+# adws/config/deploy.yaml — the deploy flow's deterministic steps (#89, #96)
 #
 # version_files: the files whose patch version the deploy bump step advances.
 # Only files that exist are touched; add/remove per project.
 version_files:
   - pyproject.toml
   - package.json
+
+# workbench (#96, ADR-0004): how the deploy flow brings up the QA surface — a
+# container from the `dev` branch (the batch snapshot) with mocks and a
+# published port, brought up by `sssf flow deploy` and torn down with
+# `sssf flow deploy --down`.
+#
+# - command: the app's dev command as an argv list, run in the workbench
+#   container with cwd = the dev snapshot. Keep it in the FOREGROUND (the
+#   container is the app). Wire env prerequisites inline — wrap a script in
+#   bash -lc if you need shell features.
+# - container_port: the port the app binds INSIDE the container; sssf
+#   publishes it loopback-only on a random HOST port and prints the URL.
+#   Bind 0.0.0.0 inside the container — an app bound to 127.0.0.1 is
+#   unreachable from the host.
+workbench:
+  command: ["npm", "run", "dev", "--workspace=web"]
+  container_port: 3000
+
+# release (#97): the canary/promote release gates. Both commands run only
+# after the operator confirms them at the terminal (`--yes` is the explicit
+# automation escape). A canary/promote failure parks the batch's tickets in
+# `blocked` — visible and actionable, never silently retried. The release
+# closes every ready-to-deploy ticket parsed from the MR's commit set
+# (commits since the last tag) regardless of this block.
+#
+# - canary.command: the per-project canary deployment command (argv list).
+# - promote.command: the per-project canary-promote command (argv list), e.g.
+#   the tompero canary-promote invocation.
+# - promote.status_command: the command whose output is polled for full
+#   promotion (e.g. `tompero deployment get`).
+# - promote.promoted_match: substring in the status output meaning fully
+#   promoted (default "promoted").
+# - promote.poll_interval_s / poll_timeout_s: poll cadence and deadline.
+#
+# A project without a deployment pipeline simply omits this block — the
+# release train + close-by-commits still run.
+# release:
+#   canary:
+#     command: ["tompero", "deployment", "canary", "start", "--service", "demo"]
+#   promote:
+#     command: ["tompero", "deployment", "canary", "promote", "--service", "demo"]
+#     status_command: ["tompero", "deployment", "get", "--service", "demo", "-O", "json"]
+#     promoted_match: "promoted"
+#     poll_interval_s: 15
+#     poll_timeout_s: 1800

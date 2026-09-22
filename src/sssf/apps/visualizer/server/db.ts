@@ -39,7 +39,7 @@ const DEFAULT_LIMIT = 500;
  * test asserts the equality). Columns added after the baseline are gated by
  * the since-map below; a db stamped below their version reads them as NULL.
  */
-export const MIN_SCHEMA_VERSION = 4;
+export const MIN_SCHEMA_VERSION = 5;
 
 /**
  * Columns added after the original schema, keyed "table.column" → the

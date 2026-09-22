@@ -181,31 +181,31 @@ def test_implement_commits_only_after_review():
     assert commit.allow_empty is True  # a no-op re-run ends clean, work already landed
 
 
-# ── deploy: sandbox → signoff → bump → MR → e2e → release ───────────────────
+# ── deploy: bump → MR → e2e → release (signoff + workbench are host-side, #96)
 
 
 def test_deploy_chain_phase_list_and_ordering():
     mod = _load("adw_deploy")
     chain: Chain = mod.CHAIN
     assert chain.name == "deploy"
-    assert _phase_names(chain) == ["sandbox", "signoff", "bump", "mr", "e2e", "release"]
+    assert _phase_names(chain) == ["bump", "mr", "e2e", "release"]
     assert [type(p).__name__ for p in chain.phases] == [
-        "CodePhase", "CodePhase", "CodePhase", "CodePhase", "QualityLoop",
-        "CodePhase",
+        "CodePhase", "CodePhase", "QualityLoop", "CodePhase",
     ]
 
 
 def test_deploy_steps_are_deterministic_code_or_quality():
+    """The release train is all deterministic code + the e2e quality loop — no
+    agent phases, no in-chain human gate (the batch signoff happens in the
+    HOST flow against the workbench, #96)."""
     mod = _load("adw_deploy")
     chain: Chain = mod.CHAIN
-    for name in ("sandbox", "signoff", "bump", "mr", "release"):
+    for name in ("bump", "mr", "release"):
         phase = next(p for p in chain.phases if p.name == name)
         assert isinstance(phase, CodePhase), f"{name} must be a deterministic code phase"
     e2e = next(p for p in chain.phases if p.name == "e2e")
     assert isinstance(e2e, QualityLoop)
-    # signoff is a human gate — the checkpoint stays in the terminal (#86 story 30)
-    signoff = next(p for p in chain.phases if p.name == "signoff")
-    assert isinstance(signoff, CodePhase)
+    assert all(isinstance(p, (CodePhase, QualityLoop)) for p in chain.phases)
 
 
 # ── executor-level: the deploy chain runs end to end ────────────────────────
@@ -235,9 +235,10 @@ def _make_repo(tmp_path):
 
 
 def test_deploy_chain_executes_all_phases_end_to_end(tmp_path, monkeypatch):
-    """The strongest 'runs end-to-end' proof: the real executor walks all six
-    deploy phases on a real repo — signoff auto-approved, version bumped and
-    committed, MR payload recorded, e2e green on `true`, release parsed."""
+    """The strongest 'runs end-to-end' proof: the real executor walks all four
+    release-train phases on a real repo — version bumped and committed, MR
+    payload + machine-readable record written, e2e green on `true`, release
+    parsed."""
     import shutil
     import subprocess
 
@@ -257,7 +258,6 @@ def test_deploy_chain_executes_all_phases_end_to_end(tmp_path, monkeypatch):
         checks=[QualityCheckSpec(name="test", area="backend", operation="build", argv=["true"])],
     )
     run.repo_root = str(repo)
-    run._deploy_yes = True  # auto-approve the signoff gate
 
     def no_glab(name: str):
         return None if name == "glab" else shutil.which(name)
@@ -267,7 +267,7 @@ def test_deploy_chain_executes_all_phases_end_to_end(tmp_path, monkeypatch):
     assert chains_mod.run_chain(run.cfg, run, "deploy the batch", chain) == 0
     assert run.accepted is True
     names = [p.params.name for p in run.phases]
-    assert names[:6] == ["request", "sandbox", "signoff", "bump", "mr", "verify_1"]
+    assert names[:4] == ["request", "bump", "mr", "verify_1"]
     assert "release" in names
     # the bump landed: patch advanced and committed
     assert 'version = "1.2.4"' in (repo / "pyproject.toml").read_text()
@@ -275,27 +275,13 @@ def test_deploy_chain_executes_all_phases_end_to_end(tmp_path, monkeypatch):
         ["git", "log", "-3", "--oneline"], cwd=repo, capture_output=True, text=True
     ).stdout
     assert "bump" in last
-    # the MR payload was recorded (no glab)
+    # the MR payload was recorded (no glab), plus the machine-readable record
+    # the host flow reads for the settle (#96)
     assert (repo / "adws" / "data" / "deploy" / "mr_payload.md").exists()
+    import json
+
+    rec = json.loads((repo / "adws" / "data" / "deploy" / f"{run.adw_id}-mr.json").read_text())
+    assert rec["url"] == ""
+    assert rec["title"].startswith("release:")
     # release runs after the e2e quality loop
     assert names.index("release") > names.index("verify_1")
-
-
-def test_deploy_signoff_rejection_fails_the_chain(tmp_path, monkeypatch):
-    """A 'no' at the signoff gate fails the chain cleanly — the checkpoint is
-    a real gate, not a formality."""
-
-    from test_chains import _make_run
-
-    from sssf.adw_modules import chains as chains_mod
-
-    repo = _make_repo(tmp_path)
-    monkeypatch.chdir(repo)
-    monkeypatch.setattr("builtins.input", lambda prompt: "n")
-    mod = _load("adw_deploy")
-    run = _make_run(tmp_path)
-    run.repo_root = str(repo)
-    run._deploy_yes = False
-    assert chains_mod.run_chain(run.cfg, run, "deploy", mod.CHAIN) == 1
-    assert run.accepted is False
-    assert "signoff rejected" in run.reason

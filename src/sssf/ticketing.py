@@ -66,6 +66,7 @@ TRANSITIONS: dict[str, frozenset[str]] = {
     STATUS_DONE: frozenset(),
 }
 
+
 # Legacy `tickets.status` values (backlog era) -> machine vocabulary.
 @dataclass
 class TicketRecord:
@@ -81,6 +82,8 @@ class TicketingConfig:
     providers: list[str]
     jira: dict = field(default_factory=dict)
     linear: dict = field(default_factory=dict)
+    github: dict = field(default_factory=dict)
+    gitlab: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -88,6 +91,7 @@ class ProviderSyncResult:
     provider: str
     tickets: int = 0
     error: str | None = None
+    warning: str | None = None
 
 
 def load_config(root: Path) -> TicketingConfig | None:
@@ -103,7 +107,11 @@ def load_config(root: Path) -> TicketingConfig | None:
     if not providers:
         return None
     return TicketingConfig(
-        providers=list(providers), jira=data.get("jira") or {}, linear=data.get("linear") or {}
+        providers=list(providers),
+        jira=data.get("jira") or {},
+        linear=data.get("linear") or {},
+        github=data.get("github") or {},
+        gitlab=data.get("gitlab") or {},
     )
 
 
@@ -112,6 +120,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     versioned migrations. Kept as a named alias so call sites read as
     intent — the historical ALTERs and data backfills are migrations."""
     db_schema.apply_schema(conn)
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
@@ -447,6 +456,209 @@ def mrs_for_status(conn: sqlite3.Connection, status: str) -> list[MrRecord]:
     return [_mr_row(row) for row in rows]
 
 
+# The deploy flow's batch settle (issue #96). The batch is the dev snapshot:
+# tickets in `ready-for-signoff` — implement success lands its commits on dev
+# via the integration merge, so that status IS "work on dev awaiting the batch
+# verdict". Commit-message `#<id>` parsing never decides batch membership
+# (internal ids never reliably appear in commit messages); it only feeds the
+# MR title/body. All edges are legal machine transitions, host-side by design
+# (tickets is project-owned — same rule as finish_implement_run).
+
+
+def deploy_batch_tickets(conn: sqlite3.Connection, ticket_ids: list[str]) -> list[str]:
+    """The batch's settleable tickets: those currently `ready-for-signoff`.
+    A ticket already past that (ready-to-deploy, done, blocked, requeued) is
+    not part of the batch verdict."""
+    if not ticket_ids:
+        return []
+    marks = ",".join("?" * len(ticket_ids))
+    rows = conn.execute(
+        f"SELECT id FROM tickets WHERE id IN ({marks}) AND status=?",
+        (*ticket_ids, STATUS_SIGNOFF),
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def reject_deploy_batch(
+    conn: sqlite3.Connection,
+    ticket_ids: list[str],
+    *,
+    actor: str = "system",
+    feedback: str = "",
+) -> list[str]:
+    """Signoff rejection (issue #96): re-queue the failing tickets fix-forward.
+
+    `ready-for-signoff -> ready-for-agent` (a legal machine edge) with the
+    batch verdict attached as rejection feedback — a new implement run stacks
+    the fix on dev and the next deploy rebuilds the workbench. Only
+    ready-for-signoff tickets move; a ticket already past the batch verdict is
+    never yanked. Returns the tickets actually requeued.
+    """
+    moved: list[str] = []
+    for ticket_id in deploy_batch_tickets(conn, ticket_ids):
+        transition_ticket(
+            conn,
+            ticket_id,
+            STATUS_READY,
+            actor=actor,
+            feedback=feedback or "batch rejected at signoff",
+            comment="deploy signoff rejected — requeued fix-forward",
+        )
+        moved.append(ticket_id)
+    return moved
+
+
+def approve_deploy_batch(
+    conn: sqlite3.Connection,
+    ticket_ids: list[str],
+    *,
+    actor: str = "system",
+    mr_url: str = "",
+    mr_iid: str = "",
+    repo: str = "",
+) -> list[str]:
+    """Batch signoff approval (issue #96): move the batch's ready-for-signoff
+    tickets to `ready-to-deploy` — the dev→main MR carries the clean snapshot
+    and the monitor (#98) starts watching those MRs. When the MR was actually
+    opened (glab), register it against each ticket so the monitor's scan set
+    includes them; with no MR (payload recorded for the operator) the tickets
+    still move — `sssf mr add` registers the hand-opened MR later.
+    """
+    moved: list[str] = []
+    for ticket_id in deploy_batch_tickets(conn, ticket_ids):
+        transition_ticket(
+            conn,
+            ticket_id,
+            STATUS_DEPLOY,
+            actor=actor,
+            comment="batch approved at signoff — MR dev→main",
+        )
+        if mr_iid and repo:
+            register_mr(conn, ticket_id, repo, mr_iid, url=mr_url, actor=actor)
+        moved.append(ticket_id)
+    return moved
+
+
+def revert_deploy_ticket(
+    conn: sqlite3.Connection,
+    ticket_id: str,
+    *,
+    actor: str = "system",
+    feedback: str = "",
+) -> bool:
+    """The revert escape hatch's machine edge (issue #96): a genuinely
+    unwanted ticket removed from dev by its own commits before the MR comes
+    back to `ready-for-agent` fix-forward. Only `ready-for-signoff` tickets
+    move — a ticket already past the MR (ready-to-deploy) is #97/operator
+    territory and is never yanked. Returns True when the ticket was requeued.
+    """
+    row = conn.execute("SELECT status FROM tickets WHERE id=?", (ticket_id,)).fetchone()
+    if row is None or row[0] != STATUS_SIGNOFF:
+        return False
+    transition_ticket(
+        conn,
+        ticket_id,
+        STATUS_READY,
+        actor=actor,
+        feedback=feedback or "reverted from dev by its own commits",
+        comment="reverted from dev by its own commits before the MR",
+    )
+    return True
+
+
+def _tickets_in_status(
+    conn: sqlite3.Connection, ticket_ids: list[str], status: str
+) -> list[str]:
+    """The given tickets currently in `status` — the release edges' filter so
+    a ticket parked in an earlier stage is never yanked."""
+    if not ticket_ids:
+        return []
+    marks = ",".join("?" * len(ticket_ids))
+    rows = conn.execute(
+        f"SELECT id FROM tickets WHERE id IN ({marks}) AND status=?",
+        (*ticket_ids, status),
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def block_deploy_tickets(
+    conn: sqlite3.Connection,
+    ticket_ids: list[str],
+    *,
+    actor: str = "system",
+    feedback: str = "",
+) -> list[str]:
+    """The release failure edge (issue #97): a canary/promote failure parks
+    the batch's `ready-to-deploy` tickets in `blocked` — visible and
+    actionable, never silently retried. The human unblocks back into the
+    queue (`blocked -> ready-for-agent`, the existing `sssf ticket backlog`
+    edge) after the fix. Only tickets still `ready-to-deploy` move; a ticket
+    parked in an earlier stage is never yanked. Returns the tickets parked.
+    """
+    moved: list[str] = []
+    for ticket_id in _tickets_in_status(conn, ticket_ids, STATUS_DEPLOY):
+        transition_ticket(
+            conn,
+            ticket_id,
+            STATUS_BLOCKED,
+            actor=actor,
+            feedback=feedback or "release step failed — parked blocked",
+            comment="release failure — parked blocked (visible, not silently retried)",
+        )
+        moved.append(ticket_id)
+    return moved
+
+
+def close_release_tickets(
+    conn: sqlite3.Connection, ticket_ids: list[str], *, actor: str = "system"
+) -> list[str]:
+    """The release close-by-commits edge (issue #97): every `ready-to-deploy`
+    ticket in the MR's commit set closes with the release — implementation
+    tickets and their features close together (`ready-to-deploy -> done`,
+    terminal). Only tickets still `ready-to-deploy` move: a blocked ticket
+    (canary failure) stays blocked, a ticket still awaiting the batch verdict
+    is not part of this release. Returns the tickets closed."""
+    moved: list[str] = []
+    for ticket_id in _tickets_in_status(conn, ticket_ids, STATUS_DEPLOY):
+        transition_ticket(
+            conn,
+            ticket_id,
+            STATUS_DONE,
+            actor=actor,
+            comment="released — closed by the MR's commit set",
+        )
+        moved.append(ticket_id)
+    return moved
+
+
+def release_ticket_ids(conn: sqlite3.Connection, commit_text: str) -> list[str]:
+    """The tickets a release commit set references — the close-by-commits
+    candidate set (issue #97): every `ready-to-deploy` ticket whose id
+    (`#<ticket-id>`) or a run adw_id (`sssf(<adw_id>)`, the chain's fallback
+    commit subject) appears in the commit lines. When NO reference parses,
+    nothing closes — the MR's commit set decides, never a blanket close.
+    """
+    deploy = [
+        r[0]
+        for r in conn.execute(
+            "SELECT id FROM tickets WHERE status=?", (STATUS_DEPLOY,)
+        ).fetchall()
+    ]
+    if not deploy:
+        return []
+    runs: dict[str, list[str]] = {}
+    for tid, adw_id in conn.execute(
+        "SELECT ticket_id, adw_id FROM ticket_runs"
+    ).fetchall():
+        runs.setdefault(tid, []).append(adw_id)
+    return [
+        tid
+        for tid in deploy
+        if f"#{tid}" in commit_text
+        or any(f"sssf({a})" in commit_text for a in runs.get(tid, []))
+    ]
+
+
 # The plan flow's run kind — the only flow that turns idea tickets into
 # spec + implementation children (the legacy ticket.run path uses
 # adw_simple_sdlc and never plans).
@@ -483,7 +695,9 @@ def _is_planned(conn: sqlite3.Connection, ticket_id: str) -> bool:
         return False
     if row[0]:
         return True
-    return conn.execute("SELECT 1 FROM tickets WHERE parent_id=?", (ticket_id,)).fetchone() is not None
+    return (
+        conn.execute("SELECT 1 FROM tickets WHERE parent_id=?", (ticket_id,)).fetchone() is not None
+    )
 
 
 def parse_ticket_breakdown(text: str) -> list[tuple[str, str]]:
@@ -529,9 +743,7 @@ def _run_root(project_root: Path, conn: sqlite3.Connection, adw_id: str) -> Path
     """Where the run's artifacts live: the per-run sandbox worktree for a
     sandboxed run (sandbox_run has a row), the project tree otherwise
     (--no-sandbox runs write directly into the project)."""
-    sandboxed = conn.execute(
-        "SELECT 1 FROM sandbox_run WHERE adw_id=?", (adw_id,)
-    ).fetchone()
+    sandboxed = conn.execute("SELECT 1 FROM sandbox_run WHERE adw_id=?", (adw_id,)).fetchone()
     if sandboxed:
         from sssf.sandbox.worktree_git import sandbox_dir
 
@@ -548,8 +760,7 @@ def _plan_artifacts(run_root: Path, adw_id: str) -> tuple[Path | None, Path | No
         return None, None
     spec_files = sorted(specs.glob(f"{adw_id}_spec-*.md"))
     ticket_files = sorted(specs.glob(f"{adw_id}_tickets-*.md"))
-    return (spec_files[-1] if spec_files else None,
-            ticket_files[-1] if ticket_files else None)
+    return (spec_files[-1] if spec_files else None, ticket_files[-1] if ticket_files else None)
 
 
 def finish_plan_run(
@@ -608,8 +819,7 @@ def finish_plan_run(
             (adw_id, _now(), ticket_id),
         )
         conn.execute(
-            "INSERT OR IGNORE INTO ticket_runs (ticket_id, adw_id, created_at)"
-            " VALUES (?,?,?)",
+            "INSERT OR IGNORE INTO ticket_runs (ticket_id, adw_id, created_at) VALUES (?,?,?)",
             (ticket_id, adw_id, _now()),
         )
     else:
@@ -736,9 +946,7 @@ def _adf_inline(node: dict) -> str:
 
 
 def _adf_inline_join(nodes: list[dict]) -> str:
-    return "".join(
-        _adf_inline(n) if n.get("type") == "text" else adf_to_markdown(n) for n in nodes
-    )
+    return "".join(_adf_inline(n) if n.get("type") == "text" else adf_to_markdown(n) for n in nodes)
 
 
 def _adf_list_item(node: dict, ordered: bool, index: int = 0) -> str:
@@ -776,9 +984,10 @@ def adf_to_markdown(node: dict | str) -> str:
     if ntype == "bulletList":
         return "".join(_adf_list_item(c, ordered=False) for c in content) + "\n"
     if ntype == "orderedList":
-        return "".join(
-            _adf_list_item(c, ordered=True, index=i + 1) for i, c in enumerate(content)
-        ) + "\n"
+        return (
+            "".join(_adf_list_item(c, ordered=True, index=i + 1) for i, c in enumerate(content))
+            + "\n"
+        )
     if ntype == "codeBlock":
         lang = (node.get("attrs") or {}).get("language", "") or ""
         body = "".join(c.get("text", "") for c in content if c.get("type") == "text")
@@ -893,7 +1102,196 @@ def fetch_linear(cfg: TicketingConfig) -> list[TicketRecord]:
     return records
 
 
+def detect_origin(root: Path) -> tuple[str, str] | None:
+    """The project's git remote origin as (host, repo); None when missing.
+
+    Runs `git config --get remote.origin.url` in the project and parses the
+    common forms (SSH scp-like, HTTPS, ssh://); a trailing `.git` is
+    stripped. Sync adapters for the hosted-git providers (github/gitlab)
+    key off this — the repo must live on the forge they fetch from.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "config", "--get", "remote.origin.url"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    url = result.stdout.strip() if result.returncode == 0 else ""
+    return _parse_origin_url(url) if url else None
+
+
+def _parse_origin_url(url: str) -> tuple[str, str] | None:
+    """Parse a remote URL into (host, repo); None when unparseable."""
+    url = url.strip()
+    if url.endswith(".git"):
+        url = url[:-4]
+    if not url:
+        return None
+    if url.startswith("ssh://"):
+        rest = url[len("ssh://") :]
+        host, _, path = rest.partition("/")
+        if "@" in host:
+            host = host.rsplit("@", 1)[1]
+        if not path:
+            return None
+        return host, path
+    if "://" in url:
+        _, _, rest = url.partition("://")
+        if "@" in rest:
+            rest = rest.rsplit("@", 1)[1]
+        host, _, path = rest.partition("/")
+        if not path:
+            return None
+        return host, path
+    # scp-like form: git@host:owner/repo
+    if "@" in url and ":" in url:
+        host = url.rsplit("@", 1)[1].split(":", 1)[0]
+        path = url.split(":", 1)[1]
+        if not host or not path:
+            return None
+        return host, path
+    return None
+
+
+def _origin_repo(
+    block: dict,
+    origin: tuple[str, str] | None,
+    cloud_host: str,
+    provider: str,
+) -> tuple[str | None, str | None]:
+    """Resolve the repo a provider fetches from → (repo, warning).
+
+    The yaml `repo:` override wins outright (no host matching); otherwise
+    the origin host must be the provider's expected host — the cloud
+    standard URL, or the custom_url host when self_hosted (any host when
+    self-hosted without custom_url). A mismatch or a missing origin returns
+    (None, warning): the provider is SKIPPED, never fetched against the
+    wrong forge.
+    """
+    if block.get("repo"):
+        return str(block["repo"]), None
+    if origin is None:
+        return None, "no git remote origin — add a `repo:` override in ticketing.yaml"
+    host, repo = origin
+    if block.get("self_hosted"):
+        custom = str(block.get("custom_url") or "").strip().rstrip("/")
+        if custom:
+            expected = custom.split("://")[-1].split("/", 1)[0]
+            if host != expected:
+                return None, (
+                    f"{provider} configured with custom_url {custom} but origin is {host}"
+                    " — fix custom_url or add a `repo:` override"
+                )
+            return repo, None
+        return repo, None  # self-hosted without custom_url: any host
+    if host != cloud_host:
+        return None, (
+            f"{provider} configured but origin is {host} — the cloud host is {cloud_host};"
+            " is this a self-hosted instance? set `self_hosted: true` and `custom_url:`"
+            " (or add a `repo:` override)"
+        )
+    return repo, None
+
+
+def github_repo(cfg: TicketingConfig, origin: tuple[str, str] | None) -> tuple[str | None, str | None]:
+    """The repo github sync fetches from, or (None, warning) to skip."""
+    return _origin_repo(cfg.github or {}, origin, "github.com", "github")
+
+
+def gitlab_repo(cfg: TicketingConfig, origin: tuple[str, str] | None) -> tuple[str | None, str | None]:
+    """The repo gitlab sync fetches from, or (None, warning) to skip."""
+    return _origin_repo(cfg.gitlab or {}, origin, "gitlab.com", "gitlab")
+
+
+def _run_gh(args: list[str]) -> list[dict]:
+    """Shell the user-authenticated gh CLI and parse its JSON stdout."""
+    if shutil.which("gh") is None:
+        raise RuntimeError(
+            "the github provider needs the gh CLI — install gh and run `gh auth login`: "
+            "https://cli.github.com"
+        )
+    result = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"gh failed ({result.returncode}): {result.stderr.strip() or result.stdout.strip()}"
+        )
+    return json.loads(result.stdout or "[]")
+
+
+def fetch_github(cfg: TicketingConfig, repo: str) -> list[TicketRecord]:
+    """Open GitHub issues for a repo via `gh issue list` (gh owns auth+host).
+
+    external_id is `<repo>#<number>` so the db id (`github:<repo>#<n>`) is
+    the same dedupe key shape as jira/linear.
+    """
+    cmd = ["issue", "list", "--repo", repo, "--state", "open"]
+    for label in cfg.github.get("labels") or []:
+        cmd += ["--label", str(label)]
+    cmd += ["--json", "number,title,body,url,state,labels", "--limit", "100"]
+    records = []
+    for issue in _run_gh(cmd):
+        number = str(issue.get("number") or "")
+        if not number:
+            continue
+        records.append(
+            TicketRecord(
+                provider="github",
+                external_id=f"{repo}#{number}",
+                title=str(issue.get("title") or ""),
+                description=str(issue.get("body") or ""),
+                source_url=str(issue.get("url") or ""),
+            )
+        )
+    return records
+
+
+def _run_glab(args: list[str]) -> list[dict]:
+    """Shell the user-authenticated glab CLI and parse its JSON stdout."""
+    if shutil.which("glab") is None:
+        raise RuntimeError(
+            "the gitlab provider needs the glab CLI — install glab and run `glab auth login`: "
+            "https://gitlab.com/gitlab-org/cli"
+        )
+    result = subprocess.run(["glab", *args], capture_output=True, text=True, timeout=60)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"glab failed ({result.returncode}): {result.stderr.strip() or result.stdout.strip()}"
+        )
+    return json.loads(result.stdout or "[]")
+
+
+def fetch_gitlab(cfg: TicketingConfig, repo: str) -> list[TicketRecord]:
+    """Open GitLab issues for a repo via `glab issue list` (glab owns auth+host).
+
+    external_id is `<repo>#<iid>`; labels are normalized defensively (glab
+    may return a string or a `{"name": …}` object).
+    """
+    cmd = ["issue", "list", "--repo", repo, "--state", "opened"]
+    for label in cfg.gitlab.get("labels") or []:
+        cmd += ["--label", str(label)]
+    cmd += ["--output", "json"]
+    records = []
+    for issue in _run_glab(cmd):
+        iid = str(issue.get("iid") or "")
+        if not iid:
+            continue
+        records.append(
+            TicketRecord(
+                provider="gitlab",
+                external_id=f"{repo}#{iid}",
+                title=str(issue.get("title") or ""),
+                description=str(issue.get("description") or ""),
+                source_url=str(issue.get("web_url") or ""),
+            )
+        )
+    return records
+
+
 def upsert_tickets(db_path: Path, records: list[TicketRecord]) -> int:
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     try:
         ensure_schema(conn)
@@ -933,8 +1331,17 @@ def upsert_tickets(db_path: Path, records: list[TicketRecord]) -> int:
         conn.close()
 
 
-def sync_tickets(root: Path, cfg: TicketingConfig) -> list[ProviderSyncResult]:
-    """Load .env, fetch every enabled provider, upsert; one result per provider."""
+def sync_tickets(
+    root: Path, cfg: TicketingConfig, providers: list[str] | None = None
+) -> list[ProviderSyncResult]:
+    """Load .env, fetch every enabled provider (or the `providers` subset),
+    upsert; one result per provider.
+
+    Hosted-git providers (github/gitlab) resolve their repo from the git
+    remote origin first — a host mismatch or a missing origin SKIPS the
+    provider with a warning (never an error, never a fetch against the
+    wrong forge). `internal` is a no-op: its tickets already live in the db.
+    """
     try:
         from dotenv import load_dotenv
 
@@ -944,17 +1351,39 @@ def sync_tickets(root: Path, cfg: TicketingConfig) -> list[ProviderSyncResult]:
     from sssf.adw_modules import paths
 
     db_path = paths.data_dir(root) / "sssf.db"
+    origin = detect_origin(root)
     results: list[ProviderSyncResult] = []
-    for provider in cfg.providers:
+    requested = set(providers) if providers is not None else None
+    enabled = [p for p in cfg.providers if requested is None or p in requested]
+    if requested is not None:
+        for p in sorted(requested - set(cfg.providers)):
+            results.append(
+                ProviderSyncResult(p, error=f"{p!r} is not enabled in ticketing.yaml")
+            )
+    for provider in enabled:
         try:
             if provider == "jira":
                 records = fetch_jira(cfg)
             elif provider == "linear":
                 records = fetch_linear(cfg)
+            elif provider == "github":
+                repo, warning = github_repo(cfg, origin)
+                if repo is None:
+                    results.append(ProviderSyncResult(provider, warning=warning))
+                    continue
+                records = fetch_github(cfg, repo)
+            elif provider == "gitlab":
+                repo, warning = gitlab_repo(cfg, origin)
+                if repo is None:
+                    results.append(ProviderSyncResult(provider, warning=warning))
+                    continue
+                records = fetch_gitlab(cfg, repo)
             elif provider == "internal":
                 continue  # internal tickets already live in the db
             else:
-                results.append(ProviderSyncResult(provider, error=f"unknown provider {provider!r}"))
+                results.append(
+                    ProviderSyncResult(provider, error=f"unknown provider {provider!r}")
+                )
                 continue
             results.append(ProviderSyncResult(provider, tickets=upsert_tickets(db_path, records)))
         except (RuntimeError, OSError, sqlite3.Error) as error:

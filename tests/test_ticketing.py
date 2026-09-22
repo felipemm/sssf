@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -662,6 +663,239 @@ def test_finish_implement_unknown_run_is_a_noop(tmp_path):
     assert ticketing.finish_implement_run(conn, "no-such-run") is None
 
 
+# ── deploy batch edges (#96): batch signoff on the dev snapshot ─────────────
+
+
+def _deploy_conn(tmp_path):
+    """Two ready-for-signoff tickets awaiting the batch verdict, plus one
+    ready-for-agent ticket that must never move."""
+    conn = _machine_conn(tmp_path / "m.db")
+    for tid in ("t1", "t2"):
+        _insert_ticket(conn, tid, status="ready-for-signoff")
+    _insert_ticket(conn, "t-outside", status="ready-for-agent")
+    conn.commit()
+    return conn
+
+
+def test_deploy_batch_tickets_filters_to_ready_for_signoff(tmp_path):
+    conn = _deploy_conn(tmp_path)
+    conn.execute("UPDATE tickets SET status='ready-to-deploy' WHERE id='t1'")
+    conn.commit()
+    # only the ready-for-signoff ticket is settleable — a ticket already past
+    # the MR (ready-to-deploy) is never part of the batch verdict
+    assert ticketing.deploy_batch_tickets(conn, ["t1", "t2"]) == ["t2"]
+    assert ticketing.deploy_batch_tickets(conn, []) == []
+    conn.close()
+
+
+def test_reject_deploy_batch_requeues_fix_forward(tmp_path):
+    conn = _deploy_conn(tmp_path)
+    moved = ticketing.reject_deploy_batch(
+        conn, ["t1", "t2"], actor="ralph", feedback="dark mode regressed on the workbench"
+    )
+    assert moved == ["t1", "t2"]
+    rows = conn.execute(
+        "SELECT id, status, rejection_feedback FROM tickets WHERE id IN ('t1','t2')"
+        " ORDER BY id"
+    ).fetchall()
+    assert [(r[1], r[2]) for r in rows] == [
+        ("ready-for-agent", "dark mode regressed on the workbench"),
+        ("ready-for-agent", "dark mode regressed on the workbench"),
+    ]
+    # the outsider never moves
+    assert conn.execute("SELECT status FROM tickets WHERE id='t-outside'").fetchone() == (
+        "ready-for-agent",
+    )
+    # audited per ticket like every machine write
+    ev = ticketing.ticket_events(conn, "t1")[-1]
+    assert ev["event_type"] == "transition"
+    assert ev["payload"]["from"] == "ready-for-signoff"
+    assert ev["payload"]["to"] == "ready-for-agent"
+    assert "dark mode regressed" in ev["payload"]["feedback"]
+    assert ev["actor"] == "ralph"
+    conn.close()
+
+
+def test_reject_deploy_batch_never_touches_non_signoff_tickets(tmp_path):
+    conn = _deploy_conn(tmp_path)
+    conn.execute("UPDATE tickets SET status='ready-to-deploy' WHERE id='t1'")
+    conn.commit()
+    assert ticketing.reject_deploy_batch(conn, ["t1"]) == []
+    assert conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone() == (
+        "ready-to-deploy",
+    )
+    conn.close()
+
+
+def test_approve_deploy_batch_moves_to_ready_to_deploy_and_registers_mr(tmp_path):
+    conn = _deploy_conn(tmp_path)
+    moved = ticketing.approve_deploy_batch(
+        conn, ["t1", "t2"], actor="ralph",
+        mr_url="https://gitlab.example/x/-/merge_requests/7", mr_iid="7",
+        repo="org/repo",
+    )
+    assert moved == ["t1", "t2"]
+    for tid in ("t1", "t2"):
+        row = conn.execute("SELECT status FROM tickets WHERE id=?", (tid,)).fetchone()
+        assert row == ("ready-to-deploy",)
+        mr = ticketing.mr_for_ticket(conn, tid)
+        assert mr is not None
+        assert mr.iid == "7"
+        assert mr.url == "https://gitlab.example/x/-/merge_requests/7"
+    # the outsider never moves
+    assert conn.execute("SELECT status FROM tickets WHERE id='t-outside'").fetchone() == (
+        "ready-for-agent",
+    )
+    conn.close()
+
+
+def test_approve_deploy_batch_without_mr_info_still_moves(tmp_path):
+    """No glab / no MR opened: the tickets still move to ready-to-deploy (the
+    operator opens the MR by hand from the recorded payload) — no registration."""
+    conn = _deploy_conn(tmp_path)
+    assert ticketing.approve_deploy_batch(conn, ["t1", "t2"], actor="ralph") == ["t1", "t2"]
+    assert conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone() == (
+        "ready-to-deploy",
+    )
+    assert ticketing.mr_for_ticket(conn, "t1") is None
+    conn.close()
+
+
+# ── release edges: blocked (canary/promote failure) and close-by-commits (#97) ──
+
+
+def test_block_deploy_tickets_parks_ready_to_deploy_in_blocked(tmp_path):
+    """A canary/promote failure parks the batch's ready-to-deploy tickets in
+    `blocked` — visible and actionable, never silently retried — with the
+    failure feedback attached and the transition audited."""
+    conn = _deploy_conn(tmp_path)
+    conn.execute("UPDATE tickets SET status='ready-to-deploy' WHERE id IN ('t1','t2')")
+    conn.commit()
+    moved = ticketing.block_deploy_tickets(
+        conn, ["t1", "t2"], actor="ralph", feedback="canary failed: crash loop"
+    )
+    assert moved == ["t1", "t2"]
+    rows = conn.execute(
+        "SELECT id, status, rejection_feedback FROM tickets WHERE id IN ('t1','t2')"
+        " ORDER BY id"
+    ).fetchall()
+    assert [(r[1], r[2]) for r in rows] == [
+        ("blocked", "canary failed: crash loop"),
+        ("blocked", "canary failed: crash loop"),
+    ]
+    # the outsider never moves
+    assert conn.execute("SELECT status FROM tickets WHERE id='t-outside'").fetchone() == (
+        "ready-for-agent",
+    )
+    ev = ticketing.ticket_events(conn, "t1")[-1]
+    assert ev["payload"]["from"] == "ready-to-deploy"
+    assert ev["payload"]["to"] == "blocked"
+    assert ev["actor"] == "ralph"
+    conn.close()
+
+
+def test_block_deploy_tickets_never_touches_non_deploy_tickets(tmp_path):
+    """Only ready-to-deploy tickets move to blocked — a ticket still waiting
+    for the batch verdict (ready-for-signoff) or already done stays put."""
+    conn = _deploy_conn(tmp_path)
+    conn.execute("UPDATE tickets SET status='ready-to-deploy' WHERE id='t1'")
+    conn.commit()
+    assert ticketing.block_deploy_tickets(
+        conn, ["t1", "t2"], actor="ralph", feedback="canary failed"
+    ) == ["t1"]
+    assert conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone() == ("blocked",)
+    assert conn.execute("SELECT status FROM tickets WHERE id='t2'").fetchone() == (
+        "ready-for-signoff",
+    )
+    conn.close()
+
+
+def test_close_release_tickets_closes_ready_to_deploy(tmp_path):
+    """The release close-by-commits edge: every ready-to-deploy ticket closes
+    with the release (ready-to-deploy → done, terminal) and the audit records
+    the transition."""
+    conn = _deploy_conn(tmp_path)
+    conn.execute("UPDATE tickets SET status='ready-to-deploy' WHERE id IN ('t1','t2')")
+    conn.commit()
+    moved = ticketing.close_release_tickets(conn, ["t1", "t2"], actor="ralph")
+    assert moved == ["t1", "t2"]
+    for tid in ("t1", "t2"):
+        assert conn.execute("SELECT status FROM tickets WHERE id=?", (tid,)).fetchone() == (
+            "done",
+        )
+        ev = ticketing.ticket_events(conn, tid)[-1]
+        assert ev["payload"]["from"] == "ready-to-deploy"
+        assert ev["payload"]["to"] == "done"
+    # a ticket not in the close set never moves
+    assert conn.execute("SELECT status FROM tickets WHERE id='t-outside'").fetchone() == (
+        "ready-for-agent",
+    )
+    conn.close()
+
+
+def test_close_release_tickets_never_closes_blocked_or_signoff(tmp_path):
+    """Close-by-commits is terminal and never yanks a ticket from an earlier
+    stage: a blocked ticket (canary failure) and a ready-for-signoff ticket
+    stay put even when named in the close set."""
+    conn = _deploy_conn(tmp_path)
+    conn.execute("UPDATE tickets SET status='ready-to-deploy' WHERE id='t1'")
+    conn.execute("UPDATE tickets SET status='blocked' WHERE id='t2'")
+    conn.commit()
+    assert ticketing.close_release_tickets(conn, ["t1", "t2"], actor="ralph") == ["t1"]
+    assert conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone() == ("done",)
+    assert conn.execute("SELECT status FROM tickets WHERE id='t2'").fetchone() == ("blocked",)
+    conn.close()
+
+
+def test_release_ticket_ids_matches_commit_set(tmp_path):
+    """The close-by-commits candidate set: ready-to-deploy tickets whose id
+    (`#<ticket-id>`) or a run adw_id (`sssf(<adw_id>)`) appears in the release
+    commit text. Tickets in earlier stages are never candidates."""
+    conn = _deploy_conn(tmp_path)
+    conn.execute("UPDATE tickets SET status='ready-to-deploy' WHERE id IN ('t1','t2')")
+    conn.execute(
+        "INSERT INTO ticket_runs (ticket_id, adw_id, created_at)"
+        " VALUES ('t2', 'run9', '2026-09-01T00:00:00+00:00')"
+    )
+    conn.commit()
+    text = (
+        "a1b2c3 feat: dark mode (#t1)\n"
+        "d4e5f6 sssf(run9): ship the toggle\n"
+        "g7h8i9 chore: unrelated (#t-outside)"
+    )
+    assert ticketing.release_ticket_ids(conn, text) == ["t1", "t2"]
+    # nothing matches -> no candidates (a blanket close never happens)
+    assert ticketing.release_ticket_ids(conn, "no references here") == []
+    conn.close()
+
+
+def test_revert_deploy_ticket_requeues_only_signoff(tmp_path):
+    """The revert escape hatch's edge: a genuinely unwanted ticket comes back
+    ready-for-agent fix-forward — but only while it is still waiting for the
+    batch verdict; a ticket already past the MR is never yanked."""
+    conn = _deploy_conn(tmp_path)
+    conn.execute("UPDATE tickets SET status='ready-to-deploy' WHERE id='t1'")
+    conn.commit()
+    assert ticketing.revert_deploy_ticket(conn, "t1", actor="ralph") is False
+    assert conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone() == (
+        "ready-to-deploy",
+    )
+
+    conn2 = _machine_conn(tmp_path / "m2.db")
+    _insert_ticket(conn2, "t2", status="ready-for-signoff")
+    assert ticketing.revert_deploy_ticket(
+        conn2, "t2", actor="ralph", feedback="unwanted feature — removed from dev"
+    ) is True
+    row = conn2.execute(
+        "SELECT status, rejection_feedback FROM tickets WHERE id='t2'"
+    ).fetchone()
+    assert row == ("ready-for-agent", "unwanted feature — removed from dev")
+    ev = ticketing.ticket_events(conn2, "t2")[-1]
+    assert ev["payload"]["to"] == "ready-for-agent"
+    conn.close()
+    conn2.close()
+
+
 # ── plan flow: guard + breakdown parser + the settle (issue #91) ────────────
 
 
@@ -912,4 +1146,431 @@ def test_finish_plan_run_reads_artifacts_from_the_sandbox_worktree(tmp_path):
         "SELECT title FROM tickets WHERE parent_id=?", (parent,)
     ).fetchall()
     assert [c[0] for c in children] == ["Toggle component", "Persist the choice"]
+    conn.close()
+
+
+# ── multi-source sync: origin resolution (issue #90) ───────────────────────
+
+
+def _git_repo(root: Path, origin_url: str | None = None) -> Path:
+    """A tmp git repo with an optional origin remote (sync tests shell git)."""
+    repo = root / "repo"
+    repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    if origin_url is not None:
+        subprocess.run(["git", "remote", "add", "origin", origin_url], cwd=repo, check=True)
+    return repo
+
+
+def test_detect_origin_parses_ssh_form(tmp_path):
+    repo = _git_repo(tmp_path, "git@github.com:owner/repo.git")
+    assert ticketing.detect_origin(repo) == ("github.com", "owner/repo")
+
+
+def test_detect_origin_parses_https_form(tmp_path):
+    repo = _git_repo(tmp_path, "https://github.com/owner/repo.git")
+    assert ticketing.detect_origin(repo) == ("github.com", "owner/repo")
+
+
+def test_detect_origin_parses_ssh_url_form(tmp_path):
+    repo = _git_repo(tmp_path, "ssh://git@gitlab.com/group/project.git")
+    assert ticketing.detect_origin(repo) == ("gitlab.com", "group/project")
+
+
+def test_detect_origin_missing_is_none(tmp_path):
+    repo = _git_repo(tmp_path)  # no origin remote
+    assert ticketing.detect_origin(repo) is None
+
+
+def test_origin_repo_override_wins_without_host_matching(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    cfg.github = {"repo": "acme/override"}
+    repo, warning = ticketing.github_repo(cfg, ("gitlab.com", "other/repo"))
+    assert repo == "acme/override"
+    assert warning is None
+
+
+def test_origin_repo_cloud_host_matches(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    repo, warning = ticketing.github_repo(cfg, ("github.com", "acme/app"))
+    assert repo == "acme/app"
+    assert warning is None
+
+
+def test_origin_repo_cloud_mismatch_warns_self_hosted(tmp_path):
+    cfg = _cfg(tmp_path, providers=("gitlab",))
+    repo, warning = ticketing.gitlab_repo(cfg, ("git.ifoodcorp.com.br", "acme/app"))
+    assert repo is None
+    assert warning is not None and "self_hosted" in warning and "custom_url" in warning
+
+
+def test_origin_repo_self_hosted_custom_url_match(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    cfg.github = {"self_hosted": True, "custom_url": "https://github.company.com"}
+    repo, warning = ticketing.github_repo(cfg, ("github.company.com", "acme/app"))
+    assert repo == "acme/app"
+    assert warning is None
+
+
+def test_origin_repo_self_hosted_custom_url_mismatch_warns(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    cfg.github = {"self_hosted": True, "custom_url": "https://github.company.com"}
+    repo, warning = ticketing.github_repo(cfg, ("github.com", "acme/app"))
+    assert repo is None
+    assert warning is not None and "fix custom_url" in warning
+
+
+def test_origin_repo_self_hosted_without_custom_url_accepts_any_host(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    cfg.github = {"self_hosted": True}
+    repo, warning = ticketing.github_repo(cfg, ("forge.example.net", "acme/app"))
+    assert repo == "acme/app"
+    assert warning is None
+
+
+def test_origin_repo_no_origin_warns_repo_override(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    repo, warning = ticketing.github_repo(cfg, None)
+    assert repo is None
+    assert warning is not None and "repo:" in warning
+
+
+def test_fetch_github_parses_gh_output(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(args, capture_output, text, timeout):
+        calls.append(args)
+
+        class R:
+            returncode = 0
+            stdout = json.dumps(
+                [
+                    {
+                        "number": 12,
+                        "title": "Dark mode",
+                        "body": "The app needs a dark theme.",
+                        "url": "https://github.com/owner/repo/issues/12",
+                        "state": "open",
+                        "labels": [{"name": "bug"}],
+                    }
+                ]
+            )
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/gh")
+    records = ticketing.fetch_github(_cfg(tmp_path, providers=("github",)), "owner/repo")
+    assert calls[0] == [
+        "gh",
+        "issue",
+        "list",
+        "--repo",
+        "owner/repo",
+        "--state",
+        "open",
+        "--json",
+        "number,title,body,url,state,labels",
+        "--limit",
+        "100",
+    ]
+    assert records[0].external_id == "owner/repo#12"
+    assert records[0].provider == "github"
+    assert records[0].source_url == "https://github.com/owner/repo/issues/12"
+
+
+def test_fetch_github_repeats_label_flags(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(args, capture_output, text, timeout):
+        calls.append(args)
+
+        class R:
+            returncode = 0
+            stdout = "[]"
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/gh")
+    cfg = _cfg(tmp_path, providers=("github",))
+    cfg.github = {"labels": ["bug", "p1"]}
+    ticketing.fetch_github(cfg, "owner/repo")
+    assert calls[0] == [
+        "gh",
+        "issue",
+        "list",
+        "--repo",
+        "owner/repo",
+        "--state",
+        "open",
+        "--label",
+        "bug",
+        "--label",
+        "p1",
+        "--json",
+        "number,title,body,url,state,labels",
+        "--limit",
+        "100",
+    ]
+
+
+def test_fetch_github_missing_gh_raises_actionable(tmp_path, monkeypatch):
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: None)
+    with pytest.raises(RuntimeError, match="install gh"):
+        ticketing.fetch_github(_cfg(tmp_path, providers=("github",)), "owner/repo")
+
+
+def test_fetch_github_nonzero_exit_raises(tmp_path, monkeypatch):
+    def fake_run(args, capture_output, text, timeout):
+        class R:
+            returncode = 1
+            stdout = ""
+            stderr = "gh: not authenticated"
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/gh")
+    with pytest.raises(RuntimeError, match="gh failed"):
+        ticketing.fetch_github(_cfg(tmp_path, providers=("github",)), "owner/repo")
+
+
+def test_fetch_gitlab_parses_glab_output(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(args, capture_output, text, timeout):
+        calls.append(args)
+
+        class R:
+            returncode = 0
+            stdout = json.dumps(
+                [
+                    {
+                        "iid": 5,
+                        "title": "Dark mode",
+                        "description": "The app needs a dark theme.",
+                        "web_url": "https://gitlab.com/group/proj/-/issues/5",
+                        "labels": ["bug"],
+                    }
+                ]
+            )
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/glab")
+    records = ticketing.fetch_gitlab(_cfg(tmp_path, providers=("gitlab",)), "group/proj")
+    assert calls[0] == [
+        "glab",
+        "issue",
+        "list",
+        "--repo",
+        "group/proj",
+        "--state",
+        "opened",
+        "--output",
+        "json",
+    ]
+    assert records[0].external_id == "group/proj#5"
+    assert records[0].provider == "gitlab"
+    assert records[0].source_url == "https://gitlab.com/group/proj/-/issues/5"
+
+
+def test_fetch_gitlab_label_flags_and_missing_binary(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(args, capture_output, text, timeout):
+        calls.append(args)
+
+        class R:
+            returncode = 0
+            stdout = "[]"
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/glab")
+    cfg = _cfg(tmp_path, providers=("gitlab",))
+    cfg.gitlab = {"labels": ["bug"]}
+    ticketing.fetch_gitlab(cfg, "group/proj")
+    assert calls[0] == [
+        "glab",
+        "issue",
+        "list",
+        "--repo",
+        "group/proj",
+        "--state",
+        "opened",
+        "--label",
+        "bug",
+        "--output",
+        "json",
+    ]
+
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: None)
+    with pytest.raises(RuntimeError, match="install glab"):
+        ticketing.fetch_gitlab(cfg, "group/proj")
+
+
+def _sync_cfg(tmp_path, providers, github=None, gitlab=None):
+    cfg = _cfg(tmp_path, providers=providers)
+    cfg.github = github or {}
+    cfg.gitlab = gitlab or {}
+    return cfg
+
+
+def test_config_parses_github_gitlab_blocks(tmp_path):
+    _write(
+        tmp_path,
+        (
+            "providers:\n  - internal\n  - github\n  - gitlab\n"
+            "github:\n  repo: acme/override\n  labels: [bug]\n"
+            "gitlab:\n  self_hosted: true\n  custom_url: https://git.ifoodcorp.com.br\n"
+        ),
+    )
+    cfg = ticketing.load_config(tmp_path)
+    assert cfg is not None
+    assert cfg.github["repo"] == "acme/override"
+    assert cfg.gitlab["self_hosted"] is True
+    assert cfg.gitlab["custom_url"] == "https://git.ifoodcorp.com.br"
+
+
+def test_sync_tickets_upserts_all_four_origins(tmp_path, monkeypatch):
+    root = _git_repo(tmp_path, "git@github.com:owner/repo.git")
+    cfg = _sync_cfg(tmp_path, ("internal", "jira", "github", "gitlab"))
+    cfg.github = {"repo": "owner/repo"}  # override — no host matching
+    cfg.gitlab = {"repo": "group/proj"}
+
+    def fake_run(args, capture_output, text, timeout):
+        binary = args[0]
+
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        if binary == "gh":
+            R.stdout = json.dumps(
+                [{"number": 12, "title": "Dark mode", "body": "b", "url": "https://github.com/owner/repo/issues/12", "state": "open", "labels": []}]
+            )
+        elif binary == "glab":
+            R.stdout = json.dumps(
+                [{"iid": 5, "title": "Light mode", "description": "d", "web_url": "https://gitlab.com/group/proj/-/issues/5"}]
+            )
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+    results = ticketing.sync_tickets(root, cfg)
+    by_provider = {r.provider: r for r in results}
+    assert by_provider["github"].tickets == 1
+    assert by_provider["gitlab"].tickets == 1
+    assert "internal" not in by_provider  # nothing to fetch
+    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    rows = conn.execute(
+        "SELECT id, status, kind, tracked, origin FROM tickets"
+        " WHERE origin IN ('github','gitlab') ORDER BY id"
+    ).fetchall()
+    conn.close()
+    assert rows == [
+        ("github:owner/repo#12", "needs-triage", "idea", 0, "github"),
+        ("gitlab:group/proj#5", "needs-triage", "idea", 0, "gitlab"),
+    ]
+
+
+def test_sync_tickets_origin_mismatch_skips_with_warning(tmp_path, monkeypatch):
+    """A cloud gitlab provider with a non-standard origin host is skipped
+    with a warning — never fetched against the wrong forge."""
+    root = _git_repo(tmp_path, "git@git.ifoodcorp.com.br:acme/app.git")
+    cfg = _sync_cfg(tmp_path, ("gitlab",))
+    shells = []
+
+    def fake_run(args, capture_output, text, timeout):
+        if args[0] == "git":
+            # origin resolution runs real git — hand it the configured origin
+            class G:
+                returncode = 0
+                stdout = "git@git.ifoodcorp.com.br:acme/app.git"
+                stderr = ""
+
+            return G()
+        shells.append(args[0])
+        raise AssertionError(f"must not shell {args[0]} when the origin mismatches")
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+    results = ticketing.sync_tickets(root, cfg)
+    (result,) = results
+    assert result.provider == "gitlab"
+    assert result.tickets == 0
+    assert result.error is None
+    assert result.warning is not None and "self_hosted" in result.warning
+    assert shells == []
+
+
+def test_sync_tickets_provider_subset_fetches_only_that_provider(tmp_path, monkeypatch):
+    root = _git_repo(tmp_path, "git@github.com:owner/repo.git")
+    cfg = _sync_cfg(tmp_path, ("github", "gitlab"))
+    cfg.github = {"repo": "owner/repo"}
+    cfg.gitlab = {"repo": "group/proj"}
+    seen = []
+
+    def fake_run(args, capture_output, text, timeout):
+        seen.append(args[0])
+
+        class R:
+            returncode = 0
+            stdout = "[]"
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+    results = ticketing.sync_tickets(root, cfg, providers=["github"])
+    assert [r.provider for r in results] == ["github"]
+    assert seen == ["git", "gh"]  # origin resolution shells git, then gh only
+
+
+def test_sync_tickets_failing_provider_does_not_stop_others(tmp_path, monkeypatch):
+    root = _git_repo(tmp_path, "git@github.com:owner/repo.git")
+    cfg = _sync_cfg(tmp_path, ("jira", "github"))
+    cfg.github = {"repo": "owner/repo"}
+
+    def fake_run(args, capture_output, text, timeout):
+        class R:
+            returncode = 0
+            stdout = "[]"
+            stderr = ""
+
+        if args[0] == "gh":
+            R.returncode = 1
+            R.stderr = "gh: not authenticated"
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+    # jira syncs fine while github errors — the failure never blocks the others.
+    results = ticketing.sync_tickets(root, cfg)
+    by_provider = {r.provider: r for r in results}
+    assert by_provider["jira"].tickets == 0 and by_provider["jira"].error is None
+    assert by_provider["github"].error is not None and "gh failed" in by_provider["github"].error
+
+
+def test_untracked_synced_tickets_invisible_in_backlog_until_marked(tmp_path):
+    """AC3: synced (untracked) tickets never appear in the backlog — only an
+    explicit needs-triage → ready-for-agent transition brings them in."""
+    db = tmp_path / "sssf.db"
+    rec = ticketing.TicketRecord("github", "owner/repo#12", "Dark mode", "d", "u")
+    ticketing.upsert_tickets(db, [rec])
+    conn = _machine_conn(db)
+    assert ticketing.backlog_tickets(conn) == []
+    ticketing.transition_ticket(conn, "github:owner/repo#12", ticketing.STATUS_READY, actor="human")
+    rows = ticketing.backlog_tickets(conn)
+    assert [r[0] for r in rows] == ["github:owner/repo#12"]
     conn.close()

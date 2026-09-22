@@ -12,6 +12,7 @@ describe("router", () => {
     expect(r.project).toBe("inkwell");
     expect(r.tab).toBe("status");
     expect(parseHash("#/p/inkwell/board").tab).toBe("board");
+    expect(parseHash("#/p/inkwell/tracker").tab).toBe("tracker");
     expect(parseHash("#/p/inkwell/sessions").tab).toBe("sessions");
     expect(parseHash("#/p/inkwell/archived").tab).toBe("archived");
     expect(parseHash("#/p/inkwell/s/abc123").adwId).toBe("abc123");
@@ -24,6 +25,7 @@ describe("router", () => {
     expect(parseHash("#/abc123").adwId).toBe("abc123");
     expect(parseHash("#/abc123/ph2").phaseId).toBe("ph2");
     expect(parseHash("#/board").tab).toBe("board");
+    expect(parseHash("#/tracker").tab).toBe("tracker");
     expect(parseHash("#/sessions").tab).toBe("sessions");
     expect(parseHash("#/status").tab).toBe("status");
   });
@@ -31,6 +33,7 @@ describe("router", () => {
   test("hrefFor round-trips", () => {
     expect(hrefFor({})).toBe("#/");
     expect(hrefFor({ project: "inkwell", tab: "board" })).toBe("#/p/inkwell/board");
+    expect(hrefFor({ project: "inkwell", tab: "tracker" })).toBe("#/p/inkwell/tracker");
     expect(hrefFor({ project: "inkwell" })).toBe("#/p/inkwell");
     expect(hrefFor({ project: "inkwell", adwId: "abc" })).toBe("#/p/inkwell/s/abc");
     expect(hrefFor({ project: "inkwell", adwId: "abc", phaseId: "ph2" })).toBe("#/p/inkwell/s/abc/ph2");

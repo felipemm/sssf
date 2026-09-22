@@ -92,18 +92,40 @@ const description =
         </td>
       </tr>
       <tr>
-        <td><code class="hl">sssf flow implement &lt;ticket-id&gt; [--project P] [--no-sandbox]</code></td>
+        <td><code class="hl">sssf flow implement &lt;ticket-id&gt;|afk [--cap N] [--wait-seconds S] [--project P] [--no-sandbox]</code></td>
         <td>
           Implement one <span class="cmd">ready-for-agent</span> ticket end to end
-          (triage → build → review) with no operator in the loop.
+          (triage → build → review) with no operator in the loop — the flow claims
+          the ticket, runs it, and settles the outcome (ready-for-signoff on
+          success, back to <span class="cmd">ready-for-agent</span> with the run's
+          feedback on rejection). With <span class="cmd">afk</span>, a whole queue is
+          worked unattended: one ticket per round (each round a fresh run/context
+          window) until the queue is empty or <span class="cmd">--cap</span> rounds
+          are hit (default 30). Sandboxed rounds wait for the machine settle before
+          the next dispatch — <span class="cmd">--wait-seconds</span> bounds one
+          round's wait (default 7200).
         </td>
       </tr>
       <tr>
-        <td><code class="hl">sssf flow deploy [--yes] [--project P] [--no-sandbox]</code></td>
+        <td><code class="hl">sssf flow deploy [--yes] [--project P] [--down] [--revert &lt;ticket-id&gt;]</code></td>
         <td>
-          Release train: batch signoff on the dev snapshot → version bump → MR
-          dev→main → e2e → release. <span class="cmd">--yes</span> is the explicit
-          automation escape for the terminal signoff gate.
+          Batch-level release train dev → main. Brings up the QA workbench
+          from the <span class="cmd">dev</span> branch (mocks + published port),
+          signs the batch off at the terminal (one workbench, one verdict —
+          <span class="cmd">--yes</span> is the explicit automation escape), then
+          runs the deterministic release train (bump → MR dev→main → e2e →
+          release) in a worktree at dev. After approval the release gates run,
+          each only after the operator confirms at the terminal: the per-project
+          canary step (failure parks the batch in
+          <span class="cmd">blocked</span> — visible, never silently retried),
+          then the per-project tompero canary-promote step (polled until fully
+          promoted), then close-by-commits: every ticket parsed from the MR's
+          commit set (commits since the last tag) closes with the release.
+          Rejection re-queues the failing tickets fix-forward; approval moves
+          them to <span class="cmd">ready-to-deploy</span> once the MR exists.
+          <span class="cmd">--down</span> tears the workbench down (the human's
+          teardown); <span class="cmd">--revert</span> removes a genuinely
+          unwanted ticket from dev by its own commits before the MR.
         </td>
       </tr>
       <tr>
@@ -193,7 +215,8 @@ const description =
     </thead>
     <tbody>
       <tr><td><code class="hl">sssf ticket add "&lt;title&gt;" [--project P]</code></td><td>Create an internal backlog ticket (needs the internal provider enabled in <code class="hl">ticketing.yaml</code>).</td></tr>
-      <tr><td><code class="hl">sssf ticket sync [--project P]</code></td><td>Fetch external tickets into the backlog; reports per-provider sync results or errors.</td></tr>
+      <tr><td><code class="hl">sssf ticket sync [--project P] [--provider jira|linear|github|gitlab]</code></td><td>Fetch external tickets into the internal db (born <code class="hl">needs-triage</code> + untracked, invisible in the backlog); <code class="hl">--provider</code> syncs only that one. Reports per-provider results, warnings (origin mismatch skips) or errors.</td></tr>
+      <tr><td><code class="hl">sssf ticket writeback &lt;ticket_id&gt; [--project P] [--state S] [--comment TEXT] [--label L] [--remove-label L]</code></td><td>Push state/label/comment to the origin tracker (github/gitlab via gh/glab), best-effort: failures are recorded in <code class="hl">ticket_events</code> and never block; internal tickets are a no-op.</td></tr>
       <tr><td><code class="hl">sssf ticket list [--project P]</code></td><td>List tickets: id · provider · title · status · adw_id.</td></tr>
       <tr><td><code class="hl">sssf ticket run &lt;ticket_id&gt; [--project P] [--no-sandbox]</code></td><td>Spawn <code class="hl">simple_sdlc</code> for a ticket: title + description become a prompt file, the ticket moves to <code class="hl">starting</code>, and follows the run through the kanban. Refuses to double-run a ticket already <code class="hl">running</code>.</td></tr>
     </tbody>

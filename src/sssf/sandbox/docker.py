@@ -89,7 +89,6 @@ def run_sandbox(
     uid: int = 1000,
     gid: int = 1000,
     env: dict[str, str] | None = None,
-    publish_port: int | None = None,
     cmd: list[str] | None = None,
 ) -> None:
     """docker run -d with the worktree + shared data bound, credentials ro.
@@ -97,8 +96,9 @@ def run_sandbox(
     git_dir mounts the repo's .git at its HOST path inside the container: a
     worktree's `.git` file references that absolute path, so without the mount
     git inside the container can't resolve the repo (the ADW's commits land in
-    the shared object store — that is the point). publish_port publishes the
-    review app's container port loopback-only on a RANDOM host port.
+    the shared object store — that is the point). The runner publishes NO
+    ports (ADR-0004): it executes work and exits; the deploy flow's QA
+    surface is the workbench, a separate disposable container.
     """
     args = [
         "run",
@@ -121,11 +121,6 @@ def run_sandbox(
     args += ["--user", f"{uid}:{gid}"]
     for k, v in (env or {}).items():
         args += ["-e", f"{k}={v}"]
-    if publish_port:
-        # Loopback-only, random HOST port (docker picks a free one) so
-        # concurrent runs never collide. The app binds container_port inside
-        # the container; `docker port <name>` resolves the host port.
-        args += ["-p", f"127.0.0.1::{publish_port}"]
     args += [image, *(cmd or [])]
     # Containers are KEPT after a run for debugging, so a retry/restart may
     # find an Exited container with this name — remove it before running.

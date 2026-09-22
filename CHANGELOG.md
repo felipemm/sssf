@@ -27,6 +27,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   builder: implement / tdd / code-review; scout: wayfinder / triage;
   reviewer: code-review). `check_skills` (doctor) covers the full manifest
   with one ls-remote per source repo.
+- **Release: canary, blocked, promote, close-by-commits (#97)** — the deploy
+  flow's release mechanics after batch approval: the canary step and the
+  per-project tompero canary-promote step each run ONLY after the operator's
+  terminal confirmation (`--yes` is the explicit automation escape), the
+  promote step polls the per-project status command until fully promoted
+  (configured under the new optional `release:` block in
+  adws/config/deploy.yaml; a project without a deployment pipeline omits it
+  and skips the gates). A canary/promote failure or poll timeout parks the
+  batch's tickets `ready-to-deploy → blocked` with the command's stderr as
+  fix-forward feedback — visible and actionable, never silently retried (the
+  human unblocks with the existing `sssf ticket backlog`). Declining a gate
+  pauses the release (tickets stay ready-to-deploy; the MR is registered and
+  the #98 monitor watches it). The release closes every ready-to-deploy
+  ticket parsed from the MR's commit set — commits since the last tag on the
+  dev snapshot (`#<id>` or a run adw_id; the whole snapshot on the first
+  release) — so implementation tickets and their features close together.
+- **Deploy flow: batch-to-dev release train + workbench signoff (#96)** —
+  `sssf flow deploy` is now a host-side orchestration: it brings up the QA
+  workbench from the `dev` branch (a container with the app's command and a
+  published port, configured under `adws/config/deploy.yaml` `workbench:`),
+  signs the batch off at the terminal with ONE verdict (one workbench, one
+  verdict — `--yes` is the explicit automation escape), and runs the
+  deterministic release train (bump → MR dev→main → e2e → release) in a
+  release worktree checked out at `dev` (its per-run db merges back into the
+  project db like any sandboxed run's). Machine edges, host-side: rejection
+  re-queues the failing tickets `ready-for-signoff → ready-for-agent` with
+  the batch verdict as fix-forward feedback and tears the workbench down
+  ("rebuilt" by the next run); approval moves them
+  `ready-for-signoff → ready-to-deploy` once the MR exists, registering the
+  MR against each ticket so the #98 monitor watches them. The revert escape
+  hatch — `sssf flow deploy --revert <ticket-id>` — reverts a genuinely
+  unwanted ticket's own commits from dev before the MR (matched by `#id` or
+  the run adw_ids) and returns the ticket fix-forward.
+  `sssf flow deploy --down` is the human's workbench teardown. The deploy
+  chain drops its in-chain sandbox/signoff phases (the signoff cannot be
+  answered from a detached runner's stdin — the old sandboxed signoff always
+  rejected unless `--yes`); `adw_deploy` is now the deterministic release
+  train only.
+- **`review.command` is dropped (ADR-0004)** — `SandboxConfig.review` and the
+  `ReviewConfig` model are gone; the runner publishes no ports and the
+  supervisor now runs the ADW, writes the exit marker, and EXITS with the
+  ADW's code instead of idling to host the app (the workbench replaces the
+  fused interactive-preview machinery). Legacy stamped configs still load
+  (pydantic ignores the unknown block); the `sandbox_run` schema keeps its
+  historical review columns for db compat.
+- **`workbench_runs` table (schema v5)** — one row per deploy workbench
+  (adw_id, container, worktree, ports, url, status); created by
+  `db_schema.apply_schema`, generated into the viz TS types.
+- **Issue tracker page in the visualizer (#94)** — a new `tracker` tab
+  (`#/p/:project/tracker`) shows every ticket sssf knows — tracked and
+  untracked — grouped by the ticket machine's state (needs-triage →
+  ready-for-agent → in-progress → ready-for-signoff → ready-to-deploy →
+  done/blocked), each card carrying its origin (internal / jira / linear /
+  github / gitlab badge), kind (idea vs implementation), untracked marker,
+  run count, and parent/child lineage (implementation tickets trace to their
+  idea; idea tickets expand to their slices). The backlog is exactly the
+  ready-for-agent column; untracked synced tickets sit in needs-triage and
+  are adopted via an in-page action that runs the audited machine transition.
+  The server's ticket read now surfaces the machine fields (kind, tracked,
+  origin, parent_id, spec) and treats stored machine states as authoritative
+  — never re-derived from a linked session — with a migration for pre-machine
+  dbs that mirrors db_schema's defaults.
+- **Multi-source sync + untracked tickets (#90)** — the internal db is the
+  truth for a mixed project: `sssf ticket sync` fetches from all four origins
+  (`internal`, `jira` via acli, `github` via gh, `gitlab` via glab) and
+  records `origin` + `external_id`. GitHub/GitLab providers resolve their repo
+  from the git remote origin (yaml `repo:` override wins; otherwise the origin
+  host must match the cloud standard URL, or `custom_url` when
+  `self_hosted`); a host mismatch skips the provider with a warning, never an
+  error. Synced tickets are born `needs-triage` + `untracked` (permanent —
+  re-syncs refresh content only) and never appear in the backlog until marked
+  `ready-for-agent`. New `sssf ticket writeback <id> --state/--comment/
+  --label/--remove-label` mirrors state/label/comment changes to origin
+  trackers best-effort through gh/glab; failures are recorded as
+  `ticket_events` (`writeback_failed`) and never block the flow. Requeueing a
+  synced ticket (`sssf ticket backlog`) reopens it on its origin. `sync
+  --provider <p>` syncs one provider; per-provider skip warnings print
+  distinctly.
+- **afk: the unattended implement loop (#93)** — `sssf flow implement afk`
+  works the whole `ready-for-agent` queue without an operator: one ticket
+  per round, each round a fresh run (a new ADW process/container under its
+  own adw_id — never a shared context window), until the queue is empty or
+  `--cap` rounds are hit (default 30; re-run afk to continue). Every round
+  delegates to the single-ticket implement flow (claim → spawn → settle),
+  so a failed round requeues its ticket fix-forward and the next round
+  re-picks it — the cap bounds the retries, and every attempt stays in the
+  ticket's run history. Sandboxed rounds spawn detached and settle in the
+  monitor, so afk waits for the machine settle before dispatching the next
+  ticket (rounds never stack concurrent sandboxes); `--wait-seconds` bounds
+  one round's wait (default 7200) — a timeout exits 1 without stacking a
+  second run on a live one. A sandboxed spawn failure aborts the loop (the
+  environment is broken; retrying would just burn the cap).
+
 - **Implement flow drives the ticket machine (#92)** — `sssf flow implement
   <ticket>` now runs one `ready-for-agent` ticket unattended end-to-end
   (triage → build → quality → builder self-review → review) and settles the

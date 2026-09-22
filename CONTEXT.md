@@ -67,8 +67,10 @@ Failures return the same session for corrections.
 A phase orchestrator invoked by the human, mapping one of the factory's phases
 of work to chains: `plan` (exploration → spec → tickets, one ticket at a time),
 `implement` (triage → build → review, unattended; `implement afk` is the ralph
-loop), `deploy` (sandbox → signoff → bump → MR → e2e → release — the QA stage
-is embedded in the deployment workflow).
+loop), `deploy` (workbench signoff on the dev snapshot → bump → MR → e2e →
+release — one workbench, one batch verdict; the QA stage is embedded in the
+deployment workflow, and the deterministic release train runs host-side in a
+worktree at dev).
 _Avoid_: running chains ad hoc from the terminal
 
 **Plan flow**:
@@ -154,7 +156,12 @@ _Avoid_: a separate daemon that outlives the viz
 
 **Promote**:
 The canary promotion step: sssf executes the per-project tompero command
-(`tompero deployment canary promote …`) only after the human confirms it at
-the terminal, then polls `tompero deployment get` until the deployment is
-fully promoted.
+(`tompero deployment canary promote …`, configured under `release:` in
+adws/config/deploy.yaml) only after the human confirms it at the terminal,
+then polls `tompero deployment get` until the deployment is fully promoted.
+The canary step before it is equally confirmed; a canary/promote failure
+parks the batch's tickets in `blocked` — visible and actionable, never
+silently retried (the human unblocks with `sssf ticket backlog`). The
+release closes every ticket parsed from the MR's commit set (commits since
+the last tag) — implementation tickets and their features close together.
 _Avoid_: promoting without human confirmation

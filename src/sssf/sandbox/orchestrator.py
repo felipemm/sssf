@@ -64,25 +64,21 @@ def spawn_sandbox(
     gid: int | None = None,
     attach: bool = False,
     worktree: Path | None = None,
-    review: dict | None = None,
 ) -> dict:
     """Start the container in a (created) worktree. Deterministic; returns the
     sandbox record (worktree, name). attach=True reuses the run's existing
     branch (a restart). `worktree` supplies an ALREADY-created worktree (the
     ticket path creates one first to write the prompt) — never create twice.
 
-    `review` is the project's cfg.sandbox.review as a dict: the ADW command is
-    wrapped in the container supervisor (which keeps the container up after the
-    run and launches the review app), the review container_port is published on
-    a random host port, and the resolved mapping is recorded in sandbox_run.
-    """
+    The runner publishes no ports and the container exits with the ADW
+    (ADR-0004 — the workbench is the deploy flow's QA surface, not the
+    runner)."""
     ensure_image_current(image)
     wt = worktree or create_worktree(project_root, adw_id, attach=attach)
     stamp_adw_template(wt)  # deterministic: the installed template, not a stale init stamp
     uid = uid if uid is not None else os.getuid()
     gid = gid if gid is not None else os.getgid()
     env = {**(env or {}), "SSSF_IN_SANDBOX": "1"}  # tracer uses rollback journal (mount-visible)
-    review = review or {}
     run_sandbox(
         image,
         container_name(adw_id),
@@ -94,10 +90,9 @@ def spawn_sandbox(
         uid=uid,
         gid=gid,
         env=env,
-        publish_port=review.get("container_port"),
         cmd=["python", "-m", "sssf.adw_modules.supervise", "--", *cmd],
     )
-    _record_sandbox_run(data_dir, adw_id, review)
+    _record_sandbox_run(data_dir, adw_id)
     return {"worktree": str(wt), "name": container_name(adw_id)}
 
 
