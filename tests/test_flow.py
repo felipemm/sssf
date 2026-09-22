@@ -118,11 +118,11 @@ def test_flow_implement_rejects_live_run(tmp_path, monkeypatch, capsys):
     root = _setup_project(tmp_path, monkeypatch)
     _seed_ticket(root, "internal:abc")
     conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
-    conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT)")
+    conn.execute("CREATE TABLE IF NOT EXISTS sessions (adw_id TEXT PRIMARY KEY, status TEXT)")
     conn.execute(
         "UPDATE tickets SET adw_id='run1' WHERE id='internal:abc'"
     )
-    conn.execute("INSERT INTO sessions VALUES ('run1', 'running')")
+    conn.execute("INSERT INTO sessions (adw_id, status) VALUES ('run1', 'running')")
     conn.commit()
     conn.close()
     assert flow.implement(Path.cwd(), "internal:abc", None, no_sandbox=True) == 1

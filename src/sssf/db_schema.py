@@ -12,6 +12,7 @@ read-only TS reader (db.ts) also reads to gate optional columns."""
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from types import UnionType
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
@@ -219,14 +220,67 @@ INDEXES: list[tuple[str, str, tuple[str, ...]]] = [
     ("idx_ticket_events_ticket", "ticket_events", ("ticket_id", "created_at")),
 ]
 
+def _add_machine_columns(conn: sqlite3.Connection) -> None:
+    """Add the ticket-machine columns a pre-machine db lacks. Guarded: a db
+    the old ticketing already upgraded must not re-ALTER (sqlite has no
+    ADD COLUMN IF NOT EXISTS)."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(tickets)")}
+    for column, ddl in (
+        ("context", "ALTER TABLE tickets ADD COLUMN context TEXT NOT NULL DEFAULT ''"),
+        ("created_at", "ALTER TABLE tickets ADD COLUMN created_at TEXT"),
+        ("updated_at", "ALTER TABLE tickets ADD COLUMN updated_at TEXT"),
+        ("kind", "ALTER TABLE tickets ADD COLUMN kind TEXT NOT NULL DEFAULT 'implementation'"),
+        ("tracked", "ALTER TABLE tickets ADD COLUMN tracked INTEGER NOT NULL DEFAULT 1"),
+        ("origin", "ALTER TABLE tickets ADD COLUMN origin TEXT NOT NULL DEFAULT 'internal'"),
+        ("parent_id", "ALTER TABLE tickets ADD COLUMN parent_id TEXT"),
+        ("spec", "ALTER TABLE tickets ADD COLUMN spec TEXT NOT NULL DEFAULT ''"),
+        (
+            "rejection_feedback",
+            "ALTER TABLE tickets ADD COLUMN rejection_feedback TEXT NOT NULL DEFAULT ''",
+        ),
+    ):
+        if column not in cols:
+            conn.execute(ddl)
+
+
+
 # The current schema version. Bump on every schema-affecting change.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 4
 
 # Ordered, additive migrations keyed by the version they land in:
-# (version, description, sql). Applied at open when user_version < version.
-# Task 4 folds ticketing/notify's historical ALTERs and data backfills in
-# here as explicit entries.
-MIGRATIONS: list[tuple[int, str, str]] = []
+# (version, description, step) where step is SQL text or a callable taking
+# the connection. Applied at open when user_version < version. Steps are the
+# historical pre-contract ALTERs/data moves (from the old ticketing
+# ensure_schema), so pre-existing project dbs upgrade in place.
+MIGRATIONS: list[tuple[int, str, str | Callable[[sqlite3.Connection], None]]] = [
+    (
+        2,
+        "ticket-machine columns on tickets",
+        _add_machine_columns,  # guarded — real dbs may already have them
+    ),
+    (
+        3,
+        "legacy ticket statuses onto the machine vocabulary",
+        """
+        UPDATE tickets SET status='ready-for-agent',
+          updated_at=strftime('%Y-%m-%dT%H:%M:%f+00:00','now')
+          WHERE status='backlog';
+        UPDATE tickets SET status='in-progress' WHERE status='starting';
+        UPDATE tickets SET status='in-progress' WHERE status='running';
+        UPDATE tickets SET status='ready-for-agent' WHERE status='failed';
+        UPDATE tickets SET status='done' WHERE status='success';
+        """,
+    ),
+    (
+        4,
+        "tracked/origin backfill for synced rows (tracked is permanent)",
+        """
+        UPDATE tickets SET tracked=0 WHERE provider != 'internal' AND tracked=1;
+        UPDATE tickets SET origin=provider
+          WHERE provider != 'internal' AND origin='internal';
+        """,
+    ),
+]
 
 
 # ── DDL mapper ─────────────────────────────────────────────────────────────
@@ -318,7 +372,12 @@ def create_table(table: str, model: type[Row]) -> str:
 def apply_schema(conn: sqlite3.Connection) -> None:
     """Bring a connection's db to the current contract: create tables from
     the models, create indexes, then run any pending migrations and stamp
-    PRAGMA user_version. Idempotent — safe on every open."""
+    PRAGMA user_version. Idempotent — safe on every open.
+
+    A brand-new db (version 0, no tables) is stamped directly: the models
+    already carry every column, so running the historical ALTERs would fail
+    on "duplicate column". A version-0 db WITH tables is a pre-contract
+    database and takes the full migration path."""
     for table, model in TABLES.items():
         conn.execute(create_table(table, model))
     for name, table, columns in INDEXES:
@@ -326,8 +385,21 @@ def apply_schema(conn: sqlite3.Connection) -> None:
             f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({', '.join(columns)})"
         )
     version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if version < SCHEMA_VERSION:
-        for v, _description, sql in MIGRATIONS:
-            if v > version:
-                conn.executescript(sql)
+    if version == 0 and not _has_tables(conn):
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        return
+    if version < SCHEMA_VERSION:
+        for v, _description, step in MIGRATIONS:
+            if v > version:
+                if callable(step):
+                    step(conn)
+                else:
+                    conn.executescript(step)
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+
+def _has_tables(conn: sqlite3.Connection) -> bool:
+    row = conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    ).fetchone()
+    return bool(row and row[0] > 0)

@@ -20,8 +20,7 @@ def _project(tmp_path, monkeypatch, ticketing_yaml: str | None = None) -> Path:
 
 def _db(root: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
-    conn.execute(ticketing.TICKETS_DDL)
-    conn.execute(ticketing.TICKET_RUNS_DDL)
+    ticketing.ensure_schema(conn)
     return conn
 
 

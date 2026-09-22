@@ -236,3 +236,54 @@ def test_event_type_union_matches_the_engine():
         "phase_start", "phase_end", "agent_start", "agent_end", "tool_call",
         "handoff", "gate_pass", "gate_fail", "log", "error", "integration",
     }
+
+
+# ── Task 4: historical migrations (machine columns + data backfills) ───────
+
+
+def test_legacy_db_migrates_to_the_machine(tmp_path):
+    """A pre-machine db (legacy tickets shape, user_version 0) is migrated
+    forward by apply_schema: machine columns added, legacy statuses remapped,
+    tracked/origin backfilled, version stamped."""
+    conn = sqlite3.connect(tmp_path / "legacy.db")
+    conn.executescript(_LEGACY_SCHEMA)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, external_id, title, status) "
+        "VALUES ('jira:X-1', 'jira', 'X-1', 'Legacy ticket', 'backlog')"
+    )
+    conn.commit()
+
+    db_schema.apply_schema(conn)
+
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(tickets)")}
+    for c in ("context", "kind", "tracked", "origin", "parent_id", "spec", "rejection_feedback"):
+        assert c in cols
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert {"ticket_events", "ticket_runs", "ticket_mrs"} <= tables
+    row = conn.execute("SELECT status, tracked, origin FROM tickets WHERE id='jira:X-1'").fetchone()
+    assert row[0] == "ready-for-agent"  # 'backlog' remapped onto the machine
+    assert row[1] == 0  # synced row: untracked, permanent
+    assert row[2] == "jira"
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db_schema.SCHEMA_VERSION
+
+
+def test_apply_schema_tolerates_existing_machine_columns(tmp_path):
+    """A db that already has the machine columns (pre-refactor ticketing ran
+    on it) still migrates cleanly at version 0 — the column ALTERs are
+    guarded, never re-adding what exists."""
+    conn = sqlite3.connect(tmp_path / "mixed.db")
+    conn.executescript(_LEGACY_SCHEMA)
+    # simulate a pre-refactor ticketing pass: machine columns already present
+    for ddl in (
+        "ALTER TABLE tickets ADD COLUMN context TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE tickets ADD COLUMN kind TEXT NOT NULL DEFAULT 'implementation'",
+        "ALTER TABLE tickets ADD COLUMN tracked INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE tickets ADD COLUMN origin TEXT NOT NULL DEFAULT 'internal'",
+        "ALTER TABLE tickets ADD COLUMN spec TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE tickets ADD COLUMN rejection_feedback TEXT NOT NULL DEFAULT ''",
+    ):
+        conn.execute(ddl)
+    conn.commit()
+
+    db_schema.apply_schema(conn)  # must not raise "duplicate column"
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db_schema.SCHEMA_VERSION
