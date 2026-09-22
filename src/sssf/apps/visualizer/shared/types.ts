@@ -1,52 +1,33 @@
 /**
  * Types shared by the read-only server and the Vue client.
  *
- * Every interface mirrors a table in sssf.db one-for-one (see
- * references/observability.md). Nothing here is derived state: phase durations,
- * session progress and lane layout are computed in the UI, never stored.
+ * Row types + status unions are GENERATED from the schema contract
+ * (src/sssf/db_schema.py via scripts/gen_viz_types.py) and re-exported from
+ * rows.generated.ts under the UI-facing names. Everything below is derived
+ * state: phase durations, session progress and lane layout are computed in
+ * the UI, never stored.
  */
 
-/** sessions.status — a run is running until it earns success. */
-export type SessionStatus = "running" | "success" | "fail";
+import type {
+  AgentSessionsRow,
+  EnvelopesRow,
+  EventsRow,
+  GateResultsRow,
+  PhasesRow,
+  SandboxRunRow,
+  SessionsRow,
+} from "./rows.generated";
 
-/** phases.status — queued only for manifest-declared phases not yet entered. */
-export type PhaseStatus = "queued" | "running" | "success" | "fail" | "not_passed";
+export type Session = SessionsRow;
+export type Phase = PhasesRow;
+export type Event = EventsRow;
+export type Envelope = EnvelopesRow;
+export type GateResult = GateResultsRow;
+export type AgentSession = AgentSessionsRow;
+export type ReviewRow = SandboxRunRow;
 
-/** phases.kind — decides which lane a block renders in. */
-export type PhaseKind = "engineer" | "code" | "agent";
+export type { SessionStatus, PhaseStatus, PhaseKind, EventType } from "./rows.generated";
 
-/** events.type — the ten types tracer.py emits. */
-export type EventType =
-  | "phase_start"
-  | "phase_end"
-  | "agent_start"
-  | "agent_end"
-  | "tool_call"
-  | "handoff"
-  | "gate_pass"
-  | "gate_fail"
-  | "log"
-  | "error";
-
-export interface Session {
-  adw_id: string;
-  /** ADW script(s) that ran this session, e.g. "adw_plan + adw_build_test". */
-  adw_name: string | null;
-  request: string | null;
-  status: SessionStatus | null;
-  engineer: string | null;
-  started_at: string | null;
-  ended_at: string | null;
-  total_tokens: number | null;
-  total_cost: number | null;
-  /** 1 once archived out of the review list. Review state, not run state. */
-  archived: number | null;
-}
-
-/**
- * A session row with its phases embedded, so the L1 table draws the
- * mini-progress dots without a second request per row.
- */
 export interface SessionSummary extends Session {
   /** Full phase rows, ordered by seq — one dot each. */
   phases: Phase[];
@@ -60,74 +41,6 @@ export interface SessionSummary extends Session {
   agents: AgentSession[];
 }
 
-export interface Phase {
-  phase_id: string;
-  adw_id: string;
-  seq: number | null;
-  name: string | null;
-  kind: PhaseKind | null;
-  owner: string | null;
-  description: string | null;
-  status: PhaseStatus | null;
-  attempt: number | null;
-  retries: number | null;
-  error: string | null;
-  started_at: string | null;
-  ended_at: string | null;
-}
-
-export interface Event {
-  /** SQLite rowid — the polling cursor. Monotonic, insertion-ordered. */
-  rowid: number;
-  event_id: string;
-  adw_id: string;
-  phase_id: string | null;
-  /** Span nesting: an agent phase expands into its tool-call children. */
-  parent_id: string | null;
-  type: EventType | null;
-  name: string | null;
-  /** Raw JSON string as written by the tracer; parse at the point of display. */
-  payload_json: string | null;
-  tokens: number | null;
-  started_at: string | null;
-  ended_at: string | null;
-}
-
-export interface Envelope {
-  envelope_id: string;
-  adw_id: string;
-  phase_id: string | null;
-  agent: string | null;
-  /** Name of the data_types model the response was parsed against. */
-  output_type: string | null;
-  payload_json: string | null;
-  /** SQLite integer boolean. */
-  valid: number | null;
-  attempt: number | null;
-  created_at: string | null;
-}
-
-export interface GateResult {
-  id: number;
-  adw_id: string;
-  phase_id: string | null;
-  attempt: number | null;
-  gate: string | null;
-  /** SQLite integer boolean. */
-  passed: number | null;
-  /** JSON array of violation strings; "[]" on a pass. */
-  violations_json: string | null;
-  /**
-   * JSON array of GateCheck — the per-item evidence behind the verdict, so a
-   * green gate can say WHAT it verified rather than only that it passed.
-   * Null on rows written before the tracer recorded checks; those are not
-   * backfilled, so fall back to the verdict alone.
-   */
-  checks_json: string | null;
-  created_at: string | null;
-}
-
-/** One item a gate inspected — the parsed element of `checks_json`. */
 export interface GateCheck {
   item: string;
   ok: boolean;
@@ -135,29 +48,6 @@ export interface GateCheck {
 }
 
 /** agent_sessions — the queryable mirror of agent_map.json. Supplies lane labels (`name · model`). */
-export interface AgentSession {
-  adw_id: string;
-  agent: string;
-  coding_agent: string | null;
-  model: string | null;
-  session_id: string | null;
-  /**
-   * The agent's lane color from sssf.config.yaml, e.g. "#a78bfa". Null on dbs
-   * written by a tracer predating the column, and on agents with no configured
-   * color — fall back to the UI's own palette.
-   */
-  color: string | null;
-  /**
-   * How full the agent's context window was after its last turn, and the
-   * model's ceiling. Null on dbs predating the columns and on an agent still
-   * running — the lane draws no bar rather than a misleading empty one.
-   */
-  context_tokens: number | null;
-  context_window: number | null;
-  created_at: string | null;
-  last_used_at: string | null;
-}
-
 // ── payload_json shapes ──────────────────────────────────────────────────────
 // events.payload_json is stored as a string. These are the parsed shapes for
 // the two payloads the UI renders; every field is optional because the tracer
@@ -419,19 +309,6 @@ export interface ContainerLogsResponse {
   ok: boolean
   lines: string[]
   error?: string
-}
-
-/** The host-owned sandbox_run row: live container + review mapping per run. */
-export interface ReviewRow {
-  adw_id: string
-  container: string
-  container_port: number | null
-  host_port: number | null
-  review_url: string | null
-  review_command: string | null
-  instructions: string | null
-  status: string | null
-  updated_at: string | null
 }
 
 export interface ReviewInfo {

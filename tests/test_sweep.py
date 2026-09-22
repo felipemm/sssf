@@ -86,13 +86,12 @@ def test_sweep_clears_sandbox_resources(tmp_path, monkeypatch, capsys):
 
 
 def test_clear_sandbox_removes_container_and_worktree(tmp_path, monkeypatch):
-    from sssf import sandbox
 
     root = tmp_path / "proj"
     (root / ".worktrees").mkdir(parents=True)
     stopped = []
-    monkeypatch.setattr(sandbox, "stop_remove", lambda name: stopped.append(name))
-    monkeypatch.setattr(sandbox, "remove_worktree", lambda wt: wt)
+    monkeypatch.setattr("sssf.sandbox.docker.stop_remove", lambda name: stopped.append(name))
+    monkeypatch.setattr("sssf.sandbox.worktree_git.remove_worktree", lambda wt: wt)
     sweep._clear_sandbox(root, "abc123")
     assert stopped == ["sssf-abc123"]
 
@@ -116,7 +115,7 @@ def test_sweep_clears_sandbox_run_row(tmp_path, monkeypatch):
     record so the viz review panel goes away with the run."""
     import subprocess
 
-    import sssf.sandbox as sb
+    import sssf.sandbox.rundb as sb
     from sssf.commands import sweep as sweep_mod
 
     root = tmp_path / "proj"
@@ -158,7 +157,7 @@ def test_sweep_removes_orphan_containers(tmp_path, monkeypatch):
     the only cleanup path for orphans now that the healer never deletes."""
     import subprocess
 
-    import sssf.sandbox as sb
+    import sssf.sandbox.rundb as sb
     from sssf.commands import sweep as sweep_mod
 
     root = tmp_path / "proj"
@@ -183,7 +182,10 @@ def test_sweep_removes_orphan_containers(tmp_path, monkeypatch):
             return subprocess.CompletedProcess(list(a), 0, ps, "")
         return subprocess.CompletedProcess(list(a), 0, "", "")
 
-    monkeypatch.setattr(sb, "_docker", fake_docker)
+    # sweep reaches docker only through public verbs now (list_container_names
+    # for the ps probe, stop_remove for the rm) — both run on docker._docker,
+    # the single seam the fake crosses.
+    monkeypatch.setattr("sssf.sandbox.docker._docker", fake_docker)
     removed = sweep_mod._clean_orphan_containers(root, db_path)
     assert removed == ["sssf-orphanx"]  # live1 has a session → kept
     assert ["rm", "-f", "sssf-orphanx"] in calls

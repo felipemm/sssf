@@ -363,8 +363,11 @@ def test_migration_preserves_rows_and_maps_legacy_statuses(tmp_path):
 
 
 def test_migration_is_idempotent(tmp_path):
+    """A second ensure_schema over an already-migrated db is a no-op: rows
+    survive, the version stays current (legacy-status remap now runs once per
+    version via migrations — nothing writes legacy statuses any more)."""
     conn = _machine_conn(tmp_path / "m.db")
-    _insert_ticket(conn, "t1", status="backlog")
+    _insert_ticket(conn, "t1", status="ready-for-agent")
     conn.commit()
     ticketing.ensure_schema(conn)  # second pass over an already-migrated db
     row = conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone()

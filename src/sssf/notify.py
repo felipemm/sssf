@@ -28,32 +28,12 @@ from typing import Protocol
 
 import yaml
 
+from sssf import db_schema
 from sssf.adw_modules import paths
 
 NOTIFY_FILE = "adws/config/notify.yaml"
 SLACK_API = "https://slack.com/api/chat.postMessage"
 
-NOTIFY_THREADS_DDL = """
-CREATE TABLE IF NOT EXISTS notify_threads (
-  ticket_id  TEXT PRIMARY KEY,
-  channel    TEXT NOT NULL,
-  thread_ts  TEXT NOT NULL,
-  updated_at TEXT
-);
-"""
-
-NOTIFY_EVENTS_DDL = """
-CREATE TABLE IF NOT EXISTS notify_events (
-  id        INTEGER PRIMARY KEY AUTOINCREMENT,
-  ticket_id TEXT NOT NULL,
-  ts        TEXT NOT NULL,
-  ok        INTEGER NOT NULL,
-  error     TEXT,
-  attempts  INTEGER NOT NULL,
-  thread_ts TEXT,
-  channel   TEXT
-);
-"""
 
 
 class NotifyError(RuntimeError):
@@ -105,9 +85,8 @@ def load_config(root: Path) -> NotifyConfig | None:
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
-    conn.execute(NOTIFY_THREADS_DDL)
-    conn.execute(NOTIFY_EVENTS_DDL)
-
+    """The schema contract: notify tables come from the db_schema models."""
+    db_schema.apply_schema(conn)
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")

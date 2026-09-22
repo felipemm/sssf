@@ -17,7 +17,7 @@ def _root(explicit: str | None) -> Path | None:
 
 
 def build(explicit: str | None) -> int:
-    from sssf.sandbox import SandboxError, build_runner_image, docker_available
+    from sssf.sandbox.docker import SandboxError, build_runner_image, docker_available
 
     root = _root(explicit)
     if root is None:
@@ -65,7 +65,7 @@ def list_(explicit: str | None) -> int:
         return 1
     import os
 
-    from sssf.sandbox import container_name
+    from sssf.sandbox.docker import container_name
 
     base = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf")) / "sandboxes" / root.name
     rows = []
@@ -99,7 +99,8 @@ def prune(explicit: str | None, adw_id: str | None, all_: bool) -> int:
         return 1
     import os
 
-    from sssf.sandbox import SandboxError, prune_sandbox
+    from sssf.sandbox.docker import SandboxError
+    from sssf.sandbox.orchestrator import prune_sandbox
 
     base = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf")) / "sandboxes" / root.name
     if all_:
@@ -124,7 +125,8 @@ def prune(explicit: str | None, adw_id: str | None, all_: bool) -> int:
 
 def stop(explicit: str | None, adw_id: str) -> int:
     """`sssf sandbox stop <adw_id>` — stop a live run's container and session."""
-    from sssf.sandbox import sandbox_env, stop_run
+    from sssf.sandbox.orchestrator import stop_run
+    from sssf.sandbox.session_env import sandbox_env
 
     root = _root(explicit)
     if root is None:
@@ -141,7 +143,8 @@ def restart(explicit: str | None, adw_id: str) -> int:
     that ORIGINALLY ran the session is re-run — never a hardcoded default."""
     import sqlite3
 
-    from sssf.sandbox import _session_status, project_db_path, reopen_session, sandbox_env
+    from sssf.sandbox.rundb import _session_status, project_db_path
+    from sssf.sandbox.session_env import reopen_session, sandbox_env
 
     root = _root(explicit)
     if root is None:

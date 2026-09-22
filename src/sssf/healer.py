@@ -20,18 +20,16 @@ import sys
 import time
 from pathlib import Path
 
-from sssf.sandbox import (
-    abort_sandbox,
+from sssf.sandbox.docker import (
     build_runner_image,
     container_name,
     docker_available,
     image_is_current,
-    project_db_path,
-    sandbox_dir,
-    sandbox_env,
-    sync_run_db,
-    teardown_sandbox,
 )
+from sssf.sandbox.orchestrator import abort_sandbox, teardown_sandbox
+from sssf.sandbox.rundb import project_db_path, sync_run_db
+from sssf.sandbox.session_env import sandbox_env
+from sssf.sandbox.worktree_git import sandbox_dir
 
 STATE_DIR = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf"))
 REGISTRY_PATH = Path(os.environ.get("SSSF_REGISTRY", STATE_DIR / "projects.json"))
@@ -203,7 +201,7 @@ def recover(
     per_run_db = wt / "adws" / "data" / "sssf.db"
 
     if action == "finalize":
-        from sssf.sandbox import stop_run
+        from sssf.sandbox.orchestrator import stop_run
 
         stop_run(
             root,
@@ -227,7 +225,7 @@ def recover(
     if action == "restart":
         count = _restart_count(state, adw_id)
         if count >= MAX_RESTARTS:
-            from sssf.sandbox import stop_run
+            from sssf.sandbox.orchestrator import stop_run
 
             stop_run(
                 root,
@@ -260,15 +258,31 @@ def recover(
 
     if action == "ticket_backlog":
         try:
-            from sssf import ticketing
+            from pydantic import ValidationError
+
+            from sssf import db_schema, ticketing
 
             conn = sqlite3.connect(str(project_db), isolation_level=None, timeout=5)
+            conn.row_factory = sqlite3.Row
             ticketing.ensure_schema(conn)  # ticket_events table + machine columns
             # History is preserved: the adw_id link stays, so the failed run
             # remains in the trace and in the ticket's run list.
             row = conn.execute(
                 "SELECT id, status FROM tickets WHERE adw_id=?", (adw_id,)
             ).fetchone()
+            # Write-through: merge onto the current row and validate against
+            # the contract before the UPDATE — the heal cannot invent columns
+            # (ensure_schema above has already migrated a legacy-shaped db).
+            current = conn.execute("SELECT * FROM tickets WHERE adw_id=?", (adw_id,)).fetchone()
+            if current:
+                merged = dict(zip(current.keys(), current, strict=True))
+                merged.update(
+                    {
+                        "status": "ready-for-agent",
+                        "updated_at": datetime.datetime.now(datetime.UTC).isoformat(),
+                    }
+                )
+                db_schema.TicketsRow.model_validate(merged)
             conn.execute(
                 "UPDATE tickets SET status='ready-for-agent', updated_at=? WHERE adw_id=?",
                 (datetime.datetime.now(datetime.UTC).isoformat(), adw_id),
@@ -287,7 +301,7 @@ def recover(
                 )
             conn.commit()
             conn.close()
-        except sqlite3.Error:
+        except (sqlite3.Error, ValidationError):
             pass
         abort_sandbox(root, adw_id)
         return f"{adw_id}: ticket back to backlog (history kept)"

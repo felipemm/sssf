@@ -280,13 +280,9 @@ def run(
     if sandboxed:
         # The prompt lives in the WORKTREE (per-run dir → no NN race) and is
         # committed with the run; the container runs from the worktree.
-        from sssf.sandbox import (
-            SandboxError,
-            docker_available,
-            sandbox_env,
-            spawn_monitor,
-            spawn_sandbox,
-        )
+        from sssf.sandbox import SandboxError, spawn_monitor, spawn_sandbox
+        from sssf.sandbox.docker import docker_available
+        from sssf.sandbox.session_env import sandbox_env
 
         if not docker_available():
             conn.close()
@@ -295,7 +291,7 @@ def run(
                 file=sys.stderr,
             )
             return 1
-        from sssf.sandbox import create_worktree
+        from sssf.sandbox.worktree_git import create_worktree
 
         wt = create_worktree(root, adw_id)
         # The interview flow's spec is an input artifact, like the prompt: the

@@ -71,7 +71,7 @@ def test_recover_finalize_marks_failed(tmp_path, monkeypatch):
     """A dead run gets finalized (session + in-flight phases failed)."""
     import subprocess
 
-    import sssf.sandbox as sb
+    import sssf.sandbox.rundb as sb
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -110,7 +110,7 @@ def test_recover_ticket_backlog_keeps_history(tmp_path, monkeypatch):
     the adw_id — the failed run stays linked for history and the retry color."""
     import subprocess
 
-    import sssf.sandbox as sb
+    import sssf.sandbox.rundb as sb
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -157,7 +157,7 @@ def test_restart_budget_exhausts_then_finalizes(tmp_path, monkeypatch):
     import subprocess
 
     import sssf.healer as h
-    import sssf.sandbox as sb
+    import sssf.sandbox.rundb as sb
 
     monkeypatch.setattr(h, "STATE_DIR", tmp_path)  # never touch the real state file
     root = tmp_path / "proj2"
@@ -212,7 +212,7 @@ def test_restart_cli_failure_is_reported(tmp_path, monkeypatch):
     import subprocess
 
     import sssf.healer as h
-    import sssf.sandbox as sb
+    import sssf.sandbox.rundb as sb
 
     monkeypatch.setattr(h, "STATE_DIR", tmp_path)
     root = tmp_path / "proj3"
@@ -314,7 +314,7 @@ def test_recover_records_and_prunes_healed_state(tmp_path, monkeypatch):
     import subprocess
 
     import sssf.healer as h
-    import sssf.sandbox as sb
+    import sssf.sandbox.rundb as sb
 
     monkeypatch.setattr(h, "STATE_DIR", tmp_path)  # never touch the real state file
     root = tmp_path / "proj"
@@ -493,7 +493,7 @@ def test_clean_orphans_reports_but_never_deletes(tmp_path, monkeypatch):
     (base / "orphan1").mkdir(parents=True)  # a worktree whose session is gone
 
     calls: list[list[str]] = []
-    import sssf.sandbox as sb
+    import sssf.sandbox.docker as sb
     monkeypatch.setattr(sb, "stop_remove", lambda name: calls.append(["rm", "-f", name]))
     out = h._clean_orphans(root)
     assert calls == []  # no docker rm/stop — sweep's job

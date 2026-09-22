@@ -21,6 +21,8 @@ from pathlib import Path
 
 import yaml
 
+from sssf import db_schema
+
 TICKETING_FILE = "adws/config/ticketing.yaml"
 LINEAR_API = "https://api.linear.app/graphql"
 
@@ -65,78 +67,6 @@ TRANSITIONS: dict[str, frozenset[str]] = {
 }
 
 # Legacy `tickets.status` values (backlog era) -> machine vocabulary.
-_LEGACY_STATUS_MAP = {
-    "backlog": STATUS_READY,
-    "starting": STATUS_IN_PROGRESS,
-    "running": STATUS_IN_PROGRESS,
-    "failed": STATUS_READY,
-    "success": STATUS_DONE,
-}
-
-TICKETS_DDL = """
-CREATE TABLE IF NOT EXISTS tickets (
-  id          TEXT PRIMARY KEY,
-  provider    TEXT NOT NULL,
-  external_id TEXT,
-  title       TEXT NOT NULL,
-  description TEXT,
-  status      TEXT NOT NULL DEFAULT 'needs-triage',
-  prompt_file TEXT,
-  adw_id      TEXT,
-  source_url  TEXT,
-  context     TEXT NOT NULL DEFAULT '',
-  kind        TEXT NOT NULL DEFAULT 'implementation',  -- idea | implementation
-  tracked     INTEGER NOT NULL DEFAULT 1,              -- permanent origin-of-creation flag
-  origin      TEXT NOT NULL DEFAULT 'internal',        -- internal | jira | gitlab | github
-  parent_id   TEXT,                                    -- lineage: implementation -> feature
-  spec        TEXT NOT NULL DEFAULT '',                -- spec reference once planned
-  rejection_feedback TEXT NOT NULL DEFAULT '',
-  created_at  TEXT, updated_at TEXT
-);
-"""
-
-# Audit trail: every mutation (transition, comment, label, creation) is a row
-# with actor and timestamp — traceable, never overwritten.
-TICKET_EVENTS_DDL = """
-CREATE TABLE IF NOT EXISTS ticket_events (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  ticket_id  TEXT NOT NULL,
-  event_type TEXT NOT NULL,            -- created | transition | comment | label
-  actor      TEXT NOT NULL DEFAULT 'system',
-  payload    TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL
-);
-"""
-TICKET_EVENTS_INDEX_DDL = (
-    "CREATE INDEX IF NOT EXISTS idx_ticket_events_ticket ON ticket_events (ticket_id, created_at)"
-)
-
-# One row per run of a ticket — history survives retries. `tickets.adw_id`
-# stays the LATEST run; this table keeps every earlier one so a retried
-# ticket shows its full run list instead of losing the failed attempt.
-TICKET_RUNS_DDL = """
-CREATE TABLE IF NOT EXISTS ticket_runs (
-  ticket_id  TEXT NOT NULL,
-  adw_id     TEXT NOT NULL,
-  created_at TEXT,
-  PRIMARY KEY (ticket_id, adw_id)
-);
-"""
-
-# One MR per ticket, registered by `sssf mr add` (and later by the deploy
-# flow): the monitor polls GitLab for its pipeline/merge state. The url is the
-# human-facing action link carried into notifications.
-TICKET_MRS_DDL = """
-CREATE TABLE IF NOT EXISTS ticket_mrs (
-  ticket_id  TEXT PRIMARY KEY,
-  repo       TEXT NOT NULL,
-  iid        TEXT NOT NULL,
-  url        TEXT NOT NULL DEFAULT '',
-  created_at TEXT
-);
-"""
-
-
 @dataclass
 class TicketRecord:
     provider: str
@@ -178,56 +108,10 @@ def load_config(root: Path) -> TicketingConfig | None:
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
-    """Create tables and migrate existing ones in place. Never re-creates:
-    CREATE-IF-NOT-EXISTS for tables, ALTER only when a column is missing, so
-    pre-existing databases keep every row. Idempotent — safe on every open.
-
-    Adds the ticket-machine columns (kind, tracked, origin, parent_id, spec,
-    rejection_feedback), the `ticket_events` audit table, maps legacy status
-    values onto the machine vocabulary, and backfills the tracked flag for
-    synced rows once (tracked is permanent — later syncs never rewrite it).
-    """
-    conn.execute(TICKETS_DDL)
-    conn.execute(TICKET_RUNS_DDL)
-    conn.execute(TICKET_MRS_DDL)
-    conn.execute(TICKET_EVENTS_DDL)
-    conn.execute(TICKET_EVENTS_INDEX_DDL)
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(tickets)")}
-    added = set()
-    for column, ddl in (
-        ("context", "ALTER TABLE tickets ADD COLUMN context TEXT NOT NULL DEFAULT ''"),
-        ("created_at", "ALTER TABLE tickets ADD COLUMN created_at TEXT"),
-        ("updated_at", "ALTER TABLE tickets ADD COLUMN updated_at TEXT"),
-        ("kind", "ALTER TABLE tickets ADD COLUMN kind TEXT NOT NULL DEFAULT 'implementation'"),
-        ("tracked", "ALTER TABLE tickets ADD COLUMN tracked INTEGER NOT NULL DEFAULT 1"),
-        ("origin", "ALTER TABLE tickets ADD COLUMN origin TEXT NOT NULL DEFAULT 'internal'"),
-        ("parent_id", "ALTER TABLE tickets ADD COLUMN parent_id TEXT"),
-        ("spec", "ALTER TABLE tickets ADD COLUMN spec TEXT NOT NULL DEFAULT ''"),
-        (
-            "rejection_feedback",
-            "ALTER TABLE tickets ADD COLUMN rejection_feedback TEXT NOT NULL DEFAULT ''",
-        ),
-    ):
-        if column not in cols:
-            conn.execute(ddl)
-            added.add(column)
-    # Legacy status values -> machine vocabulary. Only touches rows still
-    # holding a legacy value, so this is idempotent across repeated opens.
-    for legacy, machine in _LEGACY_STATUS_MAP.items():
-        conn.execute(
-            "UPDATE tickets SET status=?, updated_at=? WHERE status=?",
-            (machine, _now(), legacy),
-        )
-    # One-time backfill for pre-machine rows: synced tickets were implementable
-    # backlog items created by a tracker, not by the plan flow — untracked with
-    # origin = their provider, and both flags are permanent from here on.
-    if "tracked" in added:
-        conn.execute("UPDATE tickets SET tracked=0 WHERE provider != 'internal' AND tracked=1")
-    if "origin" in added:
-        conn.execute(
-            "UPDATE tickets SET origin=provider WHERE provider != 'internal' AND origin='internal'"
-        )
-
+    """The schema contract: tables from the db_schema models plus
+    versioned migrations. Kept as a named alias so call sites read as
+    intent — the historical ALTERs and data backfills are migrations."""
+    db_schema.apply_schema(conn)
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
