@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Multi-source sync + untracked tickets (#90)** — the internal db is the
+  truth for a mixed project: `sssf ticket sync` fetches from all four origins
+  (`internal`, `jira` via acli, `github` via gh, `gitlab` via glab) and
+  records `origin` + `external_id`. GitHub/GitLab providers resolve their repo
+  from the git remote origin (yaml `repo:` override wins; otherwise the origin
+  host must match the cloud standard URL, or `custom_url` when
+  `self_hosted`); a host mismatch skips the provider with a warning, never an
+  error. Synced tickets are born `needs-triage` + `untracked` (permanent —
+  re-syncs refresh content only) and never appear in the backlog until marked
+  `ready-for-agent`. New `sssf ticket writeback <id> --state/--comment/
+  --label/--remove-label` mirrors state/label/comment changes to origin
+  trackers best-effort through gh/glab; failures are recorded as
+  `ticket_events` (`writeback_failed`) and never block the flow. Requeueing a
+  synced ticket (`sssf ticket backlog`) reopens it on its origin. `sync
+  --provider <p>` syncs one provider; per-provider skip warnings print
+  distinctly.
 - **afk: the unattended implement loop (#93)** — `sssf flow implement afk`
   works the whole `ready-for-agent` queue without an operator: one ticket
   per round, each round a fresh run (a new ADW process/container under its

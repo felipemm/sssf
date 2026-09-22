@@ -114,7 +114,7 @@ def _actor() -> str:
         return "system"
 
 
-def sync(project: str | None = None) -> int:
+def sync(project: str | None = None, *, provider: str | None = None) -> int:
     root = _root(project)
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
@@ -127,9 +127,13 @@ def sync(project: str | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    results = ticketing.sync_tickets(root, cfg)
+    results = ticketing.sync_tickets(
+        root, cfg, providers=[provider] if provider else None
+    )
     for r in results:
-        if r.error:
+        if r.warning:
+            print(f"sssf ticket: {r.provider}: skipped: {r.warning}")
+        elif r.error:
             print(f"sssf ticket: {r.provider}: {r.error}")
         else:
             print(f"sssf ticket: {r.provider}: {r.tickets} ticket(s) synced")
@@ -453,8 +457,54 @@ def backlog(ticket_id: str, project: str | None = None, *, feedback: str | None 
         print(f"sssf ticket: {error}", file=sys.stderr)
         return 1
     conn.commit()
+    # Requeue = reopen on the origin tracker (best-effort; internal no-op;
+    # failures land in ticket_events and never block the requeue).
+    from sssf import writeback
+
+    writeback.writeback_state(conn, ticket_id, "open", actor=_actor())
     conn.close()
     print(f"sssf ticket: {ticket_id} back to the backlog (adw_id kept — history preserved)")
+    return 0
+
+
+def writeback_cmd(
+    ticket_id: str,
+    project: str | None = None,
+    *,
+    state: str | None = None,
+    comment: str | None = None,
+    label: str | None = None,
+    remove_label: str | None = None,
+) -> int:
+    """`sssf ticket writeback <ticket-id> [--state S] [--comment TEXT]
+    [--label L] [--remove-label L]` — push state/label/comment changes to the
+    origin tracker best-effort. Failures are recorded as ticket_events and
+    never raise; internal tickets are a no-op.
+    """
+    root = _root(project)
+    if root is None:
+        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    if state is None and comment is None and label is None and remove_label is None:
+        print(
+            "sssf ticket: writeback needs at least one of --state, --comment,"
+            " --label, --remove-label",
+            file=sys.stderr,
+        )
+        return 1
+    from sssf import writeback
+
+    conn = _db(root)
+    if state is not None:
+        writeback.writeback_state(conn, ticket_id, state, actor=_actor())
+    if comment is not None:
+        writeback.writeback_comment(conn, ticket_id, comment, actor=_actor())
+    if label is not None:
+        writeback.writeback_label(conn, ticket_id, label, add=True, actor=_actor())
+    if remove_label is not None:
+        writeback.writeback_label(conn, ticket_id, remove_label, add=False, actor=_actor())
+    conn.close()
+    print(f"sssf ticket: writeback recorded for {ticket_id}")
     return 0
 
 

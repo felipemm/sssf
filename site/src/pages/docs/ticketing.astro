@@ -50,7 +50,34 @@ sssf ticket run &lt;ticket_id&gt;                   # spawn simple_sdlc for a ti
     <code class="hl">internal</code> provider needs no external credentials:
     <span class="cmd">sssf ticket add</span> works out of the box once enabled. External providers
     plug into <code class="hl">ticketing.sync_tickets()</code> and return sync results per provider
-    (ticket counts or errors).
+    (ticket counts, warnings, or errors).
+  </p>
+
+  <h2>Multi-source sync</h2>
+  <p>
+    A mixed project has one truth: the internal db. Sync adapters fetch tickets from
+    <code class="hl">jira</code> (via <code class="hl">acli</code>), <code class="hl">github</code>
+    (via <code class="hl">gh</code>) and <code class="hl">gitlab</code> (via
+    <code class="hl">glab</code>) into the db, recording <code class="hl">origin</code> +
+    <code class="hl">external_id</code>; <code class="hl">internal</code> tickets already live in the db.
+    Synced tickets are born <code class="hl">needs-triage</code> and
+    <code class="hl">untracked</code> (a permanent flag — later syncs refresh content only and
+    never rewrite kind/tracked/origin/status), and never appear in the backlog until marked
+    <code class="hl">ready-for-agent</code>.
+  </p>
+  <p>
+    The github/gitlab providers resolve their repo from the git remote origin: the yaml
+    <code class="hl">repo:</code> override wins outright; otherwise the origin host must match the
+    cloud standard URL, or <code class="hl">custom_url</code> when
+    <code class="hl">self_hosted: true</code>. A host mismatch skips the provider with a warning
+    (never an error, never a fetch against the wrong forge).
+  </p>
+  <p>
+    State/label/comment write-backs to origin trackers are best-effort:
+    <code class="hl">sssf ticket writeback</code> mirrors them through gh/glab, and a failure is
+    recorded as a <code class="hl">ticket_events</code> event — it never blocks the flow.
+    Requeueing a synced ticket (<code class="hl">sssf ticket backlog</code>) reopens it on the
+    origin automatically.
   </p>
   <div class="note" data-impeccable-ignore="side-tab">
     <strong>Ticket table.</strong> Tickets live in the project db
