@@ -1,7 +1,24 @@
-# adws/config/deploy.yaml — the deploy flow's deterministic steps (#89)
+# adws/config/deploy.yaml — the deploy flow's deterministic steps (#89, #96)
 #
 # version_files: the files whose patch version the deploy bump step advances.
 # Only files that exist are touched; add/remove per project.
 version_files:
   - pyproject.toml
   - package.json
+
+# workbench (#96, ADR-0004): how the deploy flow brings up the QA surface — a
+# container from the `dev` branch (the batch snapshot) with mocks and a
+# published port, brought up by `sssf flow deploy` and torn down with
+# `sssf flow deploy --down`.
+#
+# - command: the app's dev command as an argv list, run in the workbench
+#   container with cwd = the dev snapshot. Keep it in the FOREGROUND (the
+#   container is the app). Wire env prerequisites inline — wrap a script in
+#   bash -lc if you need shell features.
+# - container_port: the port the app binds INSIDE the container; sssf
+#   publishes it loopback-only on a random HOST port and prints the URL.
+#   Bind 0.0.0.0 inside the container — an app bound to 127.0.0.1 is
+#   unreachable from the host.
+workbench:
+  command: ["npm", "run", "dev", "--workspace=web"]
+  container_port: 3000

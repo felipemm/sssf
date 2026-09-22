@@ -55,8 +55,6 @@ def _make_repo(tmp_path) -> Path:
     return root
 
 
-
-
 def _setup_project(tmp_path, monkeypatch) -> Path:
     from sssf import registry
 
@@ -78,8 +76,6 @@ def _setup_project(tmp_path, monkeypatch) -> Path:
     return root
 
 
-
-
 def _seed_session(root: Path, adw_id: str, adw_name: str, request: str) -> None:
     """A minimal sessions table with one row, shaped like tracer's."""
 
@@ -96,13 +92,11 @@ def _seed_session(root: Path, adw_id: str, adw_name: str, request: str) -> None:
         " archived INTEGER DEFAULT 0)"
     )
     conn.execute(
-        "INSERT INTO sessions VALUES (?,?,?,'success','Felipe',"
-        " '2026-09-04T11:17:48',NULL,0,0,0)",
+        "INSERT INTO sessions VALUES (?,?,?,'success','Felipe', '2026-09-04T11:17:48',NULL,0,0,0)",
         (adw_id, adw_name, request),
     )
     conn.commit()
     conn.close()
-
 
 
 def test_spawn_sandbox_creates_worktree_and_records_port(tmp_path, monkeypatch, fake_docker):
@@ -124,8 +118,6 @@ def test_spawn_sandbox_creates_worktree_and_records_port(tmp_path, monkeypatch, 
     assert record["name"] == "sssf-abc123"
 
 
-
-
 def test_stop_run_finalizes_stale_session(tmp_path, monkeypatch, fake_docker):
     """A stale run (no container/worktree, session stuck running) becomes
     failed on stop — so it is archivable."""
@@ -145,8 +137,6 @@ def test_stop_run_finalizes_stale_session(tmp_path, monkeypatch, fake_docker):
     status = conn.execute("SELECT status FROM sessions WHERE adw_id='stale1'").fetchone()[0]
     conn.close()
     assert status == "fail"
-
-
 
 
 def test_stop_run_marks_inflight_phases(tmp_path, monkeypatch, fake_docker):
@@ -177,8 +167,6 @@ def test_stop_run_marks_inflight_phases(tmp_path, monkeypatch, fake_docker):
     assert sess == "fail"
 
 
-
-
 def test_restart_reruns_the_original_adw(tmp_path, monkeypatch):
     """`sssf sandbox restart` re-runs the ADW that ORIGINALLY ran the session,
     not a hardcoded simple_sdlc. (Field case, session 36bbd3b3: a build_review
@@ -205,8 +193,6 @@ def test_restart_reruns_the_original_adw(tmp_path, monkeypatch):
     }
 
 
-
-
 def test_restart_uses_first_name_when_adws_joined(tmp_path, monkeypatch):
     """A session joined by a second ADW records 'original + joiner' — the
     restart must still run the ORIGINAL (first) ADW."""
@@ -218,15 +204,12 @@ def test_restart_uses_first_name_when_adws_joined(tmp_path, monkeypatch):
     captured: dict = {}
     monkeypatch.setattr(
         "sssf.commands.flow._run_sandboxed",
-        lambda root_, adw_file, args, adw_id=None, attach=False: captured.update(
-            adw_file=adw_file.name
-        )
-        or 0,
+        lambda root_, adw_file, args, adw_id=None, attach=False: (
+            captured.update(adw_file=adw_file.name) or 0
+        ),
     )
     assert sandbox_cmd.restart(None, "abc123") == 0
     assert captured["adw_file"] == "adw_build_review.py"
-
-
 
 
 def test_restart_unprefixed_name_resolves(tmp_path, monkeypatch):
@@ -240,15 +223,12 @@ def test_restart_unprefixed_name_resolves(tmp_path, monkeypatch):
     captured: dict = {}
     monkeypatch.setattr(
         "sssf.commands.flow._run_sandboxed",
-        lambda root_, adw_file, args, adw_id=None, attach=False: captured.update(
-            adw_file=adw_file.name
-        )
-        or 0,
+        lambda root_, adw_file, args, adw_id=None, attach=False: (
+            captured.update(adw_file=adw_file.name) or 0
+        ),
     )
     assert sandbox_cmd.restart(None, "abc123") == 0
     assert captured["adw_file"] == "adw_build_review.py"
-
-
 
 
 def test_restart_of_vanished_adw_is_loud(tmp_path, monkeypatch, capsys):
@@ -259,8 +239,6 @@ def test_restart_of_vanished_adw_is_loud(tmp_path, monkeypatch, capsys):
     _seed_session(root, "abc123", "adw_vanished_adw", "bound the page")
     assert sandbox_cmd.restart(None, "abc123") == 1
     assert "adw_vanished_adw" in capsys.readouterr().err
-
-
 
 
 def test_restart_missing_session_is_loud(tmp_path, monkeypatch, capsys):
@@ -284,19 +262,17 @@ def test_teardown_keeps_container_and_worktree(repo, tmp_path, monkeypatch):
     assert wt.is_dir()  # worktree survives
 
 
-
-
 def test_abort_keeps_worktree_for_manual_debug(repo, tmp_path, monkeypatch):
     import sssf.sandbox as sandbox
 
     wt = create_worktree(repo, "abrt1")
     stopped = []
-    monkeypatch.setattr("sssf.sandbox.orchestrator.stop_container", lambda name: stopped.append(name))
+    monkeypatch.setattr(
+        "sssf.sandbox.orchestrator.stop_container", lambda name: stopped.append(name)
+    )
     sandbox.abort_sandbox(repo, "abrt1")
     assert stopped == ["sssf-abrt1"]  # stopped, never removed
     assert wt.is_dir()  # failed spawns leave the worktree too
-
-
 
 
 def test_monitor_exits_when_run_ends_but_container_alive(tmp_path, monkeypatch):
@@ -320,7 +296,9 @@ def test_monitor_exits_when_run_ends_but_container_alive(tmp_path, monkeypatch):
     wt_data = sandbox_dir(root, "r6") / "adws" / "data"
     (wt_data / "sessions").mkdir(parents=True)
 
-    monkeypatch.setattr("sssf.sandbox.orchestrator._container_gone", lambda fn, name: False)  # container stays up
+    monkeypatch.setattr(
+        "sssf.sandbox.orchestrator._container_gone", lambda fn, name: False
+    )  # container stays up
     monkeypatch.setattr("sssf.sandbox.orchestrator.time.sleep", lambda s: None)  # no real waiting
     monkeypatch.setattr("sssf.sandbox.orchestrator.sync_run_db", lambda *a, **k: None)
     monkeypatch.setattr("sssf.sandbox.orchestrator.record_never_started", lambda *a, **k: None)
@@ -331,8 +309,6 @@ def test_monitor_exits_when_run_ends_but_container_alive(tmp_path, monkeypatch):
     assert monitor_run(root, "r6") == 0
     # cleanup: the marker is consumed; the container/worktree are untouched
     assert not (wt_data / "sessions" / "r6.supervisor-exit").exists()
-
-
 
 
 def test_monitor_settles_implement_ticket_after_run_ends(tmp_path, monkeypatch):
@@ -405,7 +381,7 @@ def test_monitor_failed_implement_run_requeues_ticket(tmp_path, monkeypatch):
     conn.execute(
         "INSERT INTO events (event_id, adw_id, type, name, payload_json, started_at)"
         " VALUES ('e10', 'r10', 'error', 'not_accepted',"
-        " '{\"reason\": \"review was not approved after 2 attempt(s)\"}',"
+        ' \'{"reason": "review was not approved after 2 attempt(s)"}\','
         " '2026-09-01T01:00:00+00:00')"
     )
     conn.commit()
@@ -441,8 +417,9 @@ def test_stop_run_stops_container_keeps_worktree_and_marks_stopped(tmp_path, mon
     calls: list[list[str]] = []
     monkeypatch.setattr(
         "sssf.sandbox.docker._docker",
-        lambda *a, timeout_s=30: calls.append(list(a))
-        or subprocess.CompletedProcess(list(a), 0, "", ""),
+        lambda *a, timeout_s=30: (
+            calls.append(list(a)) or subprocess.CompletedProcess(list(a), 0, "", "")
+        ),
     )
     root = tmp_path / "proj"
     data = root / "adws" / "data"
@@ -478,8 +455,6 @@ def test_stop_run_stops_container_keeps_worktree_and_marks_stopped(tmp_path, mon
     assert status == "stopped"
 
 
-
-
 def test_abort_sandbox_stops_not_removes(tmp_path, monkeypatch):
     """A failed spawn leaves the (stuck) container stopped, never removed —
     sweep cleans it up."""
@@ -488,13 +463,12 @@ def test_abort_sandbox_stops_not_removes(tmp_path, monkeypatch):
     calls: list[list[str]] = []
     monkeypatch.setattr(
         "sssf.sandbox.docker._docker",
-        lambda *a, timeout_s=30: calls.append(list(a))
-        or subprocess.CompletedProcess(list(a), 0, "", ""),
+        lambda *a, timeout_s=30: (
+            calls.append(list(a)) or subprocess.CompletedProcess(list(a), 0, "", "")
+        ),
     )
     sb.abort_sandbox(tmp_path, "abc9")
     assert calls == [["stop", "-t", "5", "sssf-abc9"]]
-
-
 
 
 def test_record_never_started_leaves_evidence(monkeypatch, tmp_path):
@@ -550,8 +524,6 @@ def test_record_never_started_leaves_evidence(monkeypatch, tmp_path):
     assert status == "ready-for-agent"
 
 
-
-
 def test_record_never_started_zero_evidence_has_null_remediation(monkeypatch, tmp_path):
     """Evidence capture comes up empty (container already gone) — the
     failure still records, and remediation is null. The classifier's
@@ -560,7 +532,9 @@ def test_record_never_started_zero_evidence_has_null_remediation(monkeypatch, tm
     from sssf.adw_modules.tracer import Tracer
 
     db = tmp_path / "proj" / "adws" / "data" / "sssf.db"
-    tracer = Tracer(db, tmp_path / "proj" / "adws" / "data" / "sessions" / "abc123" / "events.jsonl")
+    tracer = Tracer(
+        db, tmp_path / "proj" / "adws" / "data" / "sessions" / "abc123" / "events.jsonl"
+    )
 
     def fake_docker(*args, **kwargs):
         # container already gone: both evidence captures come back empty
@@ -570,13 +544,9 @@ def test_record_never_started_zero_evidence_has_null_remediation(monkeypatch, tm
     per_run = tmp_path / "proj" / ".worktrees" / "abc123" / "adws" / "data" / "sssf.db"
     orchestrator_mod.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
 
-    ev = tracer.conn.execute(
-        "SELECT payload_json FROM events WHERE adw_id='abc123'"
-    ).fetchone()
+    ev = tracer.conn.execute("SELECT payload_json FROM events WHERE adw_id='abc123'").fetchone()
     payload = json.loads(ev[0])
     assert payload["remediation"] is None
-
-
 
 
 def test_record_never_started_skips_when_adw_started(monkeypatch, tmp_path):
@@ -602,8 +572,6 @@ def test_record_never_started_skips_when_adw_started(monkeypatch, tmp_path):
     assert rows == 1  # still just the ADW's own row
 
 
-
-
 def test_teardown_poll_treats_docker_error_as_retry_not_gone(monkeypatch, capsys):
     """A docker hiccup during the teardown poll must not be read as
     'container gone' — that tears the run down prematurely (audit A2)."""
@@ -614,8 +582,6 @@ def test_teardown_poll_treats_docker_error_as_retry_not_gone(monkeypatch, capsys
 
     assert _container_gone(flaky, "sssf-x") is False
     assert "retrying" in capsys.readouterr().err
-
-
 
 
 def test_teardown_poll_gone_only_on_empty_output(monkeypatch):
@@ -635,13 +601,10 @@ def test_teardown_poll_gone_only_on_empty_output(monkeypatch):
 # ── runner image upkeep helpers (auto-rebuild path) ────────────────────────
 
 
-
-
 def test_spawn_wraps_supervisor_and_records_sandbox_run(tmp_path, monkeypatch):
-    """spawn_sandbox wraps the ADW cmd in the supervisor, publishes the review
-    port, and records the resolved host port + url in the host db."""
-    import json
-
+    """spawn_sandbox wraps the ADW cmd in the supervisor and records the
+    container in the host db (ports NULL — the runner publishes no ports,
+    ADR-0004)."""
     import sssf.sandbox as sb
 
     wt = tmp_path / "wt"
@@ -656,12 +619,6 @@ def test_spawn_wraps_supervisor_and_records_sandbox_run(tmp_path, monkeypatch):
     )
     conn.close()
 
-    def fake_docker(*a, timeout_s=30):
-        if a[0] == "port":
-            return subprocess.CompletedProcess(list(a), 0, "127.0.0.1:41234\n", "")
-        return subprocess.CompletedProcess(list(a), 0, "", "")
-
-    monkeypatch.setattr("sssf.sandbox.rundb._docker", fake_docker)
     monkeypatch.setattr("sssf.sandbox.orchestrator.ensure_image_current", lambda image: None)
     monkeypatch.setattr("sssf.sandbox.orchestrator.stamp_adw_template", lambda wt_dir: None)
 
@@ -674,28 +631,25 @@ def test_spawn_wraps_supervisor_and_records_sandbox_run(tmp_path, monkeypatch):
 
     monkeypatch.setattr("sssf.sandbox.orchestrator.run_sandbox", fake_run_sandbox)
 
-    review = {"command": ["npm", "run", "dev"], "container_port": 3000, "instructions": "open it"}
     sb.spawn_sandbox(
-        tmp_path, "abc1",
+        tmp_path,
+        "abc1",
         cmd=["python", "adws/modules/adw_x.py", "p", "--adw-id", "abc1"],
-        image="sssf-runner", data_dir=data, pi_home=tmp_path / "pi",
-        worktree=wt, review=review,
+        image="sssf-runner",
+        data_dir=data,
+        pi_home=tmp_path / "pi",
+        worktree=wt,
     )
     assert captured["name"] == "sssf-abc1"
     assert captured["cmd"][:5] == ["python", "-m", "sssf.adw_modules.supervise", "--", "python"]
-    assert captured["publish_port"] == 3000
+    assert captured["publish_port"] is None  # the runner publishes no ports
 
     conn = sqlite3.connect(str(data / "sssf.db"))
-    cur = conn.execute("SELECT * FROM sandbox_run WHERE adw_id='abc1'")
-    row = cur.fetchone()
-    d = {cname: v for cname, v in zip([d[0] for d in cur.description], row, strict=True)} if row else {}
+    row = conn.execute(
+        "SELECT container, host_port, status FROM sandbox_run WHERE adw_id='abc1'"
+    ).fetchone()
     conn.close()
-    assert d["host_port"] == 41234
-    assert d["review_url"] == "http://127.0.0.1:41234"
-    assert json.loads(d["review_command"]) == ["npm", "run", "dev"]
-    assert d["status"] == "up"
-
-
+    assert row == ("sssf-abc1", None, "up")
 
 
 def test_spawn_records_row_without_review_config(tmp_path, monkeypatch):
@@ -714,17 +668,23 @@ def test_spawn_records_row_without_review_config(tmp_path, monkeypatch):
         " review_command TEXT, instructions TEXT, status TEXT, updated_at TEXT)"
     )
     conn.close()
-    monkeypatch.setattr("sssf.sandbox.rundb._docker", lambda *a, timeout_s=30: subprocess.CompletedProcess(list(a), 0, "", ""))
     monkeypatch.setattr("sssf.sandbox.orchestrator.ensure_image_current", lambda image: None)
     monkeypatch.setattr("sssf.sandbox.orchestrator.stamp_adw_template", lambda wt_dir: None)
     monkeypatch.setattr("sssf.sandbox.orchestrator.run_sandbox", lambda image, name, **kw: None)
 
     sb.spawn_sandbox(
-        tmp_path, "abc2", cmd=["python", "-c", "pass"], image="sssf-runner",
-        data_dir=data, pi_home=tmp_path / "pi", worktree=wt,
+        tmp_path,
+        "abc2",
+        cmd=["python", "-c", "pass"],
+        image="sssf-runner",
+        data_dir=data,
+        pi_home=tmp_path / "pi",
+        worktree=wt,
     )
     conn = sqlite3.connect(str(data / "sssf.db"))
-    row = conn.execute("SELECT container, host_port, status FROM sandbox_run WHERE adw_id='abc2'").fetchone()
+    row = conn.execute(
+        "SELECT container, host_port, status FROM sandbox_run WHERE adw_id='abc2'"
+    ).fetchone()
     conn.close()
     assert row == ("sssf-abc2", None, "up")
 
@@ -782,13 +742,13 @@ def test_run_lifecycle_spawn_monitor_teardown(tmp_path, monkeypatch, fake_docker
         data_dir=data,
         pi_home=tmp_path / "pi",
         worktree=wt,
-        review={},
     )
     assert record == {"worktree": str(wt), "name": "sssf-abc1"}
 
     # The ADW runs inside the (faked) container: writes its per-run db, then
-    # the supervisor writes its exit marker (the container idles in review
-    # mode — the monitor must end on the marker, not on container death).
+    # the supervisor writes its exit marker and the container EXITS with the
+    # ADW's code (ADR-0004 — the runner executes work and ends; the workbench
+    # is the deploy flow's QA surface).
     per_run = wt / "adws" / "data" / "sssf.db"
     conn = sqlite3.connect(str(per_run), isolation_level=None)
     db_schema.apply_schema(conn)
@@ -796,8 +756,17 @@ def test_run_lifecycle_spawn_monitor_teardown(tmp_path, monkeypatch, fake_docker
         "INSERT INTO sessions (adw_id, adw_name, request, status, engineer,"
         " started_at, ended_at, total_tokens, total_cost)"
         " VALUES (?,?,?,?,?,?,?,?,?)",
-        ("abc1", "adw_implement", "build it", "success", "Felipe",
-         "2026-09-04T10:00:00", "2026-09-04T10:05:00", 10, 0.01),
+        (
+            "abc1",
+            "adw_implement",
+            "build it",
+            "success",
+            "Felipe",
+            "2026-09-04T10:00:00",
+            "2026-09-04T10:05:00",
+            10,
+            0.01,
+        ),
     )
     conn.close()
     marker = wt / "adws" / "data" / "sessions" / "abc1.supervisor-exit"
@@ -808,9 +777,7 @@ def test_run_lifecycle_spawn_monitor_teardown(tmp_path, monkeypatch, fake_docker
     # The run's rows landed in the project db; the sandbox_run record is up.
     conn = sqlite3.connect(str(project_db_path(data)))
     status = conn.execute("SELECT status FROM sessions WHERE adw_id='abc1'").fetchone()[0]
-    rec = conn.execute(
-        "SELECT container, status FROM sandbox_run WHERE adw_id='abc1'"
-    ).fetchone()
+    rec = conn.execute("SELECT container, status FROM sandbox_run WHERE adw_id='abc1'").fetchone()
     conn.close()
     assert status == "success"
     assert rec == ("sssf-abc1", "up")
@@ -841,8 +808,6 @@ def test_sandbox_build_reads_v2_config(tmp_path, monkeypatch, fake_docker):
 # ── run control: sandbox stop / restart (moved from `sssf run`, #89) ────────
 
 
-
-
 # ── monitor lands plan-flow tickets (issue #91) ─────────────────────────────
 
 
@@ -864,8 +829,7 @@ def test_monitor_lands_plan_tickets_after_successful_run(tmp_path, monkeypatch):
     ticketing.ensure_schema(conn)
     # the plan run's idea ticket, linked by the flow at dispatch time
     conn.execute(
-        "INSERT INTO tickets (id, provider, title, status, kind, adw_id)"
-        " VALUES (?,?,?,?,?,?)",
+        "INSERT INTO tickets (id, provider, title, status, kind, adw_id) VALUES (?,?,?,?,?,?)",
         ("internal:idea", "internal", "dark mode", "needs-triage", "idea", "r9"),
     )
     # the sandboxed run: its session (merged) + its sandbox_run record
@@ -896,12 +860,8 @@ def test_monitor_lands_plan_tickets_after_successful_run(tmp_path, monkeypatch):
 
     assert monitor_run(root, "r9") == 0
     conn = sqlite3.connect(str(db))
-    spec = conn.execute(
-        "SELECT spec FROM tickets WHERE id='internal:idea'"
-    ).fetchone()[0]
-    children = conn.execute(
-        "SELECT title FROM tickets WHERE parent_id='internal:idea'"
-    ).fetchall()
+    spec = conn.execute("SELECT spec FROM tickets WHERE id='internal:idea'").fetchone()[0]
+    children = conn.execute("SELECT title FROM tickets WHERE parent_id='internal:idea'").fetchall()
     conn.close()
     assert spec == "adws/specs/r9_spec-dark-mode.md"
     assert [c[0] for c in children] == ["Toggle", "Persist"]
@@ -922,8 +882,7 @@ def test_monitor_skips_plan_transform_for_failed_runs(tmp_path, monkeypatch):
     conn = sqlite3.connect(str(db))
     ticketing.ensure_schema(conn)
     conn.execute(
-        "INSERT INTO tickets (id, provider, title, status, kind, adw_id)"
-        " VALUES (?,?,?,?,?,?)",
+        "INSERT INTO tickets (id, provider, title, status, kind, adw_id) VALUES (?,?,?,?,?,?)",
         ("internal:idea2", "internal", "dark mode", "needs-triage", "idea", "r10"),
     )
     conn.execute(
@@ -950,9 +909,7 @@ def test_monitor_skips_plan_transform_for_failed_runs(tmp_path, monkeypatch):
 
     assert monitor_run(root, "r10") == 0
     conn = sqlite3.connect(str(db))
-    row = conn.execute(
-        "SELECT spec FROM tickets WHERE id='internal:idea2'"
-    ).fetchone()
+    row = conn.execute("SELECT spec FROM tickets WHERE id='internal:idea2'").fetchone()
     children = conn.execute(
         "SELECT COUNT(*) FROM tickets WHERE parent_id='internal:idea2'"
     ).fetchone()[0]

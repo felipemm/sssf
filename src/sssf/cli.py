@@ -173,14 +173,28 @@ def main(argv: list[str] | None = None) -> int:
     p_fdep.add_argument(
         "--yes",
         action="store_true",
-        help="auto-approve the signoff gate (explicit automation escape)",
+        help="auto-approve the batch signoff (explicit automation escape)",
     )
     p_fdep.add_argument(
-        "--no-sandbox",
+        "--down",
         action="store_true",
-        help="run in the current dir instead of a sandbox container",
+        help="tear down the QA workbench (the human's teardown)",
     )
-    p_fdep.set_defaults(func=lambda a: flow.deploy(Path.cwd(), a.project, a.yes, a.no_sandbox))
+    p_fdep.add_argument(
+        "--revert",
+        default=None,
+        metavar="TICKET_ID",
+        help="revert a ticket's own commits from dev before the MR (escape hatch)",
+    )
+    p_fdep.set_defaults(
+        func=lambda a: (
+            flow.deploy_down(Path.cwd(), a.project)
+            if a.down
+            else flow.deploy_revert(Path.cwd(), a.revert, a.project)
+            if a.revert
+            else flow.deploy(Path.cwd(), a.project, a.yes)
+        )
+    )
 
     _register_obs(sub)
 
@@ -272,9 +286,7 @@ def main(argv: list[str] | None = None) -> int:
         help="rejection feedback attached to the ticket on requeue",
     )
     p_backlog.add_argument("--project", default=None)
-    p_context = tsub.add_parser(
-        "context", help="read or set a ticket's persisted extra context"
-    )
+    p_context = tsub.add_parser("context", help="read or set a ticket's persisted extra context")
     p_context.add_argument("ticket_id")
     p_context.add_argument(
         "--set",
@@ -336,7 +348,6 @@ def main(argv: list[str] | None = None) -> int:
     p_sc.add_argument("--project", default=None)
     p_sc.set_defaults(func=lambda a: spec.create(a.mode, a.title, Path.cwd(), a.project))
 
-
     p_sb = sub.add_parser(
         "sandbox", help="sandbox lifecycle (build / list / prune / stop / restart)"
     )
@@ -354,9 +365,7 @@ def main(argv: list[str] | None = None) -> int:
     p_stop = sbsub.add_parser("stop", help="stop a live run (container + session)")
     p_stop.add_argument("adw_id")
     p_stop.add_argument("--project", default=None)
-    p_restart = sbsub.add_parser(
-        "restart", help="re-run a session in its existing sandbox branch"
-    )
+    p_restart = sbsub.add_parser("restart", help="re-run a session in its existing sandbox branch")
     p_restart.add_argument("adw_id")
     p_restart.add_argument("--project", default=None)
     p_sb.set_defaults(func=lambda a: _dispatch_sandbox(a))

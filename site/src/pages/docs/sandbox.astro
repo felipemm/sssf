@@ -48,7 +48,7 @@ const description =
   <pre><code>sssf sandbox build              # build/refresh the sssf-runner image
 sssf sandbox list               # show sandboxes (adw_id · status · branch · container · worktree)
 sssf sweep [--days N]           # THE ONLY deleter: archive old runs + remove their container,
-                                #   worktree and review record (and orphan containers)
+                                #   worktree and sandbox record (and orphan containers)
 # `sssf sandbox prune` is deprecated — cleanup is `sssf sweep` only.</code></pre>
   <p>
     Run worktrees live under <code class="hl">.worktrees/&lt;adw_id&gt;/</code> in the target repo
@@ -69,23 +69,23 @@ sssf sweep [--days N]           # THE ONLY deleter: archive old runs + remove th
     gated by <code class="hl">sandbox.enabled</code> in <code class="hl">sssf.config.yaml</code>.
   </p>
 
-  <h2>Review the change — the container stays up</h2>
+  <h2>The workbench — the deploy flow's QA surface</h2>
   <p>
-    When a run finishes, its container is <strong>kept running</strong> (a supervisor runs the
-    project's app after the ADW exits, then idles) so you can open the produced app and validate
-    the change. Configure how to launch it in <code class="hl">sssf.config.yaml</code>:
+    The runner executes work and <strong>exits</strong> with the ADW's code — it hosts no app and
+    publishes no ports. The interactive QA surface is the deploy flow's
+    <strong>workbench</strong> (ADR-0004): a container from the
+    <code class="hl">dev</code> branch with mocks and a published port, brought up by
+    <code class="hl">sssf flow deploy</code> and torn down by the human with
+    <code class="hl">sssf flow deploy --down</code>. Configure how to launch it in
+    <code class="hl">adws/config/deploy.yaml</code>:
   </p>
-  <pre><code>sandbox:
-  review:
-    command: ["npm", "run", "dev", "--workspace=web"]  # argv list; cwd = the run worktree
-    container_port: 3000                # the app's port inside the container
-    instructions: "open the URL; sign in as Local Dev via the mock IDP"</code></pre>
+  <pre><code>workbench:
+  command: ["npm", "run", "dev", "--workspace=web"]  # argv list; cwd = the dev snapshot
+  container_port: 3000                # the app's port inside the container</code></pre>
   <p>
     The app's port is published on a <strong>random host port</strong> (loopback only), so
-    concurrent runs never collide. In the <a href="/sssf/docs/visualizer">visualizer</a>, a
-    run's trace page offers three actions: <strong>Prompt</strong> (the full ask the run replays),
-    <strong>Logs</strong> (docker logs of the kept container), and <strong>Review</strong> (open
-    the app — the URL, launch command and instructions).
+    concurrent runs never collide; deploy prints the URL for the batch-level signoff. The
+    old <code class="hl">sandbox.review</code> block is dropped — the workbench replaces it.
   </p>
 
   <h2>Integration branch — successful runs merge automatically</h2>

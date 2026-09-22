@@ -66,6 +66,7 @@ TRANSITIONS: dict[str, frozenset[str]] = {
     STATUS_DONE: frozenset(),
 }
 
+
 # Legacy `tickets.status` values (backlog era) -> machine vocabulary.
 @dataclass
 class TicketRecord:
@@ -112,6 +113,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     versioned migrations. Kept as a named alias so call sites read as
     intent — the historical ALTERs and data backfills are migrations."""
     db_schema.apply_schema(conn)
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
@@ -447,6 +449,116 @@ def mrs_for_status(conn: sqlite3.Connection, status: str) -> list[MrRecord]:
     return [_mr_row(row) for row in rows]
 
 
+# The deploy flow's batch settle (issue #96). The batch is the dev snapshot:
+# tickets in `ready-for-signoff` — implement success lands its commits on dev
+# via the integration merge, so that status IS "work on dev awaiting the batch
+# verdict". Commit-message `#<id>` parsing never decides batch membership
+# (internal ids never reliably appear in commit messages); it only feeds the
+# MR title/body. All edges are legal machine transitions, host-side by design
+# (tickets is project-owned — same rule as finish_implement_run).
+
+
+def deploy_batch_tickets(conn: sqlite3.Connection, ticket_ids: list[str]) -> list[str]:
+    """The batch's settleable tickets: those currently `ready-for-signoff`.
+    A ticket already past that (ready-to-deploy, done, blocked, requeued) is
+    not part of the batch verdict."""
+    if not ticket_ids:
+        return []
+    marks = ",".join("?" * len(ticket_ids))
+    rows = conn.execute(
+        f"SELECT id FROM tickets WHERE id IN ({marks}) AND status=?",
+        (*ticket_ids, STATUS_SIGNOFF),
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def reject_deploy_batch(
+    conn: sqlite3.Connection,
+    ticket_ids: list[str],
+    *,
+    actor: str = "system",
+    feedback: str = "",
+) -> list[str]:
+    """Signoff rejection (issue #96): re-queue the failing tickets fix-forward.
+
+    `ready-for-signoff -> ready-for-agent` (a legal machine edge) with the
+    batch verdict attached as rejection feedback — a new implement run stacks
+    the fix on dev and the next deploy rebuilds the workbench. Only
+    ready-for-signoff tickets move; a ticket already past the batch verdict is
+    never yanked. Returns the tickets actually requeued.
+    """
+    moved: list[str] = []
+    for ticket_id in deploy_batch_tickets(conn, ticket_ids):
+        transition_ticket(
+            conn,
+            ticket_id,
+            STATUS_READY,
+            actor=actor,
+            feedback=feedback or "batch rejected at signoff",
+            comment="deploy signoff rejected — requeued fix-forward",
+        )
+        moved.append(ticket_id)
+    return moved
+
+
+def approve_deploy_batch(
+    conn: sqlite3.Connection,
+    ticket_ids: list[str],
+    *,
+    actor: str = "system",
+    mr_url: str = "",
+    mr_iid: str = "",
+    repo: str = "",
+) -> list[str]:
+    """Batch signoff approval (issue #96): move the batch's ready-for-signoff
+    tickets to `ready-to-deploy` — the dev→main MR carries the clean snapshot
+    and the monitor (#98) starts watching those MRs. When the MR was actually
+    opened (glab), register it against each ticket so the monitor's scan set
+    includes them; with no MR (payload recorded for the operator) the tickets
+    still move — `sssf mr add` registers the hand-opened MR later.
+    """
+    moved: list[str] = []
+    for ticket_id in deploy_batch_tickets(conn, ticket_ids):
+        transition_ticket(
+            conn,
+            ticket_id,
+            STATUS_DEPLOY,
+            actor=actor,
+            comment="batch approved at signoff — MR dev→main",
+        )
+        if mr_iid and repo:
+            register_mr(conn, ticket_id, repo, mr_iid, url=mr_url, actor=actor)
+        moved.append(ticket_id)
+    return moved
+
+
+def revert_deploy_ticket(
+    conn: sqlite3.Connection,
+    ticket_id: str,
+    *,
+    actor: str = "system",
+    feedback: str = "",
+) -> bool:
+    """The revert escape hatch's machine edge (issue #96): a genuinely
+    unwanted ticket removed from dev by its own commits before the MR comes
+    back to `ready-for-agent` fix-forward. Only `ready-for-signoff` tickets
+    move — a ticket already past the MR (ready-to-deploy) is #97/operator
+    territory and is never yanked. Returns True when the ticket was requeued.
+    """
+    row = conn.execute("SELECT status FROM tickets WHERE id=?", (ticket_id,)).fetchone()
+    if row is None or row[0] != STATUS_SIGNOFF:
+        return False
+    transition_ticket(
+        conn,
+        ticket_id,
+        STATUS_READY,
+        actor=actor,
+        feedback=feedback or "reverted from dev by its own commits",
+        comment="reverted from dev by its own commits before the MR",
+    )
+    return True
+
+
 # The plan flow's run kind — the only flow that turns idea tickets into
 # spec + implementation children (the legacy ticket.run path uses
 # adw_simple_sdlc and never plans).
@@ -483,7 +595,9 @@ def _is_planned(conn: sqlite3.Connection, ticket_id: str) -> bool:
         return False
     if row[0]:
         return True
-    return conn.execute("SELECT 1 FROM tickets WHERE parent_id=?", (ticket_id,)).fetchone() is not None
+    return (
+        conn.execute("SELECT 1 FROM tickets WHERE parent_id=?", (ticket_id,)).fetchone() is not None
+    )
 
 
 def parse_ticket_breakdown(text: str) -> list[tuple[str, str]]:
@@ -529,9 +643,7 @@ def _run_root(project_root: Path, conn: sqlite3.Connection, adw_id: str) -> Path
     """Where the run's artifacts live: the per-run sandbox worktree for a
     sandboxed run (sandbox_run has a row), the project tree otherwise
     (--no-sandbox runs write directly into the project)."""
-    sandboxed = conn.execute(
-        "SELECT 1 FROM sandbox_run WHERE adw_id=?", (adw_id,)
-    ).fetchone()
+    sandboxed = conn.execute("SELECT 1 FROM sandbox_run WHERE adw_id=?", (adw_id,)).fetchone()
     if sandboxed:
         from sssf.sandbox.worktree_git import sandbox_dir
 
@@ -548,8 +660,7 @@ def _plan_artifacts(run_root: Path, adw_id: str) -> tuple[Path | None, Path | No
         return None, None
     spec_files = sorted(specs.glob(f"{adw_id}_spec-*.md"))
     ticket_files = sorted(specs.glob(f"{adw_id}_tickets-*.md"))
-    return (spec_files[-1] if spec_files else None,
-            ticket_files[-1] if ticket_files else None)
+    return (spec_files[-1] if spec_files else None, ticket_files[-1] if ticket_files else None)
 
 
 def finish_plan_run(
@@ -608,8 +719,7 @@ def finish_plan_run(
             (adw_id, _now(), ticket_id),
         )
         conn.execute(
-            "INSERT OR IGNORE INTO ticket_runs (ticket_id, adw_id, created_at)"
-            " VALUES (?,?,?)",
+            "INSERT OR IGNORE INTO ticket_runs (ticket_id, adw_id, created_at) VALUES (?,?,?)",
             (ticket_id, adw_id, _now()),
         )
     else:
@@ -736,9 +846,7 @@ def _adf_inline(node: dict) -> str:
 
 
 def _adf_inline_join(nodes: list[dict]) -> str:
-    return "".join(
-        _adf_inline(n) if n.get("type") == "text" else adf_to_markdown(n) for n in nodes
-    )
+    return "".join(_adf_inline(n) if n.get("type") == "text" else adf_to_markdown(n) for n in nodes)
 
 
 def _adf_list_item(node: dict, ordered: bool, index: int = 0) -> str:
@@ -776,9 +884,10 @@ def adf_to_markdown(node: dict | str) -> str:
     if ntype == "bulletList":
         return "".join(_adf_list_item(c, ordered=False) for c in content) + "\n"
     if ntype == "orderedList":
-        return "".join(
-            _adf_list_item(c, ordered=True, index=i + 1) for i, c in enumerate(content)
-        ) + "\n"
+        return (
+            "".join(_adf_list_item(c, ordered=True, index=i + 1) for i, c in enumerate(content))
+            + "\n"
+        )
     if ntype == "codeBlock":
         lang = (node.get("attrs") or {}).get("language", "") or ""
         body = "".join(c.get("text", "") for c in content if c.get("type") == "text")

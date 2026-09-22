@@ -10,7 +10,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from sssf import db_schema
-from sssf.sandbox.docker import _docker, container_name
+from sssf.sandbox.docker import container_name
 
 
 def project_db_path(data_dir: Path) -> Path:
@@ -34,45 +34,21 @@ def sandbox_run_db(data_dir: Path) -> sqlite3.Connection:
     return conn
 
 
-def _record_sandbox_run(data_dir: Path, adw_id: str, review: dict) -> None:
-    """Record the live container + review mapping (host project db). Resolves
-    the random host port docker assigned for the review app's container port.
-    Best-effort: the run proceeds even if the record write fails."""
+def _record_sandbox_run(data_dir: Path, adw_id: str) -> None:
+    """Record the live container (host project db). The runner publishes no
+    ports and exits with the ADW (ADR-0004) — there is no review mapping to
+    resolve. Best-effort: the run proceeds even if the record write fails."""
     import datetime
-    import json
 
     name = container_name(adw_id)
-    cp = review.get("container_port")
-    host_port = None
-    if cp:
-        r = _docker("port", name, f"{cp}/tcp")
-        if r.returncode == 0 and r.stdout.strip():
-            try:
-                host_port = int(r.stdout.strip().split(":")[-1])
-            except ValueError:
-                host_port = None
     now = datetime.datetime.now(datetime.UTC).isoformat()
     try:
         conn = sandbox_run_db(data_dir)
         conn.execute(
-            "INSERT INTO sandbox_run (adw_id, container, container_port, host_port,"
-            " review_url, review_command, instructions, status, updated_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?) "
-            "ON CONFLICT(adw_id) DO UPDATE SET container=excluded.container,"
-            " container_port=excluded.container_port, host_port=excluded.host_port,"
-            " review_url=excluded.review_url, review_command=excluded.review_command,"
-            " instructions=excluded.instructions, status='up', updated_at=excluded.updated_at",
-            (
-                adw_id,
-                name,
-                cp,
-                host_port,
-                f"http://127.0.0.1:{host_port}" if host_port else None,
-                json.dumps(review.get("command") or []),
-                review.get("instructions") or "",
-                "up",
-                now,
-            ),
+            "INSERT INTO sandbox_run (adw_id, container, status, updated_at)"
+            " VALUES (?,?,?,?) ON CONFLICT(adw_id) DO UPDATE SET"
+            " container=excluded.container, status='up', updated_at=excluded.updated_at",
+            (adw_id, name, "up", now),
         )
         conn.close()
     except sqlite3.Error:

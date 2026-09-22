@@ -24,16 +24,12 @@ def test_docker_available(fake_docker):
     assert docker_available() is True
 
 
-
-
 def test_build_image_calls_docker(fake_docker, tmp_path):
     dockerfile = tmp_path / "Dockerfile"
     dockerfile.write_text("FROM scratch\n")
     build_image("sssf-runner", dockerfile)
     calls = fake_docker.read_text().splitlines()
     assert any("build" in c and "Dockerfile" in c for c in calls)
-
-
 
 
 def test_build_image_tags_the_image(fake_docker, tmp_path):
@@ -47,16 +43,12 @@ def test_build_image_tags_the_image(fake_docker, tmp_path):
     assert "-t sssf-runner:latest" in build
 
 
-
-
 def test_build_failure_raises(fake_docker, tmp_path, monkeypatch):
     bin_dir = fake_docker.parent / "bin"
     (bin_dir / "docker").write_text("#!/usr/bin/env python3\nimport sys\nsys.exit(1)\n")
     (bin_dir / "docker").chmod((bin_dir / "docker").stat().st_mode | stat.S_IEXEC)
     with pytest.raises(SandboxError):
         build_image("sssf-runner", tmp_path / "Dockerfile")
-
-
 
 
 def test_build_image_stream_invokes_docker_with_progress(fake_docker, tmp_path):
@@ -70,8 +62,6 @@ def test_build_image_stream_invokes_docker_with_progress(fake_docker, tmp_path):
     assert "-t sssf-runner" in build and "Dockerfile" in build
 
 
-
-
 def test_build_image_stream_failure_raises(fake_docker, tmp_path):
     """A streamed build that exits non-zero raises SandboxError (docker output
     already reached the terminal, so the message points at it)."""
@@ -80,8 +70,6 @@ def test_build_image_stream_failure_raises(fake_docker, tmp_path):
     (bin_dir / "docker").chmod((bin_dir / "docker").stat().st_mode | stat.S_IEXEC)
     with pytest.raises(SandboxError, match="exit 2"):
         build_image("sssf-runner", tmp_path / "Dockerfile", stream=True)
-
-
 
 
 def test_build_image_captured_timeout_raises_helpful(fake_docker, tmp_path, monkeypatch):
@@ -96,8 +84,6 @@ def test_build_image_captured_timeout_raises_helpful(fake_docker, tmp_path, monk
         build_image("sssf-runner", tmp_path / "Dockerfile")
 
 
-
-
 def test_build_image_stream_timeout_raises_helpful(fake_docker, tmp_path, monkeypatch):
     """Same readable timeout error on the streaming (CLI) path."""
 
@@ -107,8 +93,6 @@ def test_build_image_stream_timeout_raises_helpful(fake_docker, tmp_path, monkey
     monkeypatch.setattr(subprocess, "run", slow)
     with pytest.raises(SandboxError, match="timed out"):
         build_image("sssf-runner", tmp_path / "Dockerfile", stream=True)
-
-
 
 
 def test_run_sandbox_flags(fake_docker, tmp_path):
@@ -142,8 +126,6 @@ def test_run_sandbox_flags(fake_docker, tmp_path):
     stop_remove("sssf-abc")
 
 
-
-
 def test_run_sandbox_removes_stale_container_first(fake_docker, tmp_path):
     """Containers are kept after a run, so a retry/restart finds an Exited
     container with the same name — run_sandbox must clear it before running."""
@@ -161,8 +143,6 @@ def test_run_sandbox_removes_stale_container_first(fake_docker, tmp_path):
     assert calls.index(rm) < calls.index(run)
 
 
-
-
 def test_ensure_image_current_real_fingerprint(fake_docker, monkeypatch):
     """Exercises the REAL _engine_fingerprint (not a stub) — regression for the
     missing-import bug that made it crash with NameError."""
@@ -175,8 +155,6 @@ def test_ensure_image_current_real_fingerprint(fake_docker, monkeypatch):
 
     monkeypatch.setattr("sssf.sandbox.docker._docker", fake)
     sandbox.ensure_image_current("sssf-real")  # no raise — real fingerprint path
-
-
 
 
 def _fake_docker_stdout(monkeypatch, stdout: str, rc: int = 0):
@@ -192,14 +170,10 @@ def test_ensure_image_current_matches(fake_docker, monkeypatch):
     sandbox.ensure_image_current("sssf-match")  # no raise
 
 
-
-
 def test_ensure_image_current_stale_raises(fake_docker, monkeypatch):
     _fake_docker_stdout(monkeypatch, "OLDHASH\n")
     with pytest.raises(SandboxError, match="stale"):
         sandbox.ensure_image_current("sssf-stale")
-
-
 
 
 def test_ensure_image_current_missing_raises(fake_docker, monkeypatch):
@@ -208,8 +182,6 @@ def test_ensure_image_current_missing_raises(fake_docker, monkeypatch):
     _fake_docker_stdout(monkeypatch, "")
     with pytest.raises(SandboxError, match="missing or unreadable"):
         sandbox.ensure_image_current("sssf-missing")
-
-
 
 
 def test_image_is_current_real_fingerprint(fake_docker, monkeypatch):
@@ -227,22 +199,16 @@ def test_image_is_current_real_fingerprint(fake_docker, monkeypatch):
     assert sandbox.image_is_current("sssf-current") is True
 
 
-
-
 def test_image_is_current_stale(monkeypatch):
     monkeypatch.setattr("sssf.sandbox.docker._engine_fingerprint", lambda: "FPWANT")
     monkeypatch.setattr("sssf.sandbox.docker.image_engine_fingerprint", lambda image: "OLDHASH")
     assert sandbox.image_is_current("sssf-stale") is False
 
 
-
-
 def test_image_is_current_missing(monkeypatch):
     monkeypatch.setattr("sssf.sandbox.docker._engine_fingerprint", lambda: "FPWANT")
     monkeypatch.setattr("sssf.sandbox.docker.image_engine_fingerprint", lambda image: None)
     assert sandbox.image_is_current("sssf-missing") is False
-
-
 
 
 def test_build_runner_image_clears_fingerprint_cache(fake_docker):
@@ -256,20 +222,16 @@ def test_build_runner_image_clears_fingerprint_cache(fake_docker):
     assert any("build" in c and "sssf-runner.Dockerfile" in c for c in calls)
 
 
-
-
 def test_build_runner_image_missing_dockerfile_raises(monkeypatch):
     monkeypatch.setattr("sssf.sandbox.docker.runner_dockerfile", lambda: None)
     with pytest.raises(SandboxError, match=r"sssf-runner\.Dockerfile"):
         sandbox.build_runner_image("sssf-runner")
 
 
-
-
-def test_run_sandbox_publishes_review_port(tmp_path, monkeypatch):
-    """When a container_port is configured, docker run publishes it loopback on
-    a random HOST port (docker picks a free one) so concurrent runs never
-    collide."""
+def test_run_sandbox_publishes_no_ports(tmp_path, monkeypatch):
+    """ADR-0004: the runner publishes NO ports — it executes work and exits.
+    The interactive QA surface is the deploy flow's workbench, a separate
+    disposable container."""
     import sssf.sandbox.docker as sb
 
     captured: list[list[str]] = []
@@ -280,16 +242,15 @@ def test_run_sandbox_publishes_review_port(tmp_path, monkeypatch):
 
     monkeypatch.setattr("sssf.sandbox.docker._docker", fake_docker)
     sb.run_sandbox(
-        "sssf-runner", "sssf-x1",
-        worktree=tmp_path / "wt", data_dir=tmp_path / "adws" / "data",
-        pi_home=tmp_path / "pi", publish_port=3000, cmd=["python", "-c", "pass"],
+        "sssf-runner",
+        "sssf-x1",
+        worktree=tmp_path / "wt",
+        data_dir=tmp_path / "adws" / "data",
+        pi_home=tmp_path / "pi",
+        cmd=["python", "-c", "pass"],
     )
     run_args = next(a for a in captured if a[0] == "run")
-    assert "-p" in run_args
-    i = run_args.index("-p")
-    assert run_args[i + 1] == "127.0.0.1::3000"
-
-
+    assert "-p" not in run_args
 
 
 def test_run_sandbox_skips_publish_without_port(tmp_path, monkeypatch):
@@ -298,15 +259,20 @@ def test_run_sandbox_skips_publish_without_port(tmp_path, monkeypatch):
     captured: list[list[str]] = []
     monkeypatch.setattr(
         "sssf.sandbox.docker._docker",
-        lambda *a, timeout_s=30: captured.append(list(a))
-        or subprocess.CompletedProcess(list(a), 0, "", ""),
+        lambda *a, timeout_s=30: (
+            captured.append(list(a)) or subprocess.CompletedProcess(list(a), 0, "", "")
+        ),
     )
-    sb.run_sandbox("sssf-runner", "sssf-x2", worktree=tmp_path / "wt",
-                   data_dir=tmp_path / "adws" / "data", pi_home=tmp_path / "pi", cmd=["true"])
+    sb.run_sandbox(
+        "sssf-runner",
+        "sssf-x2",
+        worktree=tmp_path / "wt",
+        data_dir=tmp_path / "adws" / "data",
+        pi_home=tmp_path / "pi",
+        cmd=["true"],
+    )
     run_args = next(a for a in captured if a[0] == "run")
     assert "-p" not in run_args
-
-
 
 
 def test_stop_container_stops_and_keeps(tmp_path, monkeypatch):
@@ -317,8 +283,9 @@ def test_stop_container_stops_and_keeps(tmp_path, monkeypatch):
     calls: list[list[str]] = []
     monkeypatch.setattr(
         "sssf.sandbox.docker._docker",
-        lambda *a, timeout_s=30: calls.append(list(a))
-        or subprocess.CompletedProcess(list(a), 0, "", ""),
+        lambda *a, timeout_s=30: (
+            calls.append(list(a)) or subprocess.CompletedProcess(list(a), 0, "", "")
+        ),
     )
     sb.stop_container("sssf-r9")
     assert calls == [["stop", "-t", "5", "sssf-r9"]]

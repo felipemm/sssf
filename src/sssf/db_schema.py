@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # ── base ───────────────────────────────────────────────────────────────────
 
+
 class Row(BaseModel):
     """Base for every table row. extra='ignore' lets the generic run-db
     copier (sync_run_db) validate rows copied from older source dbs without
@@ -29,6 +30,7 @@ class Row(BaseModel):
 
 
 # ── models ─────────────────────────────────────────────────────────────────
+
 
 class SessionsRow(Row):
     adw_id: str = Field(json_schema_extra={"pk": True})
@@ -47,9 +49,7 @@ class PhasesRow(Row):
     phase_id: str = Field(json_schema_extra={"pk": True})
     # read=True: the reader and UI treat adw_id as always present even though
     # the column is nullable — the codegen renders it non-null.
-    adw_id: str | None = Field(
-        default=None, json_schema_extra={"ref": "sessions", "read": True}
-    )
+    adw_id: str | None = Field(default=None, json_schema_extra={"ref": "sessions", "read": True})
     seq: int | None = None
     name: str | None = None
     kind: Literal["engineer", "code", "agent"] | None = None
@@ -72,10 +72,22 @@ class EventsRow(Row):
     adw_id: str | None = Field(default=None, json_schema_extra={"ref": "sessions"})
     phase_id: str | None = Field(default=None, json_schema_extra={"ref": "phases"})
     parent_id: str | None = None
-    type: Literal[
-        "phase_start", "phase_end", "agent_start", "agent_end", "tool_call",
-        "handoff", "gate_pass", "gate_fail", "log", "error", "integration",
-    ] | None = None
+    type: (
+        Literal[
+            "phase_start",
+            "phase_end",
+            "agent_start",
+            "agent_end",
+            "tool_call",
+            "handoff",
+            "gate_pass",
+            "gate_fail",
+            "log",
+            "error",
+            "integration",
+        ]
+        | None
+    ) = None
     name: str | None = None
     payload_json: str | None = None
     tokens: int | None = None
@@ -205,6 +217,22 @@ class SandboxRunRow(Row):
     updated_at: str | None = None
 
 
+class WorkbenchRunsRow(Row):
+    """One deploy-flow QA workbench (#96): a container from the dev branch
+    with the app's port published, brought up by `sssf flow deploy` and torn
+    down by the human (`sssf flow deploy --down`)."""
+
+    adw_id: str = Field(json_schema_extra={"pk": True})
+    container: str = Field(json_schema_extra={"not_null": True})
+    worktree: str = Field(json_schema_extra={"not_null": True})
+    container_port: int | None = None
+    host_port: int | None = None
+    url: str | None = None
+    status: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
 # Table name → model class, in DDL order.
 TABLES: dict[str, type[Row]] = {
     "sessions": SessionsRow,
@@ -221,12 +249,14 @@ TABLES: dict[str, type[Row]] = {
     "notify_threads": NotifyThreadsRow,
     "notify_events": NotifyEventsRow,
     "sandbox_run": SandboxRunRow,
+    "workbench_runs": WorkbenchRunsRow,
 }
 
 # Non-model indexes (models cannot express them). (name, table, columns)
 INDEXES: list[tuple[str, str, tuple[str, ...]]] = [
     ("idx_ticket_events_ticket", "ticket_events", ("ticket_id", "created_at")),
 ]
+
 
 def _add_machine_columns(conn: sqlite3.Connection) -> None:
     """Add the ticket-machine columns a pre-machine db lacks. Guarded: a db
@@ -251,9 +281,8 @@ def _add_machine_columns(conn: sqlite3.Connection) -> None:
             conn.execute(ddl)
 
 
-
 # The current schema version. Bump on every schema-affecting change.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Columns the read-only viz reader (db.ts SINCE_VERSION) can serve as NULL on
 # dbs stamped below the version that guarantees them. The codegen renders
@@ -373,11 +402,7 @@ def column_ddl(name: str, field: Any, annotation: Any, inline_pk: bool = False) 
 def create_table(table: str, model: type[Row]) -> str:
     """CREATE TABLE IF NOT EXISTS from a model, matching the status quo shape."""
     hints = get_type_hints(model)
-    pk_fields = [
-        name
-        for name, field in model.model_fields.items()
-        if _meta(field).get("pk")
-    ]
+    pk_fields = [name for name, field in model.model_fields.items() if _meta(field).get("pk")]
     inline_pk = len(pk_fields) == 1
     lines = []
     for name, field in model.model_fields.items():
@@ -392,6 +417,7 @@ def create_table(table: str, model: type[Row]) -> str:
 
 # ── apply ──────────────────────────────────────────────────────────────────
 
+
 def apply_schema(conn: sqlite3.Connection) -> None:
     """Bring a connection's db to the current contract: create tables from
     the models, create indexes, then run any pending migrations and stamp
@@ -404,9 +430,7 @@ def apply_schema(conn: sqlite3.Connection) -> None:
     for table, model in TABLES.items():
         conn.execute(create_table(table, model))
     for name, table, columns in INDEXES:
-        conn.execute(
-            f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({', '.join(columns)})"
-        )
+        conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({', '.join(columns)})")
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version == 0 and not _has_tables(conn):
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

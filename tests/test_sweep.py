@@ -139,7 +139,7 @@ def test_sweep_clears_sandbox_run_row(tmp_path, monkeypatch):
 
     calls: list[list[str]] = []
     monkeypatch.setattr(
-        sb, "_docker",
+        "sssf.sandbox.docker._docker",
         lambda *a, timeout_s=30: calls.append(list(a))
         or subprocess.CompletedProcess(list(a), 0, "", ""),
     )

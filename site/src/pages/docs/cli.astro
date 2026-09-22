@@ -99,11 +99,19 @@ const description =
         </td>
       </tr>
       <tr>
-        <td><code class="hl">sssf flow deploy [--yes] [--project P] [--no-sandbox]</code></td>
+        <td><code class="hl">sssf flow deploy [--yes] [--project P] [--down] [--revert &lt;ticket-id&gt;]</code></td>
         <td>
-          Release train: batch signoff on the dev snapshot → version bump → MR
-          dev→main → e2e → release. <span class="cmd">--yes</span> is the explicit
-          automation escape for the terminal signoff gate.
+          Batch-level release train dev → main. Brings up the QA workbench
+          from the <span class="cmd">dev</span> branch (mocks + published port),
+          signs the batch off at the terminal (one workbench, one verdict —
+          <span class="cmd">--yes</span> is the explicit automation escape), then
+          runs the deterministic release train (bump → MR dev→main → e2e →
+          release) in a worktree at dev. Rejection re-queues the failing
+          tickets fix-forward; approval moves them to
+          <span class="cmd">ready-to-deploy</span> once the MR exists.
+          <span class="cmd">--down</span> tears the workbench down (the human's
+          teardown); <span class="cmd">--revert</span> removes a genuinely
+          unwanted ticket from dev by its own commits before the MR.
         </td>
       </tr>
       <tr>

@@ -229,30 +229,18 @@ agents:
       - edit
 
 # ── sandbox (all optional — defaults: enabled, image sssf-runner) ──────────
-# review: how to launch the project's app AFTER the run so you can open it and
-# validate the change. The container stays up after the run; the app's port is
-# published on a RANDOM host port (see the run's Review panel in the viz).
+# The runner executes work and exits (ADR-0004); it publishes no ports and
+# hosts no app. The interactive QA surface is the deploy flow's WORKBENCH — a
+# container from the dev branch with mocks and a published port, configured
+# under adws/config/deploy.yaml (`workbench:`), brought up by `sssf flow
+# deploy` and torn down with `sssf flow deploy --down`.
 #
-# Mechanics: a supervisor inside the container runs the ADW, then (whatever
-# its exit code) runs review.command with cwd = the run worktree and idles, so
-# the container stays up. Sandbox worktrees branch from origin/main — this
-# block must be committed AND pushed before the run or it never reaches the
-# container. Containers are kept after the run; remove with
-# `sssf sandbox prune <adw_id>` / `sssf sweep`.
-#
-# Rules of thumb:
-#   - bind 0.0.0.0 inside the container: the published port maps to the
-#     container, and an app bound to 127.0.0.1 is unreachable from the host;
-#   - keep the process in the foreground (exec in a bash -lc wrapper) — the
-#     supervisor idles while it runs;
-#   - wire env prerequisites inline (generate keys, set KEYS_DIR, ...):
-#     review.command is a plain argv list, so wrap a script in bash -lc.
+# Mechanics: a supervisor inside the container runs the ADW and exits with its
+# code. Sandbox worktrees branch from origin/main — this block must be
+# committed AND pushed before the run or it never reaches the container.
+# Containers are kept after the run; remove with `sssf sweep`.
 # sandbox:
 #   image: sssf-runner
-#   review:
-#     command: ["npm", "run", "dev", "--workspace=web"]   # argv list; cwd = the run worktree
-#     container_port: 3000                                  # the app's port inside the container
-#     instructions: "open the URL; sign in as Local Dev via the mock IDP"
 
 # ── integration (all optional — defaults ON, target dev) ───────────────────
 # Successful sandboxed runs merge back into an integration branch so you can

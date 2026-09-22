@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Deploy flow: batch-to-dev release train + workbench signoff (#96)** —
+  `sssf flow deploy` is now a host-side orchestration: it brings up the QA
+  workbench from the `dev` branch (a container with the app's command and a
+  published port, configured under `adws/config/deploy.yaml` `workbench:`),
+  signs the batch off at the terminal with ONE verdict (one workbench, one
+  verdict — `--yes` is the explicit automation escape), and runs the
+  deterministic release train (bump → MR dev→main → e2e → release) in a
+  release worktree checked out at `dev` (its per-run db merges back into the
+  project db like any sandboxed run's). Machine edges, host-side: rejection
+  re-queues the failing tickets `ready-for-signoff → ready-for-agent` with
+  the batch verdict as fix-forward feedback and tears the workbench down
+  ("rebuilt" by the next run); approval moves them
+  `ready-for-signoff → ready-to-deploy` once the MR exists, registering the
+  MR against each ticket so the #98 monitor watches them. The revert escape
+  hatch — `sssf flow deploy --revert <ticket-id>` — reverts a genuinely
+  unwanted ticket's own commits from dev before the MR (matched by `#id` or
+  the run adw_ids) and returns the ticket fix-forward.
+  `sssf flow deploy --down` is the human's workbench teardown. The deploy
+  chain drops its in-chain sandbox/signoff phases (the signoff cannot be
+  answered from a detached runner's stdin — the old sandboxed signoff always
+  rejected unless `--yes`); `adw_deploy` is now the deterministic release
+  train only.
+- **`review.command` is dropped (ADR-0004)** — `SandboxConfig.review` and the
+  `ReviewConfig` model are gone; the runner publishes no ports and the
+  supervisor now runs the ADW, writes the exit marker, and EXITS with the
+  ADW's code instead of idling to host the app (the workbench replaces the
+  fused interactive-preview machinery). Legacy stamped configs still load
+  (pydantic ignores the unknown block); the `sandbox_run` schema keeps its
+  historical review columns for db compat.
+- **`workbench_runs` table (schema v5)** — one row per deploy workbench
+  (adw_id, container, worktree, ports, url, status); created by
+  `db_schema.apply_schema`, generated into the viz TS types.
+
 - **Implement flow drives the ticket machine (#92)** — `sssf flow implement
   <ticket>` now runs one `ready-for-agent` ticket unattended end-to-end
   (triage → build → quality → builder self-review → review) and settles the

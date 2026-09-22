@@ -7,7 +7,7 @@ import sqlite3
 
 import pytest
 
-from sssf import db_schema, notify, ticketing
+from sssf import db_schema, notify, ticketing, workbench
 
 
 def _table_shape(conn: sqlite3.Connection) -> dict[str, list]:
@@ -164,6 +164,7 @@ def status_quo(tmp_path):
     conn = sqlite3.connect(tmp_path / "statusquo.db")
     ticketing.ensure_schema(conn)
     notify.ensure_schema(conn)
+    workbench.ensure_schema(conn)
     conn.executescript(_LEGACY_SCHEMA)
     return conn
 

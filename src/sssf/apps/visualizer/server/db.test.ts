@@ -42,7 +42,7 @@ describe("SssfDb.sessions", () => {
 
 describe("schema-version contract", () => {
   test("reader MIN matches the writer SCHEMA_VERSION (db_schema.py)", () => {
-    expect(MIN_SCHEMA_VERSION).toBe(4);
+    expect(MIN_SCHEMA_VERSION).toBe(5);
   });
 
   test("reads migration-added columns on a current db", () => {
