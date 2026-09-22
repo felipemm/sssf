@@ -81,6 +81,8 @@ class TicketingConfig:
     providers: list[str]
     jira: dict = field(default_factory=dict)
     linear: dict = field(default_factory=dict)
+    github: dict = field(default_factory=dict)
+    gitlab: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -103,7 +105,11 @@ def load_config(root: Path) -> TicketingConfig | None:
     if not providers:
         return None
     return TicketingConfig(
-        providers=list(providers), jira=data.get("jira") or {}, linear=data.get("linear") or {}
+        providers=list(providers),
+        jira=data.get("jira") or {},
+        linear=data.get("linear") or {},
+        github=data.get("github") or {},
+        gitlab=data.get("gitlab") or {},
     )
 
 
@@ -891,6 +897,110 @@ def fetch_linear(cfg: TicketingConfig) -> list[TicketRecord]:
             )
         )
     return records
+
+
+def detect_origin(root: Path) -> tuple[str, str] | None:
+    """The project's git remote origin as (host, repo); None when missing.
+
+    Runs `git config --get remote.origin.url` in the project and parses the
+    common forms (SSH scp-like, HTTPS, ssh://); a trailing `.git` is
+    stripped. Sync adapters for the hosted-git providers (github/gitlab)
+    key off this — the repo must live on the forge they fetch from.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "config", "--get", "remote.origin.url"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    url = result.stdout.strip() if result.returncode == 0 else ""
+    return _parse_origin_url(url) if url else None
+
+
+def _parse_origin_url(url: str) -> tuple[str, str] | None:
+    """Parse a remote URL into (host, repo); None when unparseable."""
+    url = url.strip()
+    if url.endswith(".git"):
+        url = url[:-4]
+    if not url:
+        return None
+    if url.startswith("ssh://"):
+        rest = url[len("ssh://") :]
+        host, _, path = rest.partition("/")
+        if "@" in host:
+            host = host.rsplit("@", 1)[1]
+        if not path:
+            return None
+        return host, path
+    if "://" in url:
+        _, _, rest = url.partition("://")
+        if "@" in rest:
+            rest = rest.rsplit("@", 1)[1]
+        host, _, path = rest.partition("/")
+        if not path:
+            return None
+        return host, path
+    # scp-like form: git@host:owner/repo
+    if "@" in url and ":" in url:
+        host = url.rsplit("@", 1)[1].split(":", 1)[0]
+        path = url.split(":", 1)[1]
+        if not host or not path:
+            return None
+        return host, path
+    return None
+
+
+def _origin_repo(
+    block: dict,
+    origin: tuple[str, str] | None,
+    cloud_host: str,
+    provider: str,
+) -> tuple[str | None, str | None]:
+    """Resolve the repo a provider fetches from → (repo, warning).
+
+    The yaml `repo:` override wins outright (no host matching); otherwise
+    the origin host must be the provider's expected host — the cloud
+    standard URL, or the custom_url host when self_hosted (any host when
+    self-hosted without custom_url). A mismatch or a missing origin returns
+    (None, warning): the provider is SKIPPED, never fetched against the
+    wrong forge.
+    """
+    if block.get("repo"):
+        return str(block["repo"]), None
+    if origin is None:
+        return None, "no git remote origin — add a `repo:` override in ticketing.yaml"
+    host, repo = origin
+    if block.get("self_hosted"):
+        custom = str(block.get("custom_url") or "").strip().rstrip("/")
+        if custom:
+            expected = custom.split("://")[-1].split("/", 1)[0]
+            if host != expected:
+                return None, (
+                    f"{provider} configured with custom_url {custom} but origin is {host}"
+                    " — fix custom_url or add a `repo:` override"
+                )
+            return repo, None
+        return repo, None  # self-hosted without custom_url: any host
+    if host != cloud_host:
+        return None, (
+            f"{provider} configured but origin is {host} — the cloud host is {cloud_host};"
+            " is this a self-hosted instance? set `self_hosted: true` and `custom_url:`"
+            " (or add a `repo:` override)"
+        )
+    return repo, None
+
+
+def github_repo(cfg: TicketingConfig, origin: tuple[str, str] | None) -> tuple[str | None, str | None]:
+    """The repo github sync fetches from, or (None, warning) to skip."""
+    return _origin_repo(cfg.github or {}, origin, "github.com", "github")
+
+
+def gitlab_repo(cfg: TicketingConfig, origin: tuple[str, str] | None) -> tuple[str | None, str | None]:
+    """The repo gitlab sync fetches from, or (None, warning) to skip."""
+    return _origin_repo(cfg.gitlab or {}, origin, "gitlab.com", "gitlab")
 
 
 def upsert_tickets(db_path: Path, records: list[TicketRecord]) -> int:

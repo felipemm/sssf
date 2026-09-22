@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -913,3 +914,89 @@ def test_finish_plan_run_reads_artifacts_from_the_sandbox_worktree(tmp_path):
     ).fetchall()
     assert [c[0] for c in children] == ["Toggle component", "Persist the choice"]
     conn.close()
+
+
+# ── multi-source sync: origin resolution (issue #90) ───────────────────────
+
+
+def _git_repo(root: Path, origin_url: str | None = None) -> Path:
+    """A tmp git repo with an optional origin remote (sync tests shell git)."""
+    repo = root / "repo"
+    repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    if origin_url is not None:
+        subprocess.run(["git", "remote", "add", "origin", origin_url], cwd=repo, check=True)
+    return repo
+
+
+def test_detect_origin_parses_ssh_form(tmp_path):
+    repo = _git_repo(tmp_path, "git@github.com:owner/repo.git")
+    assert ticketing.detect_origin(repo) == ("github.com", "owner/repo")
+
+
+def test_detect_origin_parses_https_form(tmp_path):
+    repo = _git_repo(tmp_path, "https://github.com/owner/repo.git")
+    assert ticketing.detect_origin(repo) == ("github.com", "owner/repo")
+
+
+def test_detect_origin_parses_ssh_url_form(tmp_path):
+    repo = _git_repo(tmp_path, "ssh://git@gitlab.com/group/project.git")
+    assert ticketing.detect_origin(repo) == ("gitlab.com", "group/project")
+
+
+def test_detect_origin_missing_is_none(tmp_path):
+    repo = _git_repo(tmp_path)  # no origin remote
+    assert ticketing.detect_origin(repo) is None
+
+
+def test_origin_repo_override_wins_without_host_matching(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    cfg.github = {"repo": "acme/override"}
+    repo, warning = ticketing.github_repo(cfg, ("gitlab.com", "other/repo"))
+    assert repo == "acme/override"
+    assert warning is None
+
+
+def test_origin_repo_cloud_host_matches(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    repo, warning = ticketing.github_repo(cfg, ("github.com", "acme/app"))
+    assert repo == "acme/app"
+    assert warning is None
+
+
+def test_origin_repo_cloud_mismatch_warns_self_hosted(tmp_path):
+    cfg = _cfg(tmp_path, providers=("gitlab",))
+    repo, warning = ticketing.gitlab_repo(cfg, ("git.ifoodcorp.com.br", "acme/app"))
+    assert repo is None
+    assert warning is not None and "self_hosted" in warning and "custom_url" in warning
+
+
+def test_origin_repo_self_hosted_custom_url_match(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    cfg.github = {"self_hosted": True, "custom_url": "https://github.company.com"}
+    repo, warning = ticketing.github_repo(cfg, ("github.company.com", "acme/app"))
+    assert repo == "acme/app"
+    assert warning is None
+
+
+def test_origin_repo_self_hosted_custom_url_mismatch_warns(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    cfg.github = {"self_hosted": True, "custom_url": "https://github.company.com"}
+    repo, warning = ticketing.github_repo(cfg, ("github.com", "acme/app"))
+    assert repo is None
+    assert warning is not None and "fix custom_url" in warning
+
+
+def test_origin_repo_self_hosted_without_custom_url_accepts_any_host(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    cfg.github = {"self_hosted": True}
+    repo, warning = ticketing.github_repo(cfg, ("forge.example.net", "acme/app"))
+    assert repo == "acme/app"
+    assert warning is None
+
+
+def test_origin_repo_no_origin_warns_repo_override(tmp_path):
+    cfg = _cfg(tmp_path, providers=("github",))
+    repo, warning = ticketing.github_repo(cfg, None)
+    assert repo is None
+    assert warning is not None and "repo:" in warning
