@@ -11,17 +11,17 @@ import { ref } from 'vue'
 export interface Route {
   cockpit: boolean
   project: string | null
-  tab: 'status' | 'board' | 'sessions' | 'archived' | null
+  tab: 'status' | 'board' | 'tracker' | 'sessions' | 'archived' | null
   adwId: string | null
   phaseId: string | null
 }
 
 const empty = (): Route => ({ cockpit: false, project: null, tab: null, adwId: null, phaseId: null })
 
-const VIEW_WORDS = new Set(['cockpit', 'status', 'board', 'sessions', 'archived'])
+const VIEW_WORDS = new Set(['cockpit', 'status', 'board', 'tracker', 'sessions', 'archived'])
 
 function asTab(word: string | undefined): Route['tab'] {
-  return word === 'board' || word === 'sessions' || word === 'archived' || word === 'status'
+  return word === 'board' || word === 'tracker' || word === 'sessions' || word === 'archived' || word === 'status'
     ? word
     : null
 }
