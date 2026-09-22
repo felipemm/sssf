@@ -33,7 +33,7 @@ class SessionsRow(Row):
     adw_id: str = Field(json_schema_extra={"pk": True})
     adw_name: str | None = None
     request: str | None = None
-    status: str | None = None
+    status: Literal["running", "success", "fail"] | None = None
     engineer: str | None = None
     started_at: str | None = None
     ended_at: str | None = None
@@ -47,10 +47,10 @@ class PhasesRow(Row):
     adw_id: str | None = Field(default=None, json_schema_extra={"ref": "sessions"})
     seq: int | None = None
     name: str | None = None
-    kind: str | None = None
+    kind: Literal["engineer", "code", "agent"] | None = None
     owner: str | None = None
     description: str | None = None
-    status: str = "fail"
+    status: Literal["queued", "running", "success", "fail", "not_passed"] = "fail"
     attempt: int = 0
     retries: int = 0
     error: str | None = None
@@ -63,7 +63,10 @@ class EventsRow(Row):
     adw_id: str | None = Field(default=None, json_schema_extra={"ref": "sessions"})
     phase_id: str | None = Field(default=None, json_schema_extra={"ref": "phases"})
     parent_id: str | None = None
-    type: str | None = None
+    type: Literal[
+        "phase_start", "phase_end", "agent_start", "agent_end", "tool_call",
+        "handoff", "gate_pass", "gate_fail", "log", "error", "integration",
+    ] | None = None
     name: str | None = None
     payload_json: str | None = None
     tokens: int | None = None

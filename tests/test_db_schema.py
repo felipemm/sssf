@@ -98,3 +98,39 @@ def test_apply_schema_migrates_from_v0(tmp_path):
     # re-apply on an already-current db keeps the version
     db_schema.apply_schema(conn)
     assert conn.execute("PRAGMA user_version").fetchone()[0] == db_schema.SCHEMA_VERSION
+
+
+# ── Task 2: Literal tightening — model JSON Schema unions == viz unions ────
+
+
+def _enum(model: type[db_schema.Row], field: str) -> set[str]:
+    """The field's Literal members as declared in its JSON Schema. Nullable
+    Literals emit anyOf(const… + null), plain Literals emit enum — read both."""
+    prop = model.model_json_schema()["properties"][field]
+    out: set[str] = set()
+    for alt in [prop, *prop.get("anyOf", [])]:
+        if "enum" in alt:
+            out |= {v for v in alt["enum"] if v is not None}
+        elif "const" in alt and alt["const"] is not None:
+            out.add(alt["const"])
+    return out
+
+
+def test_status_unions_match_the_viz():
+    """sessions/phases/events statuses are Literal unions; the generated TS
+    types must carry exactly the values shared/types.ts declares."""
+    assert _enum(db_schema.SessionsRow, "status") == {"running", "success", "fail"}
+    assert _enum(db_schema.PhasesRow, "status") == {
+        "queued", "running", "success", "fail", "not_passed",
+    }
+    assert _enum(db_schema.PhasesRow, "kind") == {"engineer", "code", "agent"}
+
+
+def test_event_type_union_matches_the_engine():
+    """events.type carries every type the engine emits — the viz union is
+    missing `integration` (sandbox.py emits it), so the contract pins the
+    engine's real set and codegen fixes the stale viz union."""
+    assert _enum(db_schema.EventsRow, "type") == {
+        "phase_start", "phase_end", "agent_start", "agent_end", "tool_call",
+        "handoff", "gate_pass", "gate_fail", "log", "error", "integration",
+    }
