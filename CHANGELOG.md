@@ -25,6 +25,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   synced ticket (`sssf ticket backlog`) reopens it on its origin. `sync
   --provider <p>` syncs one provider; per-provider skip warnings print
   distinctly.
+- **afk: the unattended implement loop (#93)** — `sssf flow implement afk`
+  works the whole `ready-for-agent` queue without an operator: one ticket
+  per round, each round a fresh run (a new ADW process/container under its
+  own adw_id — never a shared context window), until the queue is empty or
+  `--cap` rounds are hit (default 30; re-run afk to continue). Every round
+  delegates to the single-ticket implement flow (claim → spawn → settle),
+  so a failed round requeues its ticket fix-forward and the next round
+  re-picks it — the cap bounds the retries, and every attempt stays in the
+  ticket's run history. Sandboxed rounds spawn detached and settle in the
+  monitor, so afk waits for the machine settle before dispatching the next
+  ticket (rounds never stack concurrent sandboxes); `--wait-seconds` bounds
+  one round's wait (default 7200) — a timeout exits 1 without stacking a
+  second run on a live one. A sandboxed spawn failure aborts the loop (the
+  environment is broken; retrying would just burn the cap).
 
 - **Implement flow drives the ticket machine (#92)** — `sssf flow implement
   <ticket>` now runs one `ready-for-agent` ticket unattended end-to-end

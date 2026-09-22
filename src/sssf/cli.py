@@ -22,6 +22,19 @@ from sssf.commands import (
 from sssf.project import data_dir, find_project
 
 
+def _dispatch_flow_implement(a, cwd: Path) -> int:
+    """Route `sssf flow implement` — a ticket id runs one ticket; the `afk`
+    keyword runs the unattended queue loop (issue #93)."""
+    if a.ticket_id is None:
+        print("sssf flow: implement needs a ticket id, or 'afk'", file=sys.stderr)
+        return 2
+    if a.ticket_id == "afk":
+        return flow.implement_afk(
+            cwd, a.project, cap=a.cap, wait_seconds=a.wait_seconds, no_sandbox=a.no_sandbox
+        )
+    return flow.implement(cwd, a.ticket_id, a.project, a.no_sandbox)
+
+
 def _dispatch_ticket(a) -> int:
     action = a.ticket_action
     if action == "new":
@@ -165,15 +178,33 @@ def main(argv: list[str] | None = None) -> int:
     p_fimpl = fsub.add_parser(
         "implement", help="implement one ready-for-agent ticket: triage → build → review"
     )
-    p_fimpl.add_argument("ticket_id", help="the ticket to implement (ready-for-agent)")
+    p_fimpl.add_argument(
+        "ticket_id",
+        nargs="?",
+        help="the ticket to implement (ready-for-agent); or 'afk' to work the"
+        " whole ready-for-agent queue unattended",
+    )
     p_fimpl.add_argument("--project", default=None)
+    p_fimpl.add_argument(
+        "--cap",
+        type=int,
+        default=30,
+        help="afk: max rounds before the loop stops (default 30)",
+    )
+    p_fimpl.add_argument(
+        "--wait-seconds",
+        type=int,
+        default=7200,
+        help="afk: how long to wait for one sandboxed round to settle before"
+        " giving up (default 7200)",
+    )
     p_fimpl.add_argument(
         "--no-sandbox",
         action="store_true",
         help="run in the current dir instead of a sandbox container",
     )
     p_fimpl.set_defaults(
-        func=lambda a: flow.implement(Path.cwd(), a.ticket_id, a.project, a.no_sandbox)
+        func=lambda a: _dispatch_flow_implement(a, Path.cwd())
     )
     p_fdep = fsub.add_parser(
         "deploy", help="release train: batch signoff on dev → bump → MR → e2e → release"

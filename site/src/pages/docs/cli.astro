@@ -92,10 +92,18 @@ const description =
         </td>
       </tr>
       <tr>
-        <td><code class="hl">sssf flow implement &lt;ticket-id&gt; [--project P] [--no-sandbox]</code></td>
+        <td><code class="hl">sssf flow implement &lt;ticket-id&gt;|afk [--cap N] [--wait-seconds S] [--project P] [--no-sandbox]</code></td>
         <td>
           Implement one <span class="cmd">ready-for-agent</span> ticket end to end
-          (triage → build → review) with no operator in the loop.
+          (triage → build → review) with no operator in the loop — the flow claims
+          the ticket, runs it, and settles the outcome (ready-for-signoff on
+          success, back to <span class="cmd">ready-for-agent</span> with the run's
+          feedback on rejection). With <span class="cmd">afk</span>, a whole queue is
+          worked unattended: one ticket per round (each round a fresh run/context
+          window) until the queue is empty or <span class="cmd">--cap</span> rounds
+          are hit (default 30). Sandboxed rounds wait for the machine settle before
+          the next dispatch — <span class="cmd">--wait-seconds</span> bounds one
+          round's wait (default 7200).
         </td>
       </tr>
       <tr>
