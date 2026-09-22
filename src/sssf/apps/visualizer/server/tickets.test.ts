@@ -7,10 +7,15 @@ import { isEnabled, readTickets } from "./tickets";
 
 function makeDb(path: string): Database {
   const db = new Database(path);
+  // Machine shape (db_schema): kind/tracked/origin/parent_id/spec are the
+  // columns the tracker reads. `context` is deliberately absent — its
+  // migration is covered by the dedicated context tests below.
   db.run(`CREATE TABLE IF NOT EXISTS tickets (
     id TEXT PRIMARY KEY, provider TEXT NOT NULL, external_id TEXT,
     title TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'backlog',
-    prompt_file TEXT, adw_id TEXT, source_url TEXT, created_at TEXT, updated_at TEXT)`);
+    prompt_file TEXT, adw_id TEXT, source_url TEXT, created_at TEXT, updated_at TEXT,
+    kind TEXT NOT NULL DEFAULT 'implementation', tracked INTEGER NOT NULL DEFAULT 1,
+    origin TEXT NOT NULL DEFAULT 'internal', parent_id TEXT, spec TEXT NOT NULL DEFAULT '')`);
   db.run(`CREATE TABLE IF NOT EXISTS sessions (
     adw_id TEXT PRIMARY KEY, status TEXT, started_at TEXT, ended_at TEXT)`);
   db.run(`CREATE TABLE IF NOT EXISTS ticket_runs (
@@ -125,6 +130,89 @@ describe("readTickets", () => {
     db.close();
     const t = readTickets(dbPath)[0]!;
     expect(t.context).toBe("");
+  });
+
+  test("machine states pass through — never re-derived from a session", () => {
+    // A stored machine state is authoritative (issue #94): a queued ticket
+    // that keeps a failed run's adw_id (history) must NOT derive 'failed',
+    // and the other machine states survive untouched. Only legacy statuses
+    // (backlog/starting/running/…) derive from the linked session.
+    const dir = mkdtempSync(join(tmpdir(), "sssf-tickets-"));
+    const dbPath = join(dir, "sssf.db");
+    const db = makeDb(dbPath);
+    db.query("INSERT INTO tickets (id, provider, external_id, title, status, adw_id) VALUES (?,?,?,?,?,?)")
+      .run("internal:m1", "internal", "", "queued", "ready-for-agent", "sess_old_fail");
+    db.query("INSERT INTO sessions (adw_id, status) VALUES (?,?)").run("sess_old_fail", "fail");
+    db.query("INSERT INTO tickets (id, provider, external_id, title, status) VALUES (?,?,?,?,?)")
+      .run("internal:m2", "internal", "", "triaging", "needs-triage");
+    db.query("INSERT INTO tickets (id, provider, external_id, title, status) VALUES (?,?,?,?,?)")
+      .run("internal:m3", "internal", "", "building", "in-progress");
+    db.close();
+    const byId = Object.fromEntries(readTickets(dbPath).map((t) => [t.id, t]));
+    expect(byId["internal:m1"]!.status).toBe("ready-for-agent");
+    expect(byId["internal:m2"]!.status).toBe("needs-triage");
+    expect(byId["internal:m3"]!.status).toBe("in-progress");
+  });
+
+  test("machine fields surface: kind, tracked, origin, parent_id, spec", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sssf-tickets-"));
+    const dbPath = join(dir, "sssf.db");
+    const db = makeDb(dbPath);
+    db.query(
+      "INSERT INTO tickets (id, provider, external_id, title, status, kind, tracked, origin, parent_id, spec)"
+      + " VALUES (?,?,?,?,?,?,?,?,?,?)",
+    ).run("internal:child", "internal", "", "build the thing", "ready-for-agent",
+          "implementation", 1, "internal", "internal:idea", "adws/specs/thing.md");
+    db.query(
+      "INSERT INTO tickets (id, provider, external_id, title, status, kind, tracked, origin)"
+      + " VALUES (?,?,?,?,?,?,?,?)",
+    ).run("internal:idea", "internal", "", "the feature", "needs-triage",
+          "idea", 1, "internal");
+    db.close();
+    const byId = Object.fromEntries(readTickets(dbPath).map((t) => [t.id, t]));
+    const child = byId["internal:child"]!;
+    expect(child.kind).toBe("implementation");
+    expect(child.tracked).toBe(true);
+    expect(child.origin).toBe("internal");
+    expect(child.parent_id).toBe("internal:idea");   // lineage
+    expect(child.spec).toBe("adws/specs/thing.md");
+    expect(byId["internal:idea"]!.kind).toBe("idea");
+  });
+
+  test("untracked synced tickets are included, born needs-triage, origin kept", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sssf-tickets-"));
+    const dbPath = join(dir, "sssf.db");
+    const db = makeDb(dbPath);
+    db.query(
+      "INSERT INTO tickets (id, provider, external_id, title, status, kind, tracked, origin, source_url)"
+      + " VALUES (?,?,?,?,?,?,?,?,?)",
+    ).run("github:owner#12", "github", "owner#12", "a found issue", "needs-triage",
+          "idea", 0, "github", "https://github.com/owner/repo/issues/12");
+    db.close();
+    const t = readTickets(dbPath)[0]!;
+    expect(t.tracked).toBe(false);
+    expect(t.origin).toBe("github");
+    expect(t.status).toBe("needs-triage");
+    expect(t.source_url).toBe("https://github.com/owner/repo/issues/12");
+  });
+
+  test("pre-machine db is migrated with machine column defaults", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sssf-tickets-"));
+    const dbPath = join(dir, "sssf.db");
+    const db = new Database(dbPath);
+    db.run(`CREATE TABLE tickets (
+      id TEXT PRIMARY KEY, provider TEXT NOT NULL, external_id TEXT,
+      title TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'backlog',
+      prompt_file TEXT, adw_id TEXT, source_url TEXT, created_at TEXT, updated_at TEXT)`);
+    db.query("INSERT INTO tickets (id, provider, external_id, title, status) VALUES (?,?,?,?,?)")
+      .run("internal:old", "internal", "", "legacy", "ready-for-agent");
+    db.close();
+    const t = readTickets(dbPath)[0]!;
+    expect(t.kind).toBe("implementation");
+    expect(t.tracked).toBe(true);
+    expect(t.origin).toBe("internal");
+    expect(t.parent_id).toBeNull();
+    expect(t.spec).toBe("");
   });
 });
 

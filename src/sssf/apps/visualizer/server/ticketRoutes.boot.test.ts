@@ -32,6 +32,18 @@ const TICKET = "internal:boot";
 const TICKET_ENCODED = encodeURIComponent(TICKET); // the frontend URL-encodes ids
 const ADW_ID = "cafebabe1234";
 
+// The machine fields the tracker reads (issue #94) — the shape the booted
+// /tickets route must surface for a seeded db.
+interface TicketRow {
+  id: string;
+  status: string;
+  kind: string;
+  tracked: boolean;
+  origin: string;
+  parent_id: string | null;
+  spec: string;
+}
+
 let tmp: string;
 let root: string;
 let cliLog: string;
@@ -158,6 +170,44 @@ describe("booted ticket routes (regression: ticketRoutes import in index.ts)", (
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.ok).toBe(true);
+  });
+
+  test("GET /tickets surfaces machine fields + lineage (issue #94 tracker data)", async () => {
+    // Seed the boot project's trace db the way a real project looks after the
+    // machine + sync landed: an untracked github issue (needs-triage), an
+    // idea (needs-triage) and its implementation child (ready-for-agent).
+    const db = new Database(join(root, "adws", "data", "sssf.db"));
+    db.run(`CREATE TABLE IF NOT EXISTS tickets (
+      id TEXT PRIMARY KEY, provider TEXT NOT NULL, external_id TEXT,
+      title TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'backlog',
+      prompt_file TEXT, adw_id TEXT, source_url TEXT, created_at TEXT, updated_at TEXT,
+      kind TEXT NOT NULL DEFAULT 'implementation', tracked INTEGER NOT NULL DEFAULT 1,
+      origin TEXT NOT NULL DEFAULT 'internal', parent_id TEXT, spec TEXT NOT NULL DEFAULT '')`);
+    db.run(`CREATE TABLE IF NOT EXISTS sessions (adw_id TEXT PRIMARY KEY, status TEXT)`);
+    db.query("INSERT INTO tickets (id, provider, external_id, title, status, kind, tracked, origin, source_url) VALUES (?,?,?,?,?,?,?,?,?)")
+      .run("github:acme/widgets#9", "github", "acme/widgets#9", "found in the wild", "needs-triage", "idea", 0, "github", "https://github.com/acme/widgets/issues/9");
+    db.query("INSERT INTO tickets (id, provider, external_id, title, status, kind, tracked, origin) VALUES (?,?,?,?,?,?,?,?)")
+      .run("internal:idea1", "internal", "", "the feature", "needs-triage", "idea", 1, "internal");
+    db.query("INSERT INTO tickets (id, provider, external_id, title, status, kind, tracked, origin, parent_id, spec) VALUES (?,?,?,?,?,?,?,?,?,?)")
+      .run("internal:slice1", "internal", "", "build the feature", "ready-for-agent", "implementation", 1, "internal", "internal:idea1", "adws/specs/feat.md");
+    // a queued ticket keeping an old failed session must stay queued
+    db.query("INSERT INTO tickets (id, provider, external_id, title, status, adw_id) VALUES (?,?,?,?,?,?)")
+      .run("internal:queued", "internal", "", "keeps history", "ready-for-agent", "sess_old");
+    db.query("INSERT INTO sessions (adw_id, status) VALUES (?,?)").run("sess_old", "fail");
+    db.close();
+
+    const res = await fetch(`${baseUrl()}/api/projects/${PROJECT}/tickets`);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    const byId = Object.fromEntries((data.tickets as TicketRow[]).map((t) => [t.id, t]));
+    const untracked = byId["github:acme/widgets#9"];
+    expect(untracked.tracked).toBe(false);
+    expect(untracked.origin).toBe("github");
+    expect(untracked.status).toBe("needs-triage");
+    expect(byId["internal:slice1"].parent_id).toBe("internal:idea1");   // lineage
+    expect(byId["internal:slice1"].kind).toBe("implementation");
+    expect(byId["internal:slice1"].spec).toBe("adws/specs/feat.md");
+    expect(byId["internal:queued"].status).toBe("ready-for-agent");     // machine state wins
   });
 
   test("the fake CLI was invoked once per action with the project root", () => {
