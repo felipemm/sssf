@@ -50,7 +50,10 @@ print(conn.execute("PRAGMA user_version").fetchone()[0])
 conn.close()
 `;
   const r = spawnSync(python(), ["-c", script], { cwd: ROOT, encoding: "utf8" });
-  if (r.status !== 0) throw new Error(`python build failed: ${r.stderr}`);
+  if (r.status !== 0)
+    throw new Error(
+      `python build failed (status ${r.status}): ${r.error?.message ?? r.stderr}`,
+    );
   return path;
 }
 

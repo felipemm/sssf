@@ -26,6 +26,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      # The cross-language contract test (server/contract.test.ts) builds its
+      # db with the real Python writer via ROOT/.venv/bin/python — the job must
+      # create the venv, or the spawn fails with a cryptic null (ENOENT).
+      - uses: astral-sh/setup-uv@v5
+      - name: Install Python deps (contract test)
+        working-directory: .
+        run: uv sync --group dev
       - name: Install dependencies
         run: bun install
       - name: Run tests
