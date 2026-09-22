@@ -34,6 +34,30 @@ const MAX_LIMIT = 1000;
 const DEFAULT_LIMIT = 500;
 
 /**
+ * The oldest schema version this reader is contractually bound to — must
+ * equal the writer's SCHEMA_VERSION in src/sssf/db_schema.py (the contract
+ * test asserts the equality). Columns added after the baseline are gated by
+ * the since-map below; a db stamped below their version reads them as NULL.
+ */
+export const MIN_SCHEMA_VERSION = 4;
+
+/**
+ * Columns added after the original schema, keyed "table.column" → the
+ * SCHEMA_VERSION that guarantees them. Mirrors db_schema.py's migrations:
+ * tracer-migration columns are baseline (since 1); the ticket-machine
+ * columns landed at version 2. The reader opens readonly and cannot run the
+ * ALTERs itself, so older dbs degrade these to NULL instead of throwing.
+ */
+const SINCE_VERSION: Record<string, number> = {
+  "sessions.adw_name": 1,
+  "sessions.archived": 1,
+  "agent_sessions.color": 1,
+  "agent_sessions.context_tokens": 1,
+  "agent_sessions.context_window": 1,
+  "gate_results.checks_json": 1,
+};
+
+/**
  * Open a trace db for reading, preferring a readonly connection.
  *
  * A WAL db whose -shm file is gone (no tracer holding it open — the normal
@@ -79,11 +103,11 @@ export class SssfDb {
    */
   readonly sessionsDir: string;
   readonly journalMode: string;
+  /** The db's PRAGMA user_version, read once at open. */
+  readonly schemaVersion: number;
   private readonly db: Database;
   /** Opened on first archive and kept; null until then. */
   private writer: Database | null = null;
-  /** Cache for optionalColumn(), keyed "table.column". Only ever false → true. */
-  private readonly columnCache = new Map<string, boolean>();
 
   constructor(path: string, db?: Database) {
     if (!db && !existsSync(path)) {
@@ -104,6 +128,8 @@ export class SssfDb {
     // busy_timeout so a concurrent writer never turns into a failed request.
     this.db.exec("PRAGMA busy_timeout = 5000");
     this.db.exec("PRAGMA synchronous = NORMAL");
+    this.schemaVersion =
+      this.db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
     const mode = this.db
       .query<{ journal_mode: string }, []>("PRAGMA journal_mode")
       .get();
@@ -141,19 +167,22 @@ export class SssfDb {
     ) > 0;
   }
 
-  private hasColumn(table: string, column: string): boolean {
-    const key = `${table}.${column}`;
-    if (!this.columnCache.get(key)) {
-      const cols = this.db
-        .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
-        .all();
-      this.columnCache.set(key, cols.some((c) => c.name === column));
-    }
-    return this.columnCache.get(key) ?? false;
+  /**
+   * The column name, or a NULL literal when this db predates the version that
+   * guarantees it. Version-gated reads replace per-column probing: the version
+   * is read once at open, so old dbs degrade deterministically — the same
+   * thing the UI shows for a row the migration didn't backfill.
+   */
+  private column(table: string, column: string): string {
+    const since = SINCE_VERSION[`${table}.${column}`] ?? 1;
+    return this.schemaVersion >= since ? column : `NULL AS ${column}`;
   }
 
-  private optionalColumn(table: string, column: string): string {
-    return this.hasColumn(table, column) ? column : `NULL AS ${column}`;
+  /** Bare form of column() for expressions (WHERE/COALESCE): the alias form
+   * is only valid in the SELECT list. */
+  private columnValue(table: string, column: string): string {
+    const since = SINCE_VERSION[`${table}.${column}`] ?? 1;
+    return this.schemaVersion >= since ? column : "NULL";
   }
 
   close(): void {
@@ -169,7 +198,7 @@ export class SssfDb {
    * does not exist, so the route can 404 instead of silently succeeding.
    */
   setArchived(adwId: string, archived: boolean): boolean {
-    if (!this.hasColumn("sessions", "archived")) {
+    if (this.schemaVersion < (SINCE_VERSION["sessions.archived"] ?? 1)) {
       throw new Error("this db predates the archived column — run any ADW once to migrate it");
     }
     if (!this.writer) {
@@ -186,12 +215,12 @@ export class SssfDb {
   sessions(limit = 200, onlyArchived = false): SessionSummary[] {
     const rows = this.db
       .query<Session, [number, number]>(
-        `SELECT adw_id, ${this.optionalColumn("sessions", "adw_name")}, request,
+        `SELECT adw_id, ${this.column("sessions", "adw_name")}, request,
                 status, engineer, started_at, ended_at,
                 total_tokens, total_cost,
-                ${this.optionalColumn("sessions", "archived")}
+                ${this.column("sessions", "archived")}
            FROM sessions
-          WHERE COALESCE(${this.hasColumn("sessions", "archived") ? "archived" : "0"}, 0) = ?
+          WHERE COALESCE(${this.columnValue("sessions", "archived")}, 0) = ?
           ORDER BY started_at DESC, rowid DESC
           LIMIT ?`,
       )
@@ -252,7 +281,7 @@ export class SssfDb {
     return (
       this.db
         .query<Session, [string]>(
-          `SELECT adw_id, ${this.optionalColumn("sessions", "adw_name")}, request,
+          `SELECT adw_id, ${this.column("sessions", "adw_name")}, request,
                   status, engineer, started_at, ended_at,
                   total_tokens, total_cost
              FROM sessions WHERE adw_id = ?`,
@@ -299,9 +328,9 @@ export class SssfDb {
     // per-agent metadata — return an empty roster instead of throwing
     if (!this.hasTable("agent_sessions")) return byAdw;
 
-    const color = this.optionalColumn("agent_sessions", "color");
-    const ctxUsed = this.optionalColumn("agent_sessions", "context_tokens");
-    const ctxWindow = this.optionalColumn("agent_sessions", "context_window");
+    const color = this.column("agent_sessions", "color");
+    const ctxUsed = this.column("agent_sessions", "context_tokens");
+    const ctxWindow = this.column("agent_sessions", "context_window");
 
     const completed = this.db
       .query<AgentSession, string[]>(
@@ -445,7 +474,7 @@ export class SssfDb {
   }
 
   gates(adwId: string): GateResult[] {
-    const checks = this.optionalColumn("gate_results", "checks_json");
+    const checks = this.column("gate_results", "checks_json");
     return this.db
       .query<GateResult, [string]>(
         `SELECT id, adw_id, phase_id, attempt, gate, passed, violations_json,
