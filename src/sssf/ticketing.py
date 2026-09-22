@@ -447,6 +447,256 @@ def mrs_for_status(conn: sqlite3.Connection, status: str) -> list[MrRecord]:
     return [_mr_row(row) for row in rows]
 
 
+# The plan flow's run kind — the only flow that turns idea tickets into
+# spec + implementation children (the legacy ticket.run path uses
+# adw_simple_sdlc and never plans).
+PLAN_ADW = "adw_plan"
+
+
+def plan_guard(conn: sqlite3.Connection, ticket_id: str, *, revise: bool = False) -> str | None:
+    """Why this ticket cannot be planned, or None when it can (issue #91).
+
+    The plan-once recursion guard: implementation tickets are terminal plan
+    inputs (plan never runs on them, `--revise` or not), and an idea ticket
+    that already holds a spec or children needs the explicit `--revise`
+    escape. Nothing the plan flow emits is a valid plan input.
+    """
+    row = conn.execute("SELECT kind FROM tickets WHERE id=?", (ticket_id,)).fetchone()
+    if row is None:
+        return f"no ticket {ticket_id}"
+    kind = row[0]
+    if kind != "idea":
+        return (
+            f"ticket {ticket_id} is an implementation ticket — the plan flow only "
+            "plans idea tickets"
+        )
+    if not revise and _is_planned(conn, ticket_id):
+        return f"ticket {ticket_id} is already planned — pass --revise to re-plan"
+    return None
+
+
+def _is_planned(conn: sqlite3.Connection, ticket_id: str) -> bool:
+    """True when the idea ticket already went through the plan flow: it holds
+    a spec reference or has implementation children."""
+    row = conn.execute("SELECT spec FROM tickets WHERE id=?", (ticket_id,)).fetchone()
+    if row is None:
+        return False
+    if row[0]:
+        return True
+    return conn.execute("SELECT 1 FROM tickets WHERE parent_id=?", (ticket_id,)).fetchone() is not None
+
+
+def parse_ticket_breakdown(text: str) -> list[tuple[str, str]]:
+    """The to-tickets breakdown file -> (title, description) slices.
+
+    Convention (mandated by adw_plan's to-tickets directive): one `## `
+    heading per implementation ticket — the heading is the title and the
+    body under it the description. Anything before the first `## ` (the
+    file's own title, preamble) is dropped; nested `### ` headings stay part
+    of the description. Returns [] when the file has no H2 sections at all.
+    """
+    slices: list[tuple[str, str]] = []
+    title: str | None = None
+    body: list[str] = []
+
+    def flush() -> None:
+        if title is not None:
+            slices.append((title, "\n".join(body).strip()))
+
+    for line in text.splitlines():
+        if line.startswith("## "):
+            flush()
+            title = line[3:].strip()
+            body = []
+        elif title is not None:
+            body.append(line)
+    flush()
+    return slices
+
+
+def _spec_title(text: str) -> str:
+    """The spec's first `# ` heading, stripped — the feature's name (the
+    no-args mode titles its auto-created idea ticket from it)."""
+    for line in text.splitlines():
+        if line.startswith("# "):
+            title = line[2:].strip()
+            if title:
+                return title
+    return ""
+
+
+def _run_root(project_root: Path, conn: sqlite3.Connection, adw_id: str) -> Path:
+    """Where the run's artifacts live: the per-run sandbox worktree for a
+    sandboxed run (sandbox_run has a row), the project tree otherwise
+    (--no-sandbox runs write directly into the project)."""
+    sandboxed = conn.execute(
+        "SELECT 1 FROM sandbox_run WHERE adw_id=?", (adw_id,)
+    ).fetchone()
+    if sandboxed:
+        from sssf.sandbox.worktree_git import sandbox_dir
+
+        return sandbox_dir(project_root, adw_id)
+    return project_root
+
+
+def _plan_artifacts(run_root: Path, adw_id: str) -> tuple[Path | None, Path | None]:
+    """The plan run's spec and tickets files under adws/specs/, by the ADW's
+    mandated naming convention (`<adw_id>_spec-<slug>.md` /
+    `<adw_id>_tickets-<slug>.md`). Oldest-last so a re-run picks the newest."""
+    specs = run_root / "adws" / "specs"
+    if not specs.is_dir():
+        return None, None
+    spec_files = sorted(specs.glob(f"{adw_id}_spec-*.md"))
+    ticket_files = sorted(specs.glob(f"{adw_id}_tickets-*.md"))
+    return (spec_files[-1] if spec_files else None,
+            ticket_files[-1] if ticket_files else None)
+
+
+def finish_plan_run(
+    project_root: Path, conn: sqlite3.Connection, adw_id: str, *, actor: str = "system"
+) -> str | None:
+    """The plan flow's terminal machine step (issue #91), host-side.
+
+    After a SUCCESSFUL plan run, turn the idea ticket into a spec reference
+    plus implementation children born `ready-for-agent` (parent_id -> the
+    idea ticket) and record the lineage. The no-args mode (no linked idea
+    ticket yet) creates the idea ticket from the spec's title first, then
+    transforms in the same pass — exploration -> brief -> idea ticket ->
+    spec -> slices in one human-invoked run.
+
+    Host-side by design: `tickets` is project-owned — the sandbox's per-run
+    db never contains tickets and `sync_run_db` never merges them, so only a
+    host process (the sandbox monitor, or `flow plan --no-sandbox` after its
+    blocking call) can land the transform.
+
+    Guards: only plan-flow runs land (`sessions.adw_name` = adw_plan; a
+    missing session row counts as never-started), and only a run that
+    SUCCEEDED transforms — a failed plan run leaves its ticket untouched
+    (the failure stays visible in the trace). The settle finds its ticket
+    through the dispatch-time link `tickets.adw_id`; missing link = no-args
+    mode.
+
+    Returns the parent ticket id when the transform landed, None when there
+    is nothing to land. Raises ValueError when the run succeeded but its
+    artifacts cannot be parsed — the monitor catches and logs (best-effort),
+    `flow plan --no-sandbox` surfaces it.
+    """
+    session = conn.execute(
+        "SELECT status, adw_name FROM sessions WHERE adw_id=?", (adw_id,)
+    ).fetchone()
+    if session is None or session[1] not in (None, "", PLAN_ADW):
+        return None
+    if session[0] != "success":
+        return None
+    root = _run_root(project_root, conn, adw_id)
+    spec_file, tickets_file = _plan_artifacts(root, adw_id)
+    if spec_file is None or tickets_file is None:
+        raise ValueError(
+            f"plan run {adw_id} produced no spec/tickets under {root / 'adws' / 'specs'}"
+        )
+    row = conn.execute(
+        "SELECT id FROM tickets WHERE adw_id=? AND kind='idea'", (adw_id,)
+    ).fetchone()
+    if row is None:
+        # no-args mode: the idea ticket is born from the landed spec, and the
+        # run's history row lands with it (the ticket path recorded its row at
+        # dispatch time).
+        title = _spec_title(spec_file.read_text()) or f"Planned feature ({adw_id})"
+        ticket_id = create_idea_ticket(conn, title, actor=actor)
+        conn.execute(
+            "UPDATE tickets SET adw_id=?, updated_at=? WHERE id=?",
+            (adw_id, _now(), ticket_id),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO ticket_runs (ticket_id, adw_id, created_at)"
+            " VALUES (?,?,?)",
+            (ticket_id, adw_id, _now()),
+        )
+    else:
+        ticket_id = row[0]
+    return _apply_plan(
+        conn, ticket_id, spec_file, tickets_file, run_root=root, adw_id=adw_id, actor=actor
+    )
+
+
+def _apply_plan(
+    conn: sqlite3.Connection,
+    ticket_id: str,
+    spec_file: Path,
+    tickets_file: Path,
+    *,
+    run_root: Path,
+    adw_id: str,
+    actor: str,
+) -> str:
+    """The db-level transform: parent.spec = committed spec path, one
+    implementation child per breakdown slice, lineage events. Stale unclaimed
+    children of a re-plan are commented as superseded — never deleted, never
+    parked (the machine has no ready -> blocked edge)."""
+    spec_ref = str(spec_file.relative_to(run_root))
+    slices = parse_ticket_breakdown(tickets_file.read_text())
+    if not slices:
+        raise ValueError(
+            f"the tickets breakdown {tickets_file} has no `## ` headings — cannot slice"
+        )
+    if _is_planned(conn, ticket_id):
+        stale = conn.execute(
+            "SELECT id FROM tickets WHERE parent_id=? AND status=?",
+            (ticket_id, STATUS_READY),
+        ).fetchall()
+        for (child_id,) in stale:
+            comment_ticket(
+                conn,
+                child_id,
+                f"superseded by re-plan run {adw_id} — this slice was replaced",
+                actor=actor,
+            )
+    conn.execute(
+        "UPDATE tickets SET spec=?, updated_at=? WHERE id=?",
+        (spec_ref, _now(), ticket_id),
+    )
+    child_ids: list[str] = []
+    for title, description in slices:
+        child_id = f"internal:{uuid.uuid4().hex[:12]}"
+        now = _now()
+        conn.execute(
+            "INSERT INTO tickets (id, provider, external_id, title, description, status,"
+            " kind, tracked, origin, parent_id, spec, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                child_id,
+                "internal",
+                "",
+                title,
+                description,
+                STATUS_READY,
+                "implementation",
+                1,
+                "internal",
+                ticket_id,
+                spec_ref,
+                now,
+                now,
+            ),
+        )
+        add_ticket_event(
+            conn,
+            child_id,
+            "created",
+            actor=actor,
+            payload={"kind": "implementation", "parent": ticket_id},
+        )
+        child_ids.append(child_id)
+    add_ticket_event(
+        conn,
+        ticket_id,
+        "planned",
+        actor=actor,
+        payload={"run": adw_id, "spec": spec_ref, "children": child_ids},
+    )
+    return ticket_id
+
+
 def backlog_tickets(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     """The backlog: exactly the `ready-for-agent` queue, oldest first.
     Untracked tickets are invisible here until marked ready-for-agent."""

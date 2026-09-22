@@ -315,6 +315,27 @@ def monitor_run(project_root: Path, adw_id: str) -> int:
                 )
         except Exception as error:
             print(f"sssf: post-run integration failed ({error})", file=sys.stderr)
+        # Ticket machine (#91): the monitor is the host process that sees a
+        # SANDBOXED plan run's end, so it lands the plan flow's db transform —
+        # a successful run turns its idea ticket into a spec reference plus
+        # ready-for-agent implementation children (no-args runs create the
+        # idea ticket from the landed spec). Implement runs settle in the
+        # earlier #92 block (a separate PR) — each settle is a no-op for the
+        # other's run kind. Best-effort: a ticket-write hiccup must never
+        # crash the monitor (the run's own outcome is already merged and
+        # true).
+        try:
+            from sssf import ticketing
+
+            ticketing.ensure_schema(tracer.conn)
+            landed = ticketing.finish_plan_run(project_root, tracer.conn, adw_id)
+            if landed:
+                print(
+                    f"sssf: plan run {adw_id} landed tickets -> {landed}",
+                    file=sys.stderr,
+                )
+        except Exception as error:
+            print(f"sssf: could not land plan tickets ({error})", file=sys.stderr)
         with contextlib.suppress(OSError):
             (wt_data / "sessions" / f"{adw_id}.supervisor-exit").unlink(missing_ok=True)
     return 0

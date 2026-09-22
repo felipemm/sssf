@@ -660,4 +660,256 @@ def test_finish_implement_never_yanks_a_ticket_it_does_not_own(tmp_path):
 def test_finish_implement_unknown_run_is_a_noop(tmp_path):
     conn = _machine_conn(tmp_path / "m.db")
     assert ticketing.finish_implement_run(conn, "no-such-run") is None
+
+
+# ── plan flow: guard + breakdown parser + the settle (issue #91) ────────────
+
+
+def _plan_conn(root: Path) -> sqlite3.Connection:
+    db = root / "adws" / "data" / "sssf.db"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    return _machine_conn(db)
+
+
+def _plan_session(
+    conn: sqlite3.Connection, adw_id: str, status: str = "success", adw_name: str = "adw_plan"
+) -> None:
+    conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, status, started_at, ended_at)"
+        " VALUES (?,?,?, '2026-09-01T00:00:00+00:00', '2026-09-01T01:00:00+00:00')",
+        (adw_id, adw_name, status),
+    )
+
+
+def _plan_artifacts(root: Path, adw_id: str, *, spec: str = "# Dark mode\n\nA spec.\n", tickets: str = "") -> None:
+    """Write the plan run's artifacts exactly where the ADW lands them."""
+    specs = root / "adws" / "specs"
+    specs.mkdir(parents=True, exist_ok=True)
+    (specs / f"{adw_id}_spec-dark-mode.md").write_text(spec)
+    (specs / f"{adw_id}_tickets-dark-mode.md").write_text(
+        tickets
+        or (
+            "# Dark mode tickets\n\n"
+            "## Toggle component\n\nA `## `-heading slice.\n\n- bullet\n\n"
+            "## Persist the choice\n\nSecond slice, with a nested `### Detail` heading kept in the body.\n"
+        )
+    )
+
+
+def test_plan_guard_accepts_a_fresh_idea_ticket(tmp_path):
+    conn = _machine_conn(tmp_path / "m.db")
+    ticket_id = ticketing.create_idea_ticket(conn, "Dark mode")
+    assert ticketing.plan_guard(conn, ticket_id) is None
+    conn.close()
+
+
+def test_plan_guard_refuses_missing_ticket(tmp_path):
+    conn = _machine_conn(tmp_path / "m.db")
+    assert "no ticket internal:nope" in ticketing.plan_guard(conn, "internal:nope")
+    conn.close()
+
+
+def test_plan_guard_refuses_implementation_tickets(tmp_path):
+    conn = _machine_conn(tmp_path / "m.db")
+    _insert_ticket(conn, "internal:impl", kind="implementation", status="ready-for-agent")
+    err = ticketing.plan_guard(conn, "internal:impl")
+    assert "implementation ticket" in err
+    assert ticketing.plan_guard(conn, "internal:impl", revise=True) == err  # terminal
+    conn.close()
+
+
+def test_plan_guard_plan_once_refuses_planned_idea_without_revise(tmp_path):
+    conn = _machine_conn(tmp_path / "m.db")
+    parent = ticketing.create_idea_ticket(conn, "Dark mode")
+    _insert_ticket(conn, "internal:child", kind="implementation", parent_id=parent)
+    err = ticketing.plan_guard(conn, parent)
+    assert "already planned" in err and "--revise" in err
+    assert ticketing.plan_guard(conn, parent, revise=True) is None
+    conn.close()
+
+
+def test_plan_guard_plan_once_also_sees_a_spec(tmp_path):
+    conn = _machine_conn(tmp_path / "m.db")
+    parent = ticketing.create_idea_ticket(conn, "Dark mode")
+    conn.execute("UPDATE tickets SET spec='adws/specs/x.md' WHERE id=?", (parent,))
+    conn.commit()
+    assert "already planned" in ticketing.plan_guard(conn, parent)
+    conn.close()
+
+
+def test_parse_ticket_breakdown_splits_h2_slices():
+    text = (
+        "# Dark mode tickets\n\n"
+        "intro line (dropped)\n\n"
+        "## Toggle component\n\nA slice.\n\n- bullet\n\n"
+        "## Persist the choice\n\nSecond slice, with a `### Detail` heading kept.\n"
+    )
+    slices = ticketing.parse_ticket_breakdown(text)
+    assert [t for t, _ in slices] == ["Toggle component", "Persist the choice"]
+    assert "A slice." in slices[0][1] and "- bullet" in slices[0][1]
+    assert "### Detail" in slices[1][1]  # nested headings stay in the body
+    assert "intro line" not in slices[0][1] and "intro line" not in slices[1][1]
+
+
+def test_parse_ticket_breakdown_empty_without_h2():
+    assert ticketing.parse_ticket_breakdown("no slices here\n") == []
+
+
+def test_spec_title_extracts_first_h1():
+    assert ticketing._spec_title("# Dark mode\n\nbody\n") == "Dark mode"
+    assert ticketing._spec_title("## Not an h1\n") == ""
+    assert ticketing._spec_title("") == ""
+
+
+def test_finish_plan_run_ignores_non_plan_sessions(tmp_path):
+    conn = _machine_conn(tmp_path / "m.db")
+    _plan_session(conn, "r1", adw_name="adw_implement")
+    assert ticketing.finish_plan_run(tmp_path, conn, "r1") is None
+    conn.close()
+
+
+def test_finish_plan_run_ignores_failed_plan_runs(tmp_path):
+    conn = _machine_conn(tmp_path / "m.db")
+    parent = ticketing.create_idea_ticket(conn, "Dark mode")
+    _plan_session(conn, "r1", status="fail")
+    conn.execute("UPDATE tickets SET adw_id='r1' WHERE id=?", (parent,))
+    conn.commit()
+    assert ticketing.finish_plan_run(tmp_path, conn, "r1") is None
+    row = conn.execute("SELECT spec FROM tickets WHERE id=?", (parent,)).fetchone()
+    assert row == ("",)  # untouched
+    conn.close()
+
+
+def test_finish_plan_run_ignores_runs_with_no_session(tmp_path):
+    conn = _machine_conn(tmp_path / "m.db")
+    assert ticketing.finish_plan_run(tmp_path, conn, "ghost") is None
+    conn.close()
+
+
+def test_finish_plan_run_transforms_linked_idea_ticket(tmp_path):
+    root = tmp_path / "proj"
+    conn = _plan_conn(root)
+    parent = ticketing.create_idea_ticket(conn, "Dark mode")
+    _plan_session(conn, "r1")
+    conn.execute("UPDATE tickets SET adw_id='r1' WHERE id=?", (parent,))
+    conn.commit()
+    _plan_artifacts(root, "r1")
+
+    landed = ticketing.finish_plan_run(root, conn, "r1", actor="alice")
+    assert landed == parent
+    row = conn.execute(
+        "SELECT spec, status, adw_id FROM tickets WHERE id=?", (parent,)
+    ).fetchone()
+    assert row[0] == "adws/specs/r1_spec-dark-mode.md"  # committed relative path
+    assert row[1] == "needs-triage"  # the parent stays out of the backlog
+    assert row[2] == "r1"
+    children = conn.execute(
+        "SELECT id, title, status, kind, parent_id, spec FROM tickets WHERE parent_id=?",
+        (parent,),
+    ).fetchall()
+    assert [c[1] for c in children] == ["Toggle component", "Persist the choice"]
+    assert all(c[2] == "ready-for-agent" for c in children)
+    assert all(c[3] == "implementation" for c in children)
+    assert all(c[4] == parent for c in children)
+    assert all(c[5] == "adws/specs/r1_spec-dark-mode.md" for c in children)
+    events = ticketing.ticket_events(conn, parent)
+    planned = [e for e in events if e["event_type"] == "planned"]
+    assert len(planned) == 1
+    assert planned[0]["actor"] == "alice"
+    assert planned[0]["payload"]["children"] == [c[0] for c in children]
+    conn.close()
+
+
+def test_finish_plan_run_no_args_creates_the_idea_ticket(tmp_path):
+    """No linked ticket → the no-args mode: the idea ticket is created from
+    the spec's title and the transform continues in the same pass."""
+    root = tmp_path / "proj"
+    conn = _plan_conn(root)
+    _plan_session(conn, "r1")
+    _plan_artifacts(root, "r1")
+
+    landed = ticketing.finish_plan_run(root, conn, "r1")
+    row = conn.execute(
+        "SELECT title, kind, status, spec, adw_id FROM tickets WHERE id=?", (landed,)
+    ).fetchone()
+    assert row == (
+        "Dark mode", "idea", "needs-triage", "adws/specs/r1_spec-dark-mode.md", "r1",
+    )
+    children = conn.execute(
+        "SELECT title FROM tickets WHERE parent_id=?", (landed,)
+    ).fetchall()
+    assert [c[0] for c in children] == ["Toggle component", "Persist the choice"]
+    conn.close()
+
+
+def test_finish_plan_run_raises_when_breakdown_has_no_h2(tmp_path):
+    root = tmp_path / "proj"
+    conn = _plan_conn(root)
+    _plan_session(conn, "r1")
+    _plan_artifacts(root, "r1", tickets="# Dark mode tickets\n\nNo slices here.\n")
+    with pytest.raises(ValueError, match="no `## ` headings"):
+        ticketing.finish_plan_run(root, conn, "r1")
+    conn.close()
+
+
+def test_finish_plan_run_raises_when_artifacts_missing(tmp_path):
+    conn = _machine_conn(tmp_path / "m.db")
+    _plan_session(conn, "r1")
+    with pytest.raises(ValueError, match="no spec/tickets"):
+        ticketing.finish_plan_run(tmp_path, conn, "r1")
+    conn.close()
+
+
+def test_finish_plan_run_revise_stacks_new_children_and_supersedes_stale(tmp_path):
+    """--revise relaxes the dispatch guard; the settle stacks the new slices,
+    comments stale unclaimed children, and never touches claimed ones."""
+    root = tmp_path / "proj"
+    conn = _plan_conn(root)
+    parent = ticketing.create_idea_ticket(conn, "Dark mode")
+    _insert_ticket(conn, "internal:old1", title="old1", kind="implementation",
+                   parent_id=parent, status="ready-for-agent")
+    _insert_ticket(conn, "internal:old2", title="old2", kind="implementation",
+                   parent_id=parent, status="in-progress")
+    _plan_session(conn, "r2")
+    conn.execute("UPDATE tickets SET adw_id='r2' WHERE id=?", (parent,))
+    conn.commit()
+    _plan_artifacts(root, "r2")
+
+    landed = ticketing.finish_plan_run(root, conn, "r2")
+    assert landed == parent
+    children = conn.execute(
+        "SELECT id, title FROM tickets WHERE parent_id=? ORDER BY rowid", (parent,)
+    ).fetchall()
+    assert [c[1] for c in children] == [
+        "old1", "old2", "Toggle component", "Persist the choice",
+    ]
+    # the stale unclaimed child is commented (never deleted, never parked)
+    old1_events = ticketing.ticket_events(conn, "internal:old1")
+    assert any("superseded by re-plan" in e["payload"].get("text", "") for e in old1_events)
+    # the claimed child is untouched
+    old2_events = ticketing.ticket_events(conn, "internal:old2")
+    assert not any("superseded" in e["payload"].get("text", "") for e in old2_events)
+    conn.close()
+
+
+def test_finish_plan_run_reads_artifacts_from_the_sandbox_worktree(tmp_path):
+    """A sandboxed run's artifacts live in the per-run worktree, not the
+    project tree — the settle must read them from .worktrees/<adw_id>."""
+    root = tmp_path / "proj"
+    conn = _plan_conn(root)
+    conn.execute(
+        "INSERT INTO sandbox_run (adw_id, container) VALUES ('r1', 'sssf-r1')"
+    )
+    parent = ticketing.create_idea_ticket(conn, "Dark mode")
+    _plan_session(conn, "r1")
+    conn.execute("UPDATE tickets SET adw_id='r1' WHERE id=?", (parent,))
+    conn.commit()
+    _plan_artifacts(root / ".worktrees" / "r1", "r1")
+
+    landed = ticketing.finish_plan_run(root, conn, "r1")
+    assert landed == parent
+    children = conn.execute(
+        "SELECT title FROM tickets WHERE parent_id=?", (parent,)
+    ).fetchall()
+    assert [c[0] for c in children] == ["Toggle component", "Persist the choice"]
     conn.close()

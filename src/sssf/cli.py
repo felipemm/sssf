@@ -139,13 +139,18 @@ def main(argv: list[str] | None = None) -> int:
         help="skip the scout exploration pass — the problem is already well understood",
     )
     p_fplan.add_argument(
+        "--revise",
+        action="store_true",
+        help="re-plan an already-planned idea ticket (the explicit plan-once escape)",
+    )
+    p_fplan.add_argument(
         "--no-sandbox",
         action="store_true",
         help="run in the current dir instead of a sandbox container",
     )
     p_fplan.set_defaults(
         func=lambda a: flow.plan(
-            Path.cwd(), a.ticket_id, a.project, a.skip_exploration, a.no_sandbox
+            Path.cwd(), a.ticket_id, a.project, a.skip_exploration, a.no_sandbox, a.revise
         )
     )
     p_fimpl = fsub.add_parser(

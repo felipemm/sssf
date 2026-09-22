@@ -343,6 +343,10 @@ class AgentCall(BaseModel):
     # the channel a phase uses to redirect a shared roster agent (e.g. the
     # documenter's kb write-up default -> an impeccable init/document task).
     user_directive: str = ""
+    # Mint a NEW agent session for this call even when the agent has a live
+    # one (issue #91: each plan step runs in its own fresh session — no
+    # context bleed between steps; only the envelope hands off).
+    fresh_session: bool = False
 
 
 # ── Config ───────────────────────────────────────────────────────────────────

@@ -76,9 +76,13 @@ sssf init</code></pre>
     clone it and run <code>sssf flow</code> to watch a full traced chain.
   </p>
   <p>
-    Work always belongs to a ticket: <span class="cmd">sssf flow implement
-    &lt;ticket-id&gt;</span> implements one <span class="cmd">ready-for-agent</span>
-    ticket unattended (triage → build → review).
+    Work always belongs to a ticket: <span class="cmd">sssf flow plan
+    &lt;ticket-id&gt;</span> turns an idea ticket into a spec plus
+    <span class="cmd">ready-for-agent</span> implementation children (plan-once;
+    <span class="cmd">--revise</span> re-plans), and
+    <span class="cmd">sssf flow implement &lt;ticket-id&gt;</span> implements one
+    <span class="cmd">ready-for-agent</span> ticket unattended (triage → build →
+    review).
   </p>
 
   <h2>4 · Look at the trace</h2>

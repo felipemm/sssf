@@ -8,10 +8,10 @@ Phases: engineer(request) -> scout(explore) -> planner(grill) -> planner(spec)
 -> planner(tickets) -> git(commit)
 
 The exploration pass is skippable (`--skip-exploration`) when the problem is
-already well understood; the plan steps each run as their own agent phase (the
-fresh-session mechanism per step is #91's refinement). The db-level transform
-(idea ticket → spec + implementation children) lands with #91 — this chain
-produces the plan artifacts end-to-end.
+already well understood; every step runs in its OWN fresh agent session (#91) —
+grill/spec/tickets never share a context window, only the envelope hands off.
+The host-side db transform (idea ticket → spec + implementation children) lands
+with #91: this chain produces the artifacts, the flow settles the tickets.
 """
 
 import argparse
@@ -36,6 +36,7 @@ CHAIN = Chain(
             description="Explore the problem space and land a brief — skippable",
             gates=[gates.artifacts_exist],
             when=lambda run: not getattr(run, "_skip_exploration", False),
+            fresh_session=True,
         ),
         AgentPhase(
             "grill",
@@ -50,6 +51,7 @@ CHAIN = Chain(
                 "adws/specs/<adw_id>_grill-<slug>.md and declare it in artifacts."
             ),
             gates=[gates.artifacts_exist, gates.files_non_empty],
+            fresh_session=True,
         ),
         AgentPhase(
             "spec",
@@ -59,12 +61,14 @@ CHAIN = Chain(
             user_directive=(
                 "You are the to-spec step of a plan flow. Write the final spec under "
                 "adws/specs/ as adws/specs/<adw_id>_spec-<slug>.md (list the directory "
-                "first; never overwrite an existing spec — pick a free name). The spec "
-                "must be implementable without further questions: goal, scope, seams, "
-                "acceptance criteria, and the files it touches. Declare the spec path "
-                "in artifacts."
+                "first; never overwrite an existing spec — pick a free name). Start the "
+                "spec with a single `# ` title line (the feature's name) — the flow "
+                "reads it back. The spec must be implementable without further "
+                "questions: goal, scope, seams, acceptance criteria, and the files it "
+                "touches. Declare the spec path in artifacts."
             ),
             gates=[gates.artifacts_exist, gates.files_non_empty],
+            fresh_session=True,
         ),
         AgentPhase(
             "tickets",
@@ -76,10 +80,14 @@ CHAIN = Chain(
                 "implementation tickets — small, independently implementable units, "
                 "each with its own acceptance criteria. Write the breakdown under "
                 "adws/specs/ as adws/specs/<adw_id>_tickets-<slug>.md and declare it "
-                "in artifacts. (The db-level creation of the child tickets is a later "
-                "flow step — this chain records the breakdown.)"
+                "in artifacts. The breakdown is parsed mechanically by the flow, so "
+                "use EXACTLY ONE `## ` heading per implementation ticket — the heading "
+                "is the ticket title and the body under it its description (no other "
+                "`## ` headings; a `# ` file title and `### ` subsections are fine). "
+                "The flow creates one ready-for-agent ticket per `## ` heading."
             ),
             gates=[gates.artifacts_exist, gates.files_non_empty],
+            fresh_session=True,
         ),
         CommitPhase(
             description="Commit the plan artifacts (brief / grill / spec / tickets)",
