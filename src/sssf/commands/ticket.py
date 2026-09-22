@@ -114,7 +114,7 @@ def _actor() -> str:
         return "system"
 
 
-def sync(project: str | None = None) -> int:
+def sync(project: str | None = None, *, provider: str | None = None) -> int:
     root = _root(project)
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
@@ -127,9 +127,13 @@ def sync(project: str | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    results = ticketing.sync_tickets(root, cfg)
+    results = ticketing.sync_tickets(
+        root, cfg, providers=[provider] if provider else None
+    )
     for r in results:
-        if r.error:
+        if r.warning:
+            print(f"sssf ticket: {r.provider}: skipped: {r.warning}")
+        elif r.error:
             print(f"sssf ticket: {r.provider}: {r.error}")
         else:
             print(f"sssf ticket: {r.provider}: {r.tickets} ticket(s) synced")

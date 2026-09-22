@@ -31,7 +31,7 @@ def _dispatch_ticket(a) -> int:
             a.title, a.project, description=a.description or "", prompt_file=a.prompt_file
         )
     if action == "sync":
-        return ticket.sync(a.project)
+        return ticket.sync(a.project, provider=a.provider)
     if action == "list":
         return ticket.list_tickets(a.project, backlog_only=a.backlog)
     if action == "run":
@@ -242,6 +242,12 @@ def main(argv: list[str] | None = None) -> int:
         "sync", help="fetch external tickets into the queue (born needs-triage, untracked)"
     )
     p_sync.add_argument("--project", default=None)
+    p_sync.add_argument(
+        "--provider",
+        default=None,
+        choices=("jira", "linear", "github", "gitlab"),
+        help="sync only this provider (default: every enabled provider)",
+    )
     p_list = tsub.add_parser("list", help="list tickets")
     p_list.add_argument("--project", default=None)
     p_list.add_argument(

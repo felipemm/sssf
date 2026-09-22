@@ -570,3 +570,53 @@ def test_backlog_retry_rejects_illegal_from_status(tmp_path, monkeypatch, capsys
     conn.close()
     assert ticket.backlog("internal:abc", None) == 1
     assert "done" in capsys.readouterr().err
+
+
+# ── multi-source sync CLI (issue #90) ───────────────────────────────────────
+
+
+def test_sync_provider_subset_passes_through(tmp_path, monkeypatch, capsys):
+    root = _project(
+        tmp_path,
+        monkeypatch,
+        "providers:\n  - internal\n  - github\n  - gitlab\n"
+        "github:\n  repo: owner/repo\ngitlab:\n  repo: group/proj\n",
+    )
+    captured = {}
+
+    def fake_sync_tickets(root, cfg, providers=None):
+        captured["providers"] = providers
+        return [ticketing.ProviderSyncResult("github", tickets=1)]
+
+    monkeypatch.setattr(ticketing, "sync_tickets", fake_sync_tickets)
+    assert ticket.sync(None, provider="github") == 0
+    assert captured["providers"] == ["github"]
+    assert "github: 1 ticket(s) synced" in capsys.readouterr().out
+
+
+def test_sync_all_when_no_provider_flag(tmp_path, monkeypatch, capsys):
+    root = _project(tmp_path, monkeypatch, CONFIG)
+    captured = {}
+
+    def fake_sync_tickets(root, cfg, providers=None):
+        captured["providers"] = providers
+        return [ticketing.ProviderSyncResult("jira", tickets=2)]
+
+    monkeypatch.setattr(ticketing, "sync_tickets", fake_sync_tickets)
+    assert ticket.sync(None) == 0
+    assert captured["providers"] is None  # no --provider → every enabled provider
+    assert "jira: 2 ticket(s) synced" in capsys.readouterr().out
+
+
+def test_sync_prints_skip_warning_distinctly(tmp_path, monkeypatch, capsys):
+    root = _project(tmp_path, monkeypatch, "providers:\n  - gitlab\n")
+    monkeypatch.setattr(
+        ticketing,
+        "sync_tickets",
+        lambda root, cfg, providers=None: [
+            ticketing.ProviderSyncResult("gitlab", warning="gitlab configured but origin is …")
+        ],
+    )
+    assert ticket.sync(None) == 0  # a skipped provider is not a failure
+    out = capsys.readouterr().out
+    assert "skipped" in out and "gitlab configured but origin" in out

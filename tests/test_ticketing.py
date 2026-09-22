@@ -1327,3 +1327,17 @@ def test_sync_tickets_failing_provider_does_not_stop_others(tmp_path, monkeypatc
     by_provider = {r.provider: r for r in results}
     assert by_provider["jira"].tickets == 0 and by_provider["jira"].error is None
     assert by_provider["github"].error is not None and "gh failed" in by_provider["github"].error
+
+
+def test_untracked_synced_tickets_invisible_in_backlog_until_marked(tmp_path):
+    """AC3: synced (untracked) tickets never appear in the backlog — only an
+    explicit needs-triage → ready-for-agent transition brings them in."""
+    db = tmp_path / "sssf.db"
+    rec = ticketing.TicketRecord("github", "owner/repo#12", "Dark mode", "d", "u")
+    ticketing.upsert_tickets(db, [rec])
+    conn = _machine_conn(db)
+    assert ticketing.backlog_tickets(conn) == []
+    ticketing.transition_ticket(conn, "github:owner/repo#12", ticketing.STATUS_READY, actor="human")
+    rows = ticketing.backlog_tickets(conn)
+    assert [r[0] for r in rows] == ["github:owner/repo#12"]
+    conn.close()
