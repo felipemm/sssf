@@ -45,7 +45,11 @@ class SessionsRow(Row):
 
 class PhasesRow(Row):
     phase_id: str = Field(json_schema_extra={"pk": True})
-    adw_id: str | None = Field(default=None, json_schema_extra={"ref": "sessions"})
+    # read=True: the reader and UI treat adw_id as always present even though
+    # the column is nullable — the codegen renders it non-null.
+    adw_id: str | None = Field(
+        default=None, json_schema_extra={"ref": "sessions", "read": True}
+    )
     seq: int | None = None
     name: str | None = None
     kind: Literal["engineer", "code", "agent"] | None = None
@@ -60,6 +64,10 @@ class PhasesRow(Row):
 
 
 class EventsRow(Row):
+    # virtual: the sqlite rowid the reader selects as a stable ordering key —
+    # part of the read surface, never a column or a written field. Optional in
+    # the model so write-validation passes without it.
+    rowid: int | None = Field(default=None, json_schema_extra={"virtual": True})
     event_id: str = Field(json_schema_extra={"pk": True})
     adw_id: str | None = Field(default=None, json_schema_extra={"ref": "sessions"})
     phase_id: str | None = Field(default=None, json_schema_extra={"ref": "phases"})
@@ -247,6 +255,19 @@ def _add_machine_columns(conn: sqlite3.Connection) -> None:
 # The current schema version. Bump on every schema-affecting change.
 SCHEMA_VERSION = 4
 
+# Columns the read-only viz reader (db.ts SINCE_VERSION) can serve as NULL on
+# dbs stamped below the version that guarantees them. The codegen renders
+# these nullable in the generated TS types even though the writer models them
+# non-null — the reader degrades them, so the contract types must too.
+VERSION_GATED_COLUMNS: set[str] = {
+    "sessions.adw_name",
+    "sessions.archived",
+    "agent_sessions.color",
+    "agent_sessions.context_tokens",
+    "agent_sessions.context_window",
+    "gate_results.checks_json",
+}
+
 # Ordered, additive migrations keyed by the version they land in:
 # (version, description, step) where step is SQL text or a callable taking
 # the connection. Applied at open when user_version < version. Steps are the
@@ -360,6 +381,8 @@ def create_table(table: str, model: type[Row]) -> str:
     inline_pk = len(pk_fields) == 1
     lines = []
     for name, field in model.model_fields.items():
+        if _meta(field).get("virtual"):
+            continue  # read-surface only, never a column
         lines.append(f"  {column_ddl(name, field, hints[name], inline_pk)},")
     if len(pk_fields) > 1:
         lines.append(f"  PRIMARY KEY ({', '.join(pk_fields)})")
