@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Implement flow drives the ticket machine (#92)** — `sssf flow implement
+  <ticket>` now runs one `ready-for-agent` ticket unattended end-to-end
+  (triage → build → quality → builder self-review → review) and settles the
+  machine: it claims the ticket (`ready-for-agent → in-progress`) and records
+  the run (`ticket_runs` + `tickets.adw_id`) BEFORE the run spawns; success
+  moves the ticket `in-progress → ready-for-signoff`; failure returns it
+  `in-progress → ready-for-agent` with the run's feedback attached
+  (fix-forward) — the reviewer's blocking findings when the review rejected
+  the build, else the run's last error event. Sandboxed runs settle in the
+  monitor (the host process that sees a sandboxed run's end); `--no-sandbox`
+  runs settle in the flow command from the ADW's exit code. Run history
+  accumulates across retries (every attempt and outcome visible in the
+  ticket modal). A sandbox spawn failure requeues the claim instead of
+  leaving the ticket stuck in-progress. The settle is guarded: only
+  implement-flow runs (`sessions.adw_name = adw_implement`) settle, and only
+  a ticket whose `adw_id` links the run and whose status is `in-progress` is
+  moved — legacy `ticket run` tickets and operator-moved tickets are never
+  yanked. New `ticketing.finish_implement_run()`; the no-sandbox dispatch
+  now forwards `--adw-id` so the ticket link points at the run that actually
+  executes.
+
 ### Changed
 
 - **Sandbox lifecycle split into a package (#109, architecture review)** —
