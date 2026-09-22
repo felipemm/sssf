@@ -1065,7 +1065,23 @@ def test_fetch_github_repeats_label_flags(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path, providers=("github",))
     cfg.github = {"labels": ["bug", "p1"]}
     ticketing.fetch_github(cfg, "owner/repo")
-    assert calls[0][5:13] == ["owner/repo", "--state", "open", "--label", "bug", "--label", "p1"]
+    assert calls[0] == [
+        "gh",
+        "issue",
+        "list",
+        "--repo",
+        "owner/repo",
+        "--state",
+        "open",
+        "--label",
+        "bug",
+        "--label",
+        "p1",
+        "--json",
+        "number,title,body,url,state,labels",
+        "--limit",
+        "100",
+    ]
 
 
 def test_fetch_github_missing_gh_raises_actionable(tmp_path, monkeypatch):
@@ -1149,7 +1165,19 @@ def test_fetch_gitlab_label_flags_and_missing_binary(tmp_path, monkeypatch):
     cfg = _cfg(tmp_path, providers=("gitlab",))
     cfg.gitlab = {"labels": ["bug"]}
     ticketing.fetch_gitlab(cfg, "group/proj")
-    assert calls[0][5:11] == ["group/proj", "--state", "opened", "--label", "bug"]
+    assert calls[0] == [
+        "glab",
+        "issue",
+        "list",
+        "--repo",
+        "group/proj",
+        "--state",
+        "opened",
+        "--label",
+        "bug",
+        "--output",
+        "json",
+    ]
 
     monkeypatch.setattr(ticketing.shutil, "which", lambda name: None)
     with pytest.raises(RuntimeError, match="install glab"):
