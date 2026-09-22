@@ -89,12 +89,33 @@ def validate(cfg: SSSFConfig, required: list[str]) -> None:
         ):
             if not Path(ref).is_file():
                 problems.append(f"agent {name!r}: {label} prompt not found: {ref}")
+        if cfg.defaults.skills_hermetic:
+            for skill in agent.skills:
+                stamped = Path.cwd() / ".pi" / "skills" / skill / "SKILL.md"
+                if not stamped.is_file():
+                    problems.append(
+                        f"agent {name!r}: skill {skill!r} is not stamped at "
+                        f".pi/skills/{skill}/SKILL.md — run `sssf init --refresh` "
+                        f"(stamps the workflow closure) and commit .pi/skills/"
+                    )
         try:
             agent_pi.resolve_model(agent.model)
         except ValueError as e:
             problems.append(f"agent {name!r}: {e}")
     if problems:
         raise SystemExit("config validation failed:\n- " + "\n- ".join(problems))
+
+
+def hermetic_skill_paths(repo_root: Path, agent: AgentConfig, hermetic: bool) -> list[str]:
+    """Absolute SKILL.md paths for the agent's subset under the stamped set.
+
+    Hermetic mode loads ONLY these (discovery is off), so each name must have
+    been stamped by `sssf init`; empty when hermetic is off — discovery
+    provides the skills and the names are advisory.
+    """
+    if not hermetic or not agent.skills:
+        return []
+    return [str(repo_root / ".pi" / "skills" / name / "SKILL.md") for name in agent.skills]
 
 
 # ── execution ────────────────────────────────────────────────────────────────
@@ -160,6 +181,10 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
             extensions=agent.harness_engineering,
             cwd=str(run.repo_root),
             skill_path=SKILL_PATH,
+            no_skills=run.cfg.defaults.skills_hermetic,
+            skill_paths=hermetic_skill_paths(
+                Path(run.repo_root), agent, run.cfg.defaults.skills_hermetic
+            ),
         )
         result = agent_pi.run(
             request,

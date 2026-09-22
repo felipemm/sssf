@@ -58,6 +58,26 @@ levels, per-agent `tools:` and `writes:`, and `protected_files` in `defaults`.
 - Prompts live at `adws/data/prompt_engineering/{agent}/system.md` and
   `user.md` — identity in the system prompt, task shape in the user prompt.
 
+## Your skills
+
+`sssf init` stamps the **hermetic workflow closure** into `.pi/skills/` — the
+workflow skills the flows reference (grill-me, wayfinder, grill-with-docs,
+to-spec, to-tickets, triage, implement, code-review, tdd, grilling,
+domain-modeling, codebase-design, plus the spec interviewer's
+`brainstorming`), their in-directory reference docs and agent defs, pinned to
+source commits in `.pi/skills/.sssf-versions.json` (`sssf doctor` reports
+staleness). The set never touches the global pi home.
+
+Agent sessions run hermetic by default (`defaults.skills_hermetic: true`):
+`pi --no-skills` keeps the operator's global skill library invisible, and
+each agent loads ONLY the `skills:` subset its roster entry names. A named
+skill must be stamped — `validate()` fails fast with
+`sssf init --refresh` guidance otherwise. **Commit `.pi/skills/`**: sandbox
+worktrees branch from `origin/main`, so the stamp must be in the repo to
+reach the container. A workflow skill outside the closure is added in two
+places in the same change: the closure (engine `skills_install.py`) and the
+roster's `skills:` subset.
+
 ## Your definition of done
 
 Acceptance is per-ADW: pass `accepted=` to `run.finish()` so the exit code, the

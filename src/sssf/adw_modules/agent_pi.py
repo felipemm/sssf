@@ -216,17 +216,14 @@ class ToolCallTracker:
         }
 
 
-def run(
-    request: PiRequest,
-    on_event: Callable[[dict], None] | None = None,
-    on_spawn: Callable[[int], None] | None = None,
-    on_exit: Callable[[int], None] | None = None,
-) -> PiResult:
-    """Run one non-interactive pi turn.
+def build_command(request: PiRequest) -> list[str]:
+    """The argv for one non-interactive pi turn (pure — unit-testable).
 
-    `on_spawn(pid)` and `on_exit(pid)` bracket the child process so the caller
-    can record it as killable — a hung coding agent is otherwise a pid you have
-    to hunt for in `ps` while the run sits there.
+    Hermetic skills (#88): `--no-skills` turns discovery off, and every
+    `skill_paths` entry becomes an additive `--skill` flag (pi's `--skill`
+    loads explicitly even with `--no-skills`), so the per-agent subsets stay
+    loadable while the operator's global library stays invisible. The sssf
+    package's own SKILL.md (`skill_path`) keeps loading either way.
     """
     provider, model_id = resolve_model(request.model)
     cmd = [
@@ -247,13 +244,34 @@ def run(
         "--system-prompt",
         request.system_prompt,
     ]
+    if request.no_skills:
+        cmd += ["--no-skills"]
     if request.skill_path:
         cmd += ["--skill", request.skill_path]
+    for skill_path in request.skill_paths:
+        cmd += ["--skill", skill_path]
     if request.tools:
         cmd += ["--tools", ",".join(request.tools)]
     for extension in request.extensions:
         cmd += ["-e", extension]
     cmd.append(request.prompt)
+    return cmd
+
+
+def run(
+    request: PiRequest,
+    on_event: Callable[[dict], None] | None = None,
+    on_spawn: Callable[[int], None] | None = None,
+    on_exit: Callable[[int], None] | None = None,
+) -> PiResult:
+    """Run one non-interactive pi turn.
+
+    `on_spawn(pid)` and `on_exit(pid)` bracket the child process so the caller
+    can record it as killable — a hung coding agent is otherwise a pid you have
+    to hunt for in `ps` while the run sits there.
+    """
+    provider, model_id = resolve_model(request.model)
+    cmd = build_command(request)
 
     raw_path = Path(request.raw_output_path)
     raw_path.parent.mkdir(parents=True, exist_ok=True)

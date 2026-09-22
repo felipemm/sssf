@@ -367,6 +367,10 @@ class AgentConfig(BaseModel):
     prompt_engineering: PromptEngineering
     harness_engineering: list[str] = Field(default_factory=list)
     tools: list[str] | None = None  # allowlist; None = all tools usable
+    # Per-agent skill subset (hermetic mode, #88): names from the stamped
+    # .pi/skills/ closure; each resolves to .pi/skills/<name>/SKILL.md and is
+    # loaded explicitly via --skill while discovery is off (--no-skills).
+    skills: list[str] = Field(default_factory=list)
     # What this agent may MODIFY in the repo, enforced in code after every call
     # (see adw_modules/permissions.py). `tools` cannot express this: `bash` runs
     # anything and `write` reaches any path, so an agent's capability list is a
@@ -385,6 +389,12 @@ class ConfigDefaults(BaseModel):
     color: str = ""
     harness_engineering: list[str] = Field(default_factory=list)
     tools: list[str] | None = None  # roster-wide allowlist; None = all tools usable
+    # Hermetic skills (#88): when true, agent sessions run `pi --no-skills` —
+    # the operator's global skill library is invisible — and load ONLY the
+    # per-agent `skills:` subsets (paths into the stamped .pi/skills/ set that
+    # `sssf init` installs; commit .pi/skills/ so sandbox worktrees carry it).
+    # Off keeps the pre-#88 discovery behavior (project + global skills load).
+    skills_hermetic: bool = False
     # Off-limits to every agent that has not named them in its own `writes`.
     # The factory's own code is the default: an agent must not be able to edit
     # the machinery that decides whether its work passed.
@@ -477,6 +487,11 @@ class PiRequest(BaseModel):
     raw_output_path: str  # JSONL stream lands here
     tools: list[str] | None = None
     skill_path: str | None = None
+    # Hermetic skill flags (#88): no_skills passes --no-skills (discovery off)
+    # and skill_paths become additive --skill flags — pi's --skill loads even
+    # with --no-skills, which is how the per-agent subsets stay loadable.
+    no_skills: bool = False
+    skill_paths: list[str] = Field(default_factory=list)
     extensions: list[str] = Field(default_factory=list)
     cwd: str = "."  # set from run.repo_root — the codebase root agents work in
 
