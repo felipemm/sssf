@@ -739,7 +739,9 @@ def _workbench_rows(root: Path) -> list[tuple]:
 def test_flow_deploy_brings_up_workbench_and_approves_batch(tmp_path, monkeypatch):
     """Approve at the signoff: the workbench is up (recorded with the
     published URL), the release-train chain runs with a pinned adw-id, and the
-    batch's ready-for-signoff ticket moves to ready-to-deploy."""
+    batch's ready-for-signoff ticket moves through ready-to-deploy and closes
+    with the release (close-by-commits, issue #97 — the dev commit references
+    the ticket)."""
     root = _deploy_project(tmp_path, monkeypatch)
     calls = _capture_call(monkeypatch)
     monkeypatch.setattr("builtins.input", lambda prompt: "y")
@@ -755,14 +757,18 @@ def test_flow_deploy_brings_up_workbench_and_approves_batch(tmp_path, monkeypatc
     assert len(calls) == 1
     assert calls[0][1].endswith("adw_deploy.py")
     assert "--adw-id" in calls[0]
-    # the batch settled: ready-for-signoff -> ready-to-deploy
+    # the batch settled: ready-for-signoff -> ready-to-deploy, then closed by
+    # the release commit set (the dev commit references the ticket)
     conn = _adb(root)
     row = conn.execute("SELECT status FROM tickets WHERE id='internal:abc'").fetchone()
-    assert row == ("ready-to-deploy",)
+    assert row == ("done",)
     conn.close()
 
 
 def test_flow_deploy_yes_autoapproves_without_prompt(tmp_path, monkeypatch):
+    """--yes never asks: the signoff, the canary gate, and the promote gate
+    all auto-confirm (the explicit automation escape), and the batch closes
+    with the release."""
     root = _deploy_project(tmp_path, monkeypatch)
     calls = _capture_call(monkeypatch)
     prompts = []
@@ -772,7 +778,7 @@ def test_flow_deploy_yes_autoapproves_without_prompt(tmp_path, monkeypatch):
     assert len(calls) == 1
     conn = _adb(root)
     assert conn.execute("SELECT status FROM tickets WHERE id='internal:abc'").fetchone() == (
-        "ready-to-deploy",
+        "done",
     )
     conn.close()
 
@@ -936,6 +942,214 @@ def test_flow_deploy_failed_release_train_requeues(tmp_path, monkeypatch):
         "SELECT status, rejection_feedback FROM tickets WHERE id='internal:abc'"
     ).fetchone()
     assert row[0] == "ready-for-agent"
+    conn.close()
+
+
+# ── release gates + close-by-commits (issue #97) ────────────────────────────
+
+_RELEASE_YAML = (
+    "version_files:\n  - pyproject.toml\n"
+    'workbench:\n  command: ["bun", "run", "dev"]\n  container_port: 3000\n'
+    "release:\n"
+    "  canary:\n"
+    '    command: ["tompero", "deployment", "canary", "start", "--service", "demo"]\n'
+    "  promote:\n"
+    '    command: ["tompero", "deployment", "canary", "promote", "--service", "demo"]\n'
+    '    status_command: ["tompero", "deployment", "get", "--service", "demo", "-O", "json"]\n'
+
+    '    promoted_match: "promoted"\n'
+    "    poll_interval_s: 0\n"
+    "    poll_timeout_s: 60\n"
+)
+
+
+class _FakeRun:
+    """A fake subprocess.run result for the release gates."""
+
+    def __init__(self, returncode=0, stdout="", stderr=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def _release_project(tmp_path, monkeypatch, release_yaml=_RELEASE_YAML):
+    """The deploy fixture with a `release:` block in deploy.yaml (canary +
+    promote commands and the promote poll settings)."""
+    root = _deploy_project(tmp_path, monkeypatch)
+    (root / "adws" / "config" / "deploy.yaml").write_text(release_yaml)
+    return root
+
+
+def _fake_release_run(ran: list[list[str]], handler):
+    """A subprocess.run fake that passes through everything except the
+    release commands (tompero …): git/docker queries must run for real, only
+    the canary/promote/status commands are faked per-test."""
+    real_run = flow.subprocess.run
+
+    def fake_run(argv, **kw):
+        if argv and argv[0] == "tompero":
+            ran.append(argv)
+            return handler(argv)
+        return real_run(argv, **kw)
+
+    return fake_run
+
+
+def test_flow_deploy_canary_runs_only_after_confirmation(tmp_path, monkeypatch):
+    """The canary step runs only after the operator's terminal confirmation
+    (issue #97 AC1): a 'y' runs the per-project canary command; the batch then
+    flows on to promote and close-by-commits."""
+    root = _release_project(tmp_path, monkeypatch)
+    _capture_call(monkeypatch)  # fakes the release-train chain's subprocess.call
+    ran: list[list[str]] = []
+
+    def handler(argv):
+        return _FakeRun(stdout='{"deployment": {"status": "promoted"}}')
+
+    monkeypatch.setattr(flow.subprocess, "run", _fake_release_run(ran, handler))
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    assert flow.deploy(Path.cwd(), None, yes=False) == 0
+    # the canary command ran first, then promote, then the status poll
+    # (the canary/promote commands share the `tompero deployment canary`
+    #  prefix — the verb at argv[3] distinguishes them; the poll is `get`)
+    assert [a[3] for a in ran] == ["start", "promote", "--service"]
+    assert ran[0][1:] == ["deployment", "canary", "start", "--service", "demo"]
+    # the batch closed with the release (close-by-commits matched the dev commit)
+    conn = _adb(root)
+    assert conn.execute("SELECT status FROM tickets WHERE id='internal:abc'").fetchone() == (
+        "done",
+    )
+    conn.close()
+
+
+def test_flow_deploy_canary_skipped_without_confirmation(tmp_path, monkeypatch, capsys):
+    """A 'n' at the canary prompt means the release pauses: no canary, no
+    promote, no close — the approved tickets stay ready-to-deploy (the MR is
+    registered and the monitor watches it)."""
+    root = _release_project(tmp_path, monkeypatch)
+    _capture_call(monkeypatch)
+    ran: list[list[str]] = []
+
+    def handler(argv):
+        return _FakeRun()
+
+    monkeypatch.setattr(flow.subprocess, "run", _fake_release_run(ran, handler))
+    answers = iter(["y", "n"])  # approve at the signoff, decline the canary
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    assert flow.deploy(Path.cwd(), None, yes=False) == 0
+    assert ran == []  # neither canary nor promote ran
+    conn = _adb(root)
+    assert conn.execute("SELECT status FROM tickets WHERE id='internal:abc'").fetchone() == (
+        "ready-to-deploy",
+    )
+    conn.close()
+
+
+def test_flow_deploy_canary_failure_parks_blocked(tmp_path, monkeypatch):
+    """A canary failure parks the batch's tickets in `blocked` (issue #97
+    AC2) — visible and actionable, never silently retried — with the command's
+    stderr as fix-forward feedback."""
+    root = _release_project(tmp_path, monkeypatch)
+    _capture_call(monkeypatch)
+
+    def handler(argv):
+        if argv[3] == "start":
+            return _FakeRun(returncode=1, stderr="crash loop on canary")
+        return _FakeRun(stdout='{"status": "promoted"}')
+
+    monkeypatch.setattr(flow.subprocess, "run", _fake_release_run([], handler))
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    assert flow.deploy(Path.cwd(), None, yes=False) == 1
+    conn = _adb(root)
+    row = conn.execute(
+        "SELECT status, rejection_feedback FROM tickets WHERE id='internal:abc'"
+    ).fetchone()
+    assert row[0] == "blocked"
+    assert "crash loop on canary" in row[1]
+    conn.close()
+
+
+def test_flow_deploy_promote_polls_until_fully_promoted(tmp_path, monkeypatch):
+    """Promote executes the tompero canary-promote command only after
+    confirmation, then polls deployment status until fully promoted (issue
+    #97 AC3): the status command is polled until its output carries the
+    promoted match, then the release closes the batch."""
+    root = _release_project(tmp_path, monkeypatch)
+    _capture_call(monkeypatch)
+    ran: list[list[str]] = []
+
+    def handler(argv):
+        if argv[3] == "promote":
+            return _FakeRun()
+        return _FakeRun(stdout='{"deployment": {"status": "promoted"}}')
+
+    monkeypatch.setattr(flow.subprocess, "run", _fake_release_run(ran, handler))
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    assert flow.deploy(Path.cwd(), None, yes=False) == 0
+    # promote command + status polls; the promote command ran after the canary
+    assert [a[3] for a in ran] == ["start", "promote", "--service"]
+    conn = _adb(root)
+    assert conn.execute("SELECT status FROM tickets WHERE id='internal:abc'").fetchone() == (
+        "done",
+    )
+    conn.close()
+
+
+def test_flow_deploy_promote_timeout_parks_blocked(tmp_path, monkeypatch):
+    """A promote that never reaches fully-promoted within the poll timeout
+    parks the batch blocked too — the release is not silently abandoned."""
+    root = _release_project(tmp_path, monkeypatch)
+    _capture_call(monkeypatch)
+    ran: list[list[str]] = []
+    calls = {"n": 0}
+
+    def fake_monotonic():
+        # call 1 = deadline anchor (0), then each loop check advances 20s:
+        # 20, 40, 60 -> expires after two polls (poll_interval_s 0 => tight)
+        calls["n"] += 1
+        return {1: 0.0, 2: 20.0, 3: 40.0, 4: 60.0}.get(calls["n"], 999.0)
+
+    monkeypatch.setattr(flow.time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(flow.time, "sleep", lambda s: None)
+
+    def handler(argv):
+        if argv[3] == "promote":
+            return _FakeRun()
+        return _FakeRun(stdout='{"deployment": {"status": "starting"}}')
+
+    monkeypatch.setattr(flow.subprocess, "run", _fake_release_run(ran, handler))
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    assert flow.deploy(Path.cwd(), None, yes=False) == 1
+    assert len([a for a in ran if a[2] == "get"]) > 1  # it polled, never matched
+    conn = _adb(root)
+    row = conn.execute(
+        "SELECT status, rejection_feedback FROM tickets WHERE id='internal:abc'"
+    ).fetchone()
+    assert row[0] == "blocked"
+    assert "promoted" in row[1]
+    conn.close()
+
+
+def test_flow_deploy_without_release_block_skips_gates_but_closes(tmp_path, monkeypatch, capsys):
+    """No `release:` block in deploy.yaml: the canary/promote gates are
+    skipped (the tompero commands are per-project — a project without a
+    deployment pipeline still gets the release train), but close-by-commits
+    still closes the batch by the MR's commit set."""
+    root = _deploy_project(tmp_path, monkeypatch)
+    _capture_call(monkeypatch)
+    ran: list[list[str]] = []
+
+    def handler(argv):
+        return _FakeRun()
+
+    monkeypatch.setattr(flow.subprocess, "run", _fake_release_run(ran, handler))
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    assert flow.deploy(Path.cwd(), None, yes=False) == 0
+    assert ran == []  # no release commands configured — nothing ran
+    conn = _adb(root)
+    assert conn.execute("SELECT status FROM tickets WHERE id='internal:abc'").fetchone() == (
+        "done",
+    )
     conn.close()
 
 

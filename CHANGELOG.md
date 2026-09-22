@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Release: canary, blocked, promote, close-by-commits (#97)** — the deploy
+  flow's release mechanics after batch approval: the canary step and the
+  per-project tompero canary-promote step each run ONLY after the operator's
+  terminal confirmation (`--yes` is the explicit automation escape), the
+  promote step polls the per-project status command until fully promoted
+  (configured under the new optional `release:` block in
+  adws/config/deploy.yaml; a project without a deployment pipeline omits it
+  and skips the gates). A canary/promote failure or poll timeout parks the
+  batch's tickets `ready-to-deploy → blocked` with the command's stderr as
+  fix-forward feedback — visible and actionable, never silently retried (the
+  human unblocks with the existing `sssf ticket backlog`). Declining a gate
+  pauses the release (tickets stay ready-to-deploy; the MR is registered and
+  the #98 monitor watches it). The release closes every ready-to-deploy
+  ticket parsed from the MR's commit set — commits since the last tag on the
+  dev snapshot (`#<id>` or a run adw_id; the whole snapshot on the first
+  release) — so implementation tickets and their features close together.
 - **Deploy flow: batch-to-dev release train + workbench signoff (#96)** —
   `sssf flow deploy` is now a host-side orchestration: it brings up the QA
   workbench from the `dev` branch (a container with the app's command and a

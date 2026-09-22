@@ -32,6 +32,8 @@ from pathlib import Path
 from sssf import registry
 from sssf.project import find_project
 
+DEPLOY_CONFIG = "adws/config/deploy.yaml"
+
 
 def _root(cwd: Path, explicit: str | None) -> Path | None:
     return find_project(cwd, explicit)
@@ -578,6 +580,158 @@ def _run_release_train(
     return 0
 
 
+def _release_config(root: Path) -> dict:
+    """The project's `release:` block from adws/config/deploy.yaml (issue
+    #97): the per-project canary command, the promote command, and the promote
+    poll settings. {} when absent — the tompero commands are per-project, so
+    a project without a deployment pipeline skips the gates but still gets
+    the release train and close-by-commits."""
+    path = root / DEPLOY_CONFIG
+    if not path.exists():
+        return {}
+    try:
+        import yaml
+
+        data = yaml.safe_load(path.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    return data.get("release") or {}
+
+
+def _confirm_release_step(yes: bool, label: str) -> bool:
+    """The operator's terminal confirmation for a release step (issue #97):
+    a human checkpoint like the signoff — `--yes` is the explicit automation
+    escape (it RUNS the step; it does not skip it)."""
+    if yes:
+        return True
+    try:
+        return input(f"{label} [y/N] ").strip().lower() in ("y", "yes")
+    except EOFError:
+        return False
+
+
+_RELEASE_DECLINED = 2
+"""The gate's 'operator declined' outcome: the release pauses (tickets stay
+ready-to-deploy, the MR is registered) — the deploy returns 0, unlike a
+failure which parks tickets blocked and returns 1."""
+
+
+def _park_batch_blocked(
+    conn: sqlite3.Connection, batch: list[str], feedback: str, label: str
+) -> int:
+    """A release-gate failure parks the batch's ready-to-deploy tickets in
+    `blocked` (visible and actionable, never silently retried) with the
+    failure feedback attached — then the deploy returns 1. Returns 1 so the
+    gate call sites can `return _park_batch_blocked(...)` directly."""
+    from sssf import ticketing
+
+    moved = ticketing.block_deploy_tickets(conn, batch, actor=_actor(), feedback=feedback)
+    conn.commit()
+    print(
+        f"sssf flow: {label} — {len(moved)} ticket(s) parked in blocked",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def _run_canary_gate(
+    root: Path, conn: sqlite3.Connection, batch: list[str], rel: dict, yes: bool
+) -> int:
+    """The canary step (issue #97 AC1/AC2): runs only after the operator's
+    terminal confirmation. A non-zero exit parks the batch's tickets in
+    `blocked` (visible and actionable, never silently retried) with the
+    command's stderr as fix-forward feedback. Returns 0 when the release
+    continues (confirmed and passed, or no command configured); 1 on failure
+    or when the operator declines (the release pauses — tickets stay
+    ready-to-deploy, the MR is registered and the monitor watches it)."""
+
+    command = (rel.get("canary") or {}).get("command")
+    if not command:
+        print("sssf flow: no canary command configured — skipping the canary step")
+        return 0
+    if not _confirm_release_step(yes, "run the canary step?"):
+        print(
+            "sssf flow: canary declined — release paused; tickets stay"
+            " ready-to-deploy (MR registered, monitor watching)"
+        )
+        return _RELEASE_DECLINED
+    r = subprocess.run(command, cwd=root, capture_output=True, text=True)
+    if r.returncode != 0:
+        detail = (r.stderr or r.stdout).strip()[-300:] or "canary command failed"
+        return _park_batch_blocked(
+            conn, batch, f"canary failed: {detail}", "canary failed"
+        )
+    print("sssf flow: canary passed")
+    return 0
+
+
+def _run_promote_gate(
+    root: Path, conn: sqlite3.Connection, batch: list[str], rel: dict, yes: bool
+) -> int:
+    """The promote step (issue #97 AC3): the per-project tompero
+    canary-promote command runs only after the operator's terminal
+    confirmation, then `status_command` is polled every `poll_interval_s`
+    until its output carries `promoted_match` (default "promoted") or
+    `poll_timeout_s` elapses. Failure or timeout parks the batch's tickets in
+    `blocked`. Returns 0 when the release continues; 1 on failure/decline.
+    """
+
+    promote = rel.get("promote") or {}
+    command = promote.get("command")
+    if not command:
+        print("sssf flow: no promote command configured — skipping the promote step")
+        return 0
+    if not _confirm_release_step(yes, "promote the canary to full deployment?"):
+        print(
+            "sssf flow: promote declined — release paused; tickets stay"
+            " ready-to-deploy (MR registered, monitor watching)"
+        )
+        return _RELEASE_DECLINED
+    r = subprocess.run(command, cwd=root, capture_output=True, text=True)
+    if r.returncode != 0:
+        detail = (r.stderr or r.stdout).strip()[-300:] or "promote command failed"
+        return _park_batch_blocked(
+            conn, batch, f"promote failed: {detail}", "promote failed"
+        )
+    status_command = promote.get("status_command")
+    if not status_command:
+        print("sssf flow: promote ran — no status_command configured, nothing to poll")
+        return 0
+    match = promote.get("promoted_match") or "promoted"
+    interval = float(promote.get("poll_interval_s") or 15)
+    timeout = float(promote.get("poll_timeout_s") or 1800)
+    deadline = time.monotonic() + timeout
+    detail = f"promotion not complete after {timeout:g}s (never matched {match!r})"
+    while time.monotonic() < deadline:
+        s = subprocess.run(status_command, cwd=root, capture_output=True, text=True)
+        if match in (s.stdout + s.stderr):
+            print("sssf flow: deployment fully promoted")
+            return 0
+        time.sleep(interval)
+    return _park_batch_blocked(
+        conn, batch, f"promote timed out: {detail}", "promote timed out"
+    )
+
+
+def _close_by_commits(root: Path, conn: sqlite3.Connection, batch: list[str]) -> list[str]:
+    """The release close (issue #97 AC4): close-by-commits closes every
+    ready-to-deploy ticket parsed from the MR's commit set (commits since the
+    last tag on the dev snapshot; the whole snapshot when no tag exists yet).
+    A ticket whose id (`#<id>`) or a run adw_id (`sssf(<adw_id>)`) appears in
+    the commit set closes with the release — implementation tickets and their
+    features close together. Only ready-to-deploy tickets move; a ticket
+    parked blocked by a failed canary stays blocked. Returns the closed ids.
+    """
+    from sssf import ticketing
+
+    last_tag = _git(root, "describe", "--tags", "--abbrev=0")
+    if last_tag:
+        commit_text = _git(root, "log", "--oneline", f"{last_tag}..HEAD")
+    else:
+        # first release: the whole dev snapshot is the MR's commit set
+        commit_text = "\n".join(_batch_commits(root, "dev"))
+    candidates = ticketing.release_ticket_ids(conn, commit_text)
+    return ticketing.close_release_tickets(conn, candidates, actor=_actor())
 def implement_afk(
     cwd: Path,
     explicit_project: str | None = None,
@@ -801,7 +955,28 @@ def deploy(
 
     conn.commit()
     try:
-        return _run_release_train(root, conn, adw_id, dev, batch)
+        code = _run_release_train(root, conn, adw_id, dev, batch)
+        if code != 0:
+            return code
+        rel = _release_config(root)
+        code = _run_canary_gate(root, conn, batch, rel, yes)
+        if code == _RELEASE_DECLINED:
+            return 0
+        if code != 0:
+            return code
+        code = _run_promote_gate(root, conn, batch, rel, yes)
+        if code == _RELEASE_DECLINED:
+            return 0
+        if code != 0:
+            return code
+        closed = _close_by_commits(root, conn, batch)
+        conn.commit()
+        if closed:
+            print(
+                f"sssf flow: release closed {len(closed)} ticket(s) by the MR's"
+                f" commit set ({', '.join(closed)})"
+            )
+        return 0
     finally:
         conn.close()
 

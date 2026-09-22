@@ -761,6 +761,114 @@ def test_approve_deploy_batch_without_mr_info_still_moves(tmp_path):
     conn.close()
 
 
+# ── release edges: blocked (canary/promote failure) and close-by-commits (#97) ──
+
+
+def test_block_deploy_tickets_parks_ready_to_deploy_in_blocked(tmp_path):
+    """A canary/promote failure parks the batch's ready-to-deploy tickets in
+    `blocked` — visible and actionable, never silently retried — with the
+    failure feedback attached and the transition audited."""
+    conn = _deploy_conn(tmp_path)
+    conn.execute("UPDATE tickets SET status='ready-to-deploy' WHERE id IN ('t1','t2')")
+    conn.commit()
+    moved = ticketing.block_deploy_tickets(
+        conn, ["t1", "t2"], actor="ralph", feedback="canary failed: crash loop"
+    )
+    assert moved == ["t1", "t2"]
+    rows = conn.execute(
+        "SELECT id, status, rejection_feedback FROM tickets WHERE id IN ('t1','t2')"
+        " ORDER BY id"
+    ).fetchall()
+    assert [(r[1], r[2]) for r in rows] == [
+        ("blocked", "canary failed: crash loop"),
+        ("blocked", "canary failed: crash loop"),
+    ]
+    # the outsider never moves
+    assert conn.execute("SELECT status FROM tickets WHERE id='t-outside'").fetchone() == (
+        "ready-for-agent",
+    )
+    ev = ticketing.ticket_events(conn, "t1")[-1]
+    assert ev["payload"]["from"] == "ready-to-deploy"
+    assert ev["payload"]["to"] == "blocked"
+    assert ev["actor"] == "ralph"
+    conn.close()
+
+
+def test_block_deploy_tickets_never_touches_non_deploy_tickets(tmp_path):
+    """Only ready-to-deploy tickets move to blocked — a ticket still waiting
+    for the batch verdict (ready-for-signoff) or already done stays put."""
+    conn = _deploy_conn(tmp_path)
+    conn.execute("UPDATE tickets SET status='ready-to-deploy' WHERE id='t1'")
+    conn.commit()
+    assert ticketing.block_deploy_tickets(
+        conn, ["t1", "t2"], actor="ralph", feedback="canary failed"
+    ) == ["t1"]
+    assert conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone() == ("blocked",)
+    assert conn.execute("SELECT status FROM tickets WHERE id='t2'").fetchone() == (
+        "ready-for-signoff",
+    )
+    conn.close()
+
+
+def test_close_release_tickets_closes_ready_to_deploy(tmp_path):
+    """The release close-by-commits edge: every ready-to-deploy ticket closes
+    with the release (ready-to-deploy → done, terminal) and the audit records
+    the transition."""
+    conn = _deploy_conn(tmp_path)
+    conn.execute("UPDATE tickets SET status='ready-to-deploy' WHERE id IN ('t1','t2')")
+    conn.commit()
+    moved = ticketing.close_release_tickets(conn, ["t1", "t2"], actor="ralph")
+    assert moved == ["t1", "t2"]
+    for tid in ("t1", "t2"):
+        assert conn.execute("SELECT status FROM tickets WHERE id=?", (tid,)).fetchone() == (
+            "done",
+        )
+        ev = ticketing.ticket_events(conn, tid)[-1]
+        assert ev["payload"]["from"] == "ready-to-deploy"
+        assert ev["payload"]["to"] == "done"
+    # a ticket not in the close set never moves
+    assert conn.execute("SELECT status FROM tickets WHERE id='t-outside'").fetchone() == (
+        "ready-for-agent",
+    )
+    conn.close()
+
+
+def test_close_release_tickets_never_closes_blocked_or_signoff(tmp_path):
+    """Close-by-commits is terminal and never yanks a ticket from an earlier
+    stage: a blocked ticket (canary failure) and a ready-for-signoff ticket
+    stay put even when named in the close set."""
+    conn = _deploy_conn(tmp_path)
+    conn.execute("UPDATE tickets SET status='ready-to-deploy' WHERE id='t1'")
+    conn.execute("UPDATE tickets SET status='blocked' WHERE id='t2'")
+    conn.commit()
+    assert ticketing.close_release_tickets(conn, ["t1", "t2"], actor="ralph") == ["t1"]
+    assert conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone() == ("done",)
+    assert conn.execute("SELECT status FROM tickets WHERE id='t2'").fetchone() == ("blocked",)
+    conn.close()
+
+
+def test_release_ticket_ids_matches_commit_set(tmp_path):
+    """The close-by-commits candidate set: ready-to-deploy tickets whose id
+    (`#<ticket-id>`) or a run adw_id (`sssf(<adw_id>)`) appears in the release
+    commit text. Tickets in earlier stages are never candidates."""
+    conn = _deploy_conn(tmp_path)
+    conn.execute("UPDATE tickets SET status='ready-to-deploy' WHERE id IN ('t1','t2')")
+    conn.execute(
+        "INSERT INTO ticket_runs (ticket_id, adw_id, created_at)"
+        " VALUES ('t2', 'run9', '2026-09-01T00:00:00+00:00')"
+    )
+    conn.commit()
+    text = (
+        "a1b2c3 feat: dark mode (#t1)\n"
+        "d4e5f6 sssf(run9): ship the toggle\n"
+        "g7h8i9 chore: unrelated (#t-outside)"
+    )
+    assert ticketing.release_ticket_ids(conn, text) == ["t1", "t2"]
+    # nothing matches -> no candidates (a blanket close never happens)
+    assert ticketing.release_ticket_ids(conn, "no references here") == []
+    conn.close()
+
+
 def test_revert_deploy_ticket_requeues_only_signoff(tmp_path):
     """The revert escape hatch's edge: a genuinely unwanted ticket comes back
     ready-for-agent fix-forward — but only while it is still waiting for the

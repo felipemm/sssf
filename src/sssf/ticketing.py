@@ -566,6 +566,99 @@ def revert_deploy_ticket(
     return True
 
 
+def _tickets_in_status(
+    conn: sqlite3.Connection, ticket_ids: list[str], status: str
+) -> list[str]:
+    """The given tickets currently in `status` — the release edges' filter so
+    a ticket parked in an earlier stage is never yanked."""
+    if not ticket_ids:
+        return []
+    marks = ",".join("?" * len(ticket_ids))
+    rows = conn.execute(
+        f"SELECT id FROM tickets WHERE id IN ({marks}) AND status=?",
+        (*ticket_ids, status),
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def block_deploy_tickets(
+    conn: sqlite3.Connection,
+    ticket_ids: list[str],
+    *,
+    actor: str = "system",
+    feedback: str = "",
+) -> list[str]:
+    """The release failure edge (issue #97): a canary/promote failure parks
+    the batch's `ready-to-deploy` tickets in `blocked` — visible and
+    actionable, never silently retried. The human unblocks back into the
+    queue (`blocked -> ready-for-agent`, the existing `sssf ticket backlog`
+    edge) after the fix. Only tickets still `ready-to-deploy` move; a ticket
+    parked in an earlier stage is never yanked. Returns the tickets parked.
+    """
+    moved: list[str] = []
+    for ticket_id in _tickets_in_status(conn, ticket_ids, STATUS_DEPLOY):
+        transition_ticket(
+            conn,
+            ticket_id,
+            STATUS_BLOCKED,
+            actor=actor,
+            feedback=feedback or "release step failed — parked blocked",
+            comment="release failure — parked blocked (visible, not silently retried)",
+        )
+        moved.append(ticket_id)
+    return moved
+
+
+def close_release_tickets(
+    conn: sqlite3.Connection, ticket_ids: list[str], *, actor: str = "system"
+) -> list[str]:
+    """The release close-by-commits edge (issue #97): every `ready-to-deploy`
+    ticket in the MR's commit set closes with the release — implementation
+    tickets and their features close together (`ready-to-deploy -> done`,
+    terminal). Only tickets still `ready-to-deploy` move: a blocked ticket
+    (canary failure) stays blocked, a ticket still awaiting the batch verdict
+    is not part of this release. Returns the tickets closed."""
+    moved: list[str] = []
+    for ticket_id in _tickets_in_status(conn, ticket_ids, STATUS_DEPLOY):
+        transition_ticket(
+            conn,
+            ticket_id,
+            STATUS_DONE,
+            actor=actor,
+            comment="released — closed by the MR's commit set",
+        )
+        moved.append(ticket_id)
+    return moved
+
+
+def release_ticket_ids(conn: sqlite3.Connection, commit_text: str) -> list[str]:
+    """The tickets a release commit set references — the close-by-commits
+    candidate set (issue #97): every `ready-to-deploy` ticket whose id
+    (`#<ticket-id>`) or a run adw_id (`sssf(<adw_id>)`, the chain's fallback
+    commit subject) appears in the commit lines. When NO reference parses,
+    nothing closes — the MR's commit set decides, never a blanket close.
+    """
+    deploy = [
+        r[0]
+        for r in conn.execute(
+            "SELECT id FROM tickets WHERE status=?", (STATUS_DEPLOY,)
+        ).fetchall()
+    ]
+    if not deploy:
+        return []
+    runs: dict[str, list[str]] = {}
+    for tid, adw_id in conn.execute(
+        "SELECT ticket_id, adw_id FROM ticket_runs"
+    ).fetchall():
+        runs.setdefault(tid, []).append(adw_id)
+    return [
+        tid
+        for tid in deploy
+        if f"#{tid}" in commit_text
+        or any(f"sssf({a})" in commit_text for a in runs.get(tid, []))
+    ]
+
+
 # The plan flow's run kind — the only flow that turns idea tickets into
 # spec + implementation children (the legacy ticket.run path uses
 # adw_simple_sdlc and never plans).

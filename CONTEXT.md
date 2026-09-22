@@ -156,7 +156,12 @@ _Avoid_: a separate daemon that outlives the viz
 
 **Promote**:
 The canary promotion step: sssf executes the per-project tompero command
-(`tompero deployment canary promote …`) only after the human confirms it at
-the terminal, then polls `tompero deployment get` until the deployment is
-fully promoted.
+(`tompero deployment canary promote …`, configured under `release:` in
+adws/config/deploy.yaml) only after the human confirms it at the terminal,
+then polls `tompero deployment get` until the deployment is fully promoted.
+The canary step before it is equally confirmed; a canary/promote failure
+parks the batch's tickets in `blocked` — visible and actionable, never
+silently retried (the human unblocks with `sssf ticket backlog`). The
+release closes every ticket parsed from the MR's commit set (commits since
+the last tag) — implementation tickets and their features close together.
 _Avoid_: promoting without human confirmation
