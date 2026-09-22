@@ -149,6 +149,15 @@ def stop_remove(name: str) -> None:
     _docker("rm", "-f", name)
 
 
+def list_container_names(prefix: str = "") -> list[str]:
+    """Every container name matching `prefix` (docker ps -a, name filter), one
+    per line — the public docker-module verb `sssf sweep` uses to find orphan
+    containers (replaces a private `_docker` reach). A docker failure returns
+    [] — the sweep caller treats that as nothing to remove."""
+    r = _docker("ps", "-a", "--filter", f"name={prefix}", "--format", "{{.Names}}", timeout_s=30)
+    return r.stdout.split()
+
+
 def stop_container(name: str) -> None:
     """Stop a container and KEEP it — its logs and the worktree mount stay
     available for review. Stopping is never deletion; removal is `sssf sweep`'s

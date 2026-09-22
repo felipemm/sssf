@@ -48,18 +48,20 @@ def _clear_sandbox(root: Path, adw_id: str) -> None:
     """The ONLY deleter of run artifacts: remove the run's container + worktree
     and its sandbox_run record (the viz review panel disappears with the run).
     Everything else only stops containers."""
-    from sssf import sandbox
+    from sssf.sandbox.docker import container_name, stop_remove
+    from sssf.sandbox.rundb import sandbox_run_db
+    from sssf.sandbox.worktree_git import remove_worktree, sandbox_dir
 
     try:
-        sandbox.stop_remove(sandbox.container_name(adw_id))
+        stop_remove(container_name(adw_id))
     except Exception as error:
         print(f"sssf sweep: {root.name}: container cleanup failed: {error}")
     try:
-        sandbox.remove_worktree(sandbox.sandbox_dir(root, adw_id))
+        remove_worktree(sandbox_dir(root, adw_id))
     except Exception as error:
         print(f"sssf sweep: {root.name}: worktree cleanup failed: {error}")
     try:
-        conn = sandbox.sandbox_run_db(root / "adws" / "data")
+        conn = sandbox_run_db(root / "adws" / "data")
         conn.execute("DELETE FROM sandbox_run WHERE adw_id=?", (adw_id,))
         conn.close()
     except Exception as error:
@@ -69,22 +71,20 @@ def _clear_sandbox(root: Path, adw_id: str) -> None:
 def _clean_orphan_containers(root: Path, db_path: Path) -> list[str]:
     """Remove sssf-* containers that match NO session (spawn leftovers the
     healer no longer deletes). Only sweep may delete them."""
-    from sssf import sandbox
+    from sssf.sandbox.docker import list_container_names, stop_remove
+    from sssf.sandbox.rundb import sandbox_run_db
 
     try:
-        conn = sandbox.sandbox_run_db(db_path.parent)
+        conn = sandbox_run_db(db_path.parent)
         known = {r[0] for r in conn.execute("SELECT adw_id FROM sessions").fetchall()}
         conn.close()
     except Exception:
         return []
-    r = sandbox._docker(
-        "ps", "-a", "--filter", "name=sssf-", "--format", "{{.Names}}", timeout_s=30
-    )
     removed: list[str] = []
-    for name in r.stdout.split():
+    for name in list_container_names("sssf-"):
         adw_id = name.removeprefix("sssf-")
         if adw_id not in known:
-            sandbox.stop_remove(name)
+            stop_remove(name)
             removed.append(name)
     return removed
 

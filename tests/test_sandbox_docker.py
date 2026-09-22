@@ -5,8 +5,15 @@ import subprocess
 
 import pytest
 
-import sssf.sandbox as sandbox
-from sssf.sandbox import SandboxError, build_image, docker_available, run_sandbox, stop_remove
+import sssf.sandbox.docker as sandbox
+import sssf.sandbox.orchestrator as orchestrator_mod
+from sssf.sandbox.docker import (
+    SandboxError,
+    build_image,
+    docker_available,
+    run_sandbox,
+    stop_remove,
+)
 
 
 @pytest.fixture
@@ -161,7 +168,7 @@ def test_run_sandbox_removes_stale_container_first(fake_docker, tmp_path):
 def test_ensure_image_current_real_fingerprint(fake_docker, monkeypatch):
     """Exercises the REAL _engine_fingerprint (not a stub) — regression for the
     missing-import bug that made it crash with NameError."""
-    from sssf.sandbox import _engine_fingerprint
+    from sssf.sandbox.docker import _engine_fingerprint
 
     real = _engine_fingerprint() + "\n"
 
@@ -231,7 +238,7 @@ def test_record_never_started_leaves_evidence(monkeypatch, tmp_path):
 
     monkeypatch.setattr("sssf.sandbox.orchestrator._docker", fake_docker)
     per_run = tmp_path / "proj" / ".worktrees" / "abc123" / "adws" / "data" / "sssf.db"
-    sandbox.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
+    orchestrator_mod.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
 
     row = tracer.conn.execute(
         "SELECT status, adw_name FROM sessions WHERE adw_id='abc123'"
@@ -268,7 +275,7 @@ def test_record_never_started_zero_evidence_has_null_remediation(monkeypatch, tm
 
     monkeypatch.setattr("sssf.sandbox.orchestrator._docker", fake_docker)
     per_run = tmp_path / "proj" / ".worktrees" / "abc123" / "adws" / "data" / "sssf.db"
-    sandbox.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
+    orchestrator_mod.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
 
     ev = tracer.conn.execute(
         "SELECT payload_json FROM events WHERE adw_id='abc123'"
@@ -294,7 +301,7 @@ def test_record_never_started_skips_when_adw_started(monkeypatch, tmp_path):
 
     monkeypatch.setattr("sssf.sandbox.orchestrator._docker", fake_docker)
     per_run = tmp_path / "proj" / ".worktrees" / "abc123" / "adws" / "data" / "sssf.db"
-    sandbox.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
+    orchestrator_mod.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
 
     rows = tracer.conn.execute("SELECT count(*) FROM sessions WHERE adw_id='abc123'").fetchone()[0]
     assert rows == 1  # still just the ADW's own row
@@ -303,7 +310,7 @@ def test_record_never_started_skips_when_adw_started(monkeypatch, tmp_path):
 def test_teardown_poll_treats_docker_error_as_retry_not_gone(monkeypatch, capsys):
     """A docker hiccup during the teardown poll must not be read as
     'container gone' — that tears the run down prematurely (audit A2)."""
-    from sssf.sandbox import _container_gone
+    from sssf.sandbox.orchestrator import _container_gone
 
     def flaky(*a, **k):
         raise RuntimeError("docker hiccup")
@@ -313,7 +320,7 @@ def test_teardown_poll_treats_docker_error_as_retry_not_gone(monkeypatch, capsys
 
 
 def test_teardown_poll_gone_only_on_empty_output(monkeypatch):
-    from sssf.sandbox import _container_gone
+    from sssf.sandbox.orchestrator import _container_gone
 
     def gone(*a, **k):
         return subprocess.CompletedProcess(a, 0, stdout="", stderr="")
@@ -332,7 +339,7 @@ def test_teardown_poll_gone_only_on_empty_output(monkeypatch):
 def test_image_is_current_real_fingerprint(fake_docker, monkeypatch):
     """A baked marker matching the local engine reports current — the real
     fingerprint path, mirroring test_ensure_image_current_real_fingerprint."""
-    from sssf.sandbox import _engine_fingerprint
+    from sssf.sandbox.docker import _engine_fingerprint
 
     sandbox._fingerprint_cache.clear()  # never leak a cached marker between tests
     real = _engine_fingerprint() + "\n"
@@ -377,7 +384,7 @@ def test_run_sandbox_publishes_review_port(tmp_path, monkeypatch):
     """When a container_port is configured, docker run publishes it loopback on
     a random HOST port (docker picks a free one) so concurrent runs never
     collide."""
-    import sssf.sandbox as sb
+    import sssf.sandbox.docker as sb
 
     captured: list[list[str]] = []
 
@@ -398,7 +405,7 @@ def test_run_sandbox_publishes_review_port(tmp_path, monkeypatch):
 
 
 def test_run_sandbox_skips_publish_without_port(tmp_path, monkeypatch):
-    import sssf.sandbox as sb
+    import sssf.sandbox.docker as sb
 
     captured: list[list[str]] = []
     monkeypatch.setattr(
@@ -415,7 +422,7 @@ def test_run_sandbox_skips_publish_without_port(tmp_path, monkeypatch):
 def test_stop_container_stops_and_keeps(tmp_path, monkeypatch):
     """docker stop keeps the container (logs + review surface). Deletion is
     sweep's job."""
-    import sssf.sandbox as sb
+    import sssf.sandbox.docker as sb
 
     calls: list[list[str]] = []
     monkeypatch.setattr(

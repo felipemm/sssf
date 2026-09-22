@@ -13,7 +13,7 @@ import pytest
 import yaml
 
 from sssf.adw_modules.data_types import SSSFConfig
-from sssf.sandbox import (
+from sssf.sandbox.worktree_git import (
     create_worktree,
     integrate_run,
     integrate_successful_run,

@@ -2,8 +2,8 @@ import subprocess
 
 import pytest
 
-from sssf.sandbox import (
-    SandboxError,
+from sssf.sandbox.docker import SandboxError
+from sssf.sandbox.worktree_git import (
     create_worktree,
     delete_branch,
     remove_worktree,
@@ -67,7 +67,7 @@ def test_teardown_keeps_container_and_worktree(repo, tmp_path, monkeypatch):
 
     wt = create_worktree(repo, "keep1")
     called = []
-    monkeypatch.setattr(sandbox, "stop_remove", lambda name: called.append(name))
+    monkeypatch.setattr("sssf.sandbox.docker.stop_remove", lambda name: called.append(name))
     assert sandbox.teardown_sandbox(repo, "keep1") == 0
     assert called == []  # container is KEPT
     assert wt.is_dir()  # worktree survives
@@ -194,7 +194,7 @@ def test_sync_merges_live_totals_monotonically(tmp_path):
     regresses the project db."""
     import sqlite3
 
-    from sssf.sandbox import sync_run_db
+    from sssf.sandbox.rundb import sync_run_db
 
     conn = sqlite3.connect(str(tmp_path / "proj.db"))
     conn.execute(
@@ -247,7 +247,7 @@ def test_sync_propagates_request_mid_run(tmp_path):
     whole budget doing nothing and the run is finalized unrecoverably."""
     import sqlite3
 
-    from sssf.sandbox import sync_run_db
+    from sssf.sandbox.rundb import sync_run_db
 
     schema = (
         "CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, adw_name TEXT, request TEXT,"
@@ -303,7 +303,7 @@ def test_sync_never_overwrites_an_existing_request(tmp_path):
     never clear a request the host already merged."""
     import sqlite3
 
-    from sssf.sandbox import sync_run_db
+    from sssf.sandbox.rundb import sync_run_db
 
     schema = (
         "CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, request TEXT, status TEXT,"
@@ -372,7 +372,8 @@ def test_reopen_session_flips_terminal_row_to_running(tmp_path):
     the same phase_ids) is authoritative in the trace."""
     import sqlite3
 
-    from sssf.sandbox import project_db_path, reopen_session
+    from sssf.sandbox.rundb import project_db_path
+    from sssf.sandbox.session_env import reopen_session
 
     data = tmp_path / "adws" / "data"
     data.mkdir(parents=True)
@@ -422,7 +423,8 @@ def test_monitor_exits_when_run_ends_but_container_alive(tmp_path, monkeypatch):
     the run's end must not depend on container teardown)."""
     import sqlite3
 
-    from sssf.sandbox import monitor_run, sandbox_dir
+    from sssf.sandbox.orchestrator import monitor_run
+    from sssf.sandbox.worktree_git import sandbox_dir
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -457,6 +459,7 @@ def test_stop_run_stops_container_keeps_worktree_and_marks_stopped(tmp_path, mon
     import sqlite3
 
     import sssf.sandbox as sb
+    from sssf.sandbox.rundb import project_db_path
 
     calls: list[list[str]] = []
     monkeypatch.setattr(
@@ -469,7 +472,7 @@ def test_stop_run_stops_container_keeps_worktree_and_marks_stopped(tmp_path, mon
     data.mkdir(parents=True)
     wt = sb.sandbox_dir(root, "r9")
     (wt / "adws" / "data" / "sessions").mkdir(parents=True)
-    conn = sqlite3.connect(str(sb.project_db_path(data)))
+    conn = sqlite3.connect(str(project_db_path(data)))
     conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
     conn.execute(
         "CREATE TABLE phases (phase_id TEXT PRIMARY KEY, adw_id TEXT,"
@@ -489,7 +492,7 @@ def test_stop_run_stops_container_keeps_worktree_and_marks_stopped(tmp_path, mon
     assert ["stop", "-t", "5", "sssf-r9"] in calls
     assert not any(a[0] == "rm" for a in calls)  # never deletes
     assert wt.exists()  # worktree kept — restart can reuse the artifacts
-    conn = sqlite3.connect(str(sb.project_db_path(data)))
+    conn = sqlite3.connect(str(project_db_path(data)))
     assert conn.execute("SELECT status FROM sessions WHERE adw_id='r9'").fetchone()[0] == "fail"
     err = conn.execute("SELECT error FROM phases WHERE adw_id='r9'").fetchone()[0]
     assert "stopped by the engineer" in err
@@ -522,7 +525,7 @@ def test_sync_newer_ended_source_supersedes_frozen_host_row(tmp_path):
     still never downgrade a newer terminal state."""
     import sqlite3
 
-    from sssf.sandbox import sync_run_db
+    from sssf.sandbox.rundb import sync_run_db
 
     conn = sqlite3.connect(str(tmp_path / "proj.db"))
     conn.execute(
@@ -573,7 +576,7 @@ def test_sync_older_generation_never_reverts_reopened_host_row(tmp_path):
     for the whole re-run while the new attempt actually progresses."""
     import sqlite3
 
-    from sssf.sandbox import sync_run_db
+    from sssf.sandbox.rundb import sync_run_db
 
     conn = sqlite3.connect(str(tmp_path / "proj.db"))
     conn.execute(

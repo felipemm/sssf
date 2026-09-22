@@ -296,7 +296,7 @@ def test_sync_run_db_skips_rows_outside_the_contract(tmp_path):
     """sync_run_db validates copied rows against the models: a row the
     contract rejects (an unknown event type from a foreign/newer writer) is
     dropped, never copied into the project db."""
-    from sssf.sandbox import sync_run_db
+    from sssf.sandbox.rundb import sync_run_db
 
     project = sqlite3.connect(tmp_path / "project.db")
     db_schema.apply_schema(project)

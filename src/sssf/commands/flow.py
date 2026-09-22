@@ -53,13 +53,9 @@ def _run_sandboxed(
     and detach a teardown monitor (the sandbox tears itself down when the ADW
     exits — success or fail). The cwd is never touched; the run's branch
     sssf/<adw_id> survives as the deliverable. Deterministic Python."""
-    from sssf.sandbox import (
-        SandboxError,
-        docker_available,
-        sandbox_env,
-        spawn_monitor,
-        spawn_sandbox,
-    )
+    from sssf.sandbox import SandboxError, spawn_monitor, spawn_sandbox
+    from sssf.sandbox.docker import docker_available
+    from sssf.sandbox.session_env import sandbox_env
 
     if not docker_available():
         print(

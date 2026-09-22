@@ -307,7 +307,7 @@ def spawn_monitor(project_root: Path, adw_id: str) -> None:
     code = (
         "import sys\n"
         "from pathlib import Path\n"
-        "from sssf.sandbox import monitor_run\n"
+        "from sssf.sandbox.orchestrator import monitor_run\n"
         "sys.exit(monitor_run(Path(sys.argv[1]), sys.argv[2]))\n"
     )
     subprocess.Popen(

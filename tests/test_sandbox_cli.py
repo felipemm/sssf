@@ -44,7 +44,7 @@ def test_spawn_sandbox_creates_worktree_and_records_port(tmp_path, monkeypatch, 
 
 def test_teardown_keeps_branch(tmp_path):
     root = _make_repo(tmp_path)
-    from sssf.sandbox import create_worktree, remove_worktree
+    from sssf.sandbox.worktree_git import create_worktree, remove_worktree
 
     wt = create_worktree(root, "abc123")
     remove_worktree(wt)
@@ -59,7 +59,8 @@ def test_stop_run_finalizes_stale_session(tmp_path, monkeypatch, fake_docker):
     failed on stop — so it is archivable."""
     import sqlite3
 
-    from sssf.sandbox import project_db_path, stop_run
+    from sssf.sandbox import stop_run
+    from sssf.sandbox.rundb import project_db_path
 
     root = _make_repo(tmp_path)
     data = root / "adws" / "adw_data"
@@ -80,7 +81,8 @@ def test_stop_run_marks_inflight_phases(tmp_path, monkeypatch, fake_docker):
     """Stop marks the running/queued phases failed, not just the session."""
     import sqlite3
 
-    from sssf.sandbox import project_db_path, stop_run
+    from sssf.sandbox import stop_run
+    from sssf.sandbox.rundb import project_db_path
 
     root = _make_repo(tmp_path)
     data = root / "adws" / "adw_data"
@@ -150,10 +152,10 @@ def _seed_session(root: Path, adw_id: str, adw_name: str, request: str) -> None:
     """A minimal sessions table with one row, shaped like tracer's."""
     import sqlite3
 
-    from sssf import sandbox
-    from sssf.sandbox import project_db_path
+    from sssf.sandbox.rundb import project_db_path
+    from sssf.sandbox.session_env import sandbox_env
 
-    db = project_db_path(sandbox.sandbox_env(root)[0])
+    db = project_db_path(sandbox_env(root)[0])
     db.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db))
     conn.execute(

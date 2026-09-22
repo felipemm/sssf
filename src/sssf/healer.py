@@ -20,18 +20,16 @@ import sys
 import time
 from pathlib import Path
 
-from sssf.sandbox import (
-    abort_sandbox,
+from sssf.sandbox.docker import (
     build_runner_image,
     container_name,
     docker_available,
     image_is_current,
-    project_db_path,
-    sandbox_dir,
-    sandbox_env,
-    sync_run_db,
-    teardown_sandbox,
 )
+from sssf.sandbox.orchestrator import abort_sandbox, teardown_sandbox
+from sssf.sandbox.rundb import project_db_path, sync_run_db
+from sssf.sandbox.session_env import sandbox_env
+from sssf.sandbox.worktree_git import sandbox_dir
 
 STATE_DIR = Path(os.environ.get("SSSF_HOME", Path.home() / ".sssf"))
 REGISTRY_PATH = Path(os.environ.get("SSSF_REGISTRY", STATE_DIR / "projects.json"))
@@ -203,7 +201,7 @@ def recover(
     per_run_db = wt / "adws" / "data" / "sssf.db"
 
     if action == "finalize":
-        from sssf.sandbox import stop_run
+        from sssf.sandbox.orchestrator import stop_run
 
         stop_run(
             root,
@@ -227,7 +225,7 @@ def recover(
     if action == "restart":
         count = _restart_count(state, adw_id)
         if count >= MAX_RESTARTS:
-            from sssf.sandbox import stop_run
+            from sssf.sandbox.orchestrator import stop_run
 
             stop_run(
                 root,

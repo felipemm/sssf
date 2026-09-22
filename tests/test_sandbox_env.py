@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from sssf.sandbox import sandbox_env
+from sssf.sandbox.session_env import sandbox_env
 
 
 def test_sandbox_env_carries_full_git_identity(tmp_path, monkeypatch):
