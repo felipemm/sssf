@@ -5,6 +5,13 @@ defaults:
   model: litellm/deepseek-v4-flash-official   # provider/id — a bare pattern is ambiguous across providers
   thinking: medium                 # off | minimal | low | medium | high | xhigh | max
   harness_engineering: []          # pi extensions loaded into the harness (-e)
+  # Hermetic skills (#88): agents run `pi --no-skills` — the operator's global
+  # skill library is invisible — and load ONLY the per-agent `skills:` subsets
+  # below (names resolve to the stamped .pi/skills/<name>/SKILL.md set that
+  # `sssf init` installs; COMMIT .pi/skills/ so sandbox worktrees carry it).
+  # A skill outside the stamped closure: add it to the closure AND the roster
+  # in the same change.
+  skills_hermetic: true
   # Roster-wide allowlist; any agent may override with its own list.
   # NOTE: --tools filters extension and custom tools too, not just builtins. An agent
   # whose harness_engineering extension registers a tool MUST name that tool in its own
@@ -99,6 +106,13 @@ agents:
     thinking: high
     color: "#a78bfa"                 # optional hex — the agent's lane color in the visualizer
     purpose: Turn a request into a plan the builder can implement without asking questions.
+    skills:                        # the workflow closure subset this agent loads (hermetic)
+      - grilling
+      - grill-with-docs
+      - to-spec
+      - to-tickets
+      - domain-modeling
+      - codebase-design
     prompt_engineering:
       system: adws/data/prompt_engineering/planner/system.md
       user: adws/data/prompt_engineering/planner/user.md
@@ -123,6 +137,10 @@ agents:
     model: litellm/deepseek-v4-flash-official
     # thinking: high
     purpose: Implement the plan exactly; report every changed file in the envelope.
+    skills:
+      - implement
+      - tdd
+      - code-review
     prompt_engineering:
       system: adws/data/prompt_engineering/builder/system.md
       user: adws/data/prompt_engineering/builder/user.md
@@ -142,6 +160,9 @@ agents:
     model: litellm/gpt-5.6-luna
     # thinking: high
     purpose: Find and report where things live; change nothing.
+    skills:
+      - wayfinder
+      - triage
     prompt_engineering:
       system: adws/data/prompt_engineering/scout/system.md
       user: adws/data/prompt_engineering/scout/user.md
@@ -169,6 +190,8 @@ agents:
     thinking: high
     color: "#fb7185"
     purpose: Confirm that what was built is what was asked for; change nothing.
+    skills:
+      - code-review
     prompt_engineering:
       system: adws/data/prompt_engineering/reviewer/system.md
       user: adws/data/prompt_engineering/reviewer/user.md

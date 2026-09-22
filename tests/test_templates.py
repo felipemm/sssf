@@ -39,8 +39,17 @@ def test_starter_config_validates(tmp_path, monkeypatch):
     cfg_dir = tmp_path / "adws" / "config"
     cfg_dir.mkdir(parents=True)
     shutil.copy(TEMPLATES / "adws" / "config" / "sssf.config.yaml", cfg_dir / "sssf.config.yaml")
-    monkeypatch.chdir(tmp_path)
+    # the template turns hermetic skills on (#88): validate() demands every
+    # named skill be stamped under .pi/skills/ — stub them like init would
     cfg = agents.load_config(cfg_dir / "sssf.config.yaml")
+    assert cfg.defaults.skills_hermetic is True
+    named = {s for a in cfg.agents for s in a.skills}
+    assert named, "the hermetic roster must name per-agent skill subsets"
+    for skill in named:
+        stub = tmp_path / ".pi" / "skills" / skill / "SKILL.md"
+        stub.parent.mkdir(parents=True, exist_ok=True)
+        stub.write_text(f"# {skill}\n")
+    monkeypatch.chdir(tmp_path)
     agents.validate(cfg, ["planner", "builder", "reviewer", "scout", "documenter", "designer"])
     # the roster's model assignments — each agent pins its own model rather
     # than drifting to defaults.model.

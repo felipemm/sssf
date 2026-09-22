@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Hermetic skills + runner sessions (#88)** — a stamped project behaves the
+  same on any machine. `sssf init` stamps the transitive closure of the
+  workflow skills (grill-me, wayfinder, grill-with-docs, to-spec, to-tickets,
+  triage, implement, code-review, tdd, grilling, domain-modeling,
+  codebase-design, plus brainstorming) into `.pi/skills/` — whole skill
+  directories (in-directory reference docs and `agents/` agent defs ride
+  along), pinned to source commits in `.sssf-versions.json`; a skill that
+  another skill references is pulled in automatically to a fixpoint, and
+  external setup references (`/setup-matt-pocock-skills`) are rewritten to
+  sssf's own `sssf init --refresh` guidance. Agent sessions run `pi
+  --no-skills` (`defaults.skills_hermetic`) and load only the per-agent
+  `skills:` subsets the roster declares (explicit `--skill` paths into the
+  stamped set); `validate()` fails fast when a named skill is not stamped.
+  The roster template ships with per-agent subsets (planner: grilling /
+  grill-with-docs / to-spec / to-tickets / domain-modeling / codebase-design;
+  builder: implement / tdd / code-review; scout: wayfinder / triage;
+  reviewer: code-review). `check_skills` (doctor) covers the full manifest
+  with one ls-remote per source repo.
 - **Implement flow drives the ticket machine (#92)** — `sssf flow implement
   <ticket>` now runs one `ready-for-agent` ticket unattended end-to-end
   (triage → build → quality → builder self-review → review) and settles the
