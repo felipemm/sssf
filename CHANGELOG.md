@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Schema contract: the pydantic models are the single source of truth for
+  the per-project db (#109, architecture review)** — `src/sssf/db_schema.py`
+  declares one `Row` model per table (trace + tickets + notify), and everything
+  derives from it: the DDL (`apply_schema` replaces the hand-written
+  `SCHEMA`/`TICKETS_DDL`/`NOTIFY_*_DDL` blocks — the legacy pre-machine
+  `tickets` DDL is deleted), the TS row types (`shared/rows.generated.ts`,
+  re-exported by `shared/types.ts` under the UI-facing names; the generated
+  `EventType` gains `integration`, which the hand-written union missed), and a
+  greppable `schema/schema.sql` snapshot. Migrations are versioned: an ordered
+  list applied via `PRAGMA user_version` (the old ALTERs and the legacy-status
+  / tracked-origin backfills are now migration steps 2–4; Alembic was
+  considered and rejected — SQLAlchemy dependency, no autogenerate for pydantic
+  models, open-time idempotent upgrades). Every writer validates through the
+  models before SQL (`tracer`, `ticketing`, `notify`, `sync_run_db`, the
+  healer's requeue); the read-only viz reader (`db.ts`) reads `user_version`
+  once and gates migration-added columns by version instead of per-column
+  probing. A cross-language contract test builds a db with Python and runs
+  every `SssfDb` query against it, so reader/writer drift fails CI.
+
 - **Flows as the only entry point + chain set reduction (#89)** — work starts
   only through `sssf flow plan|implement|deploy`; ad-hoc `sssf run <adw> "<prompt>"`
   is removed. The shipped `adws/modules/` template set collapses from the 13
