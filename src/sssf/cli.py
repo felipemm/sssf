@@ -40,6 +40,15 @@ def _dispatch_ticket(a) -> int:
         return ticket.ticket_context(a.ticket_id, a.project, a.set_text)
     if action == "backlog":
         return ticket.backlog(a.ticket_id, a.project, feedback=a.feedback)
+    if action == "writeback":
+        return ticket.writeback_cmd(
+            a.ticket_id,
+            a.project,
+            state=a.state,
+            comment=a.comment,
+            label=a.label,
+            remove_label=a.remove_label,
+        )
     return 1
 
 
@@ -289,6 +298,16 @@ def main(argv: list[str] | None = None) -> int:
         help="store this context on the ticket (printed when omitted)",
     )
     p_context.add_argument("--project", default=None)
+    p_writeback = tsub.add_parser(
+        "writeback",
+        help="push state/label/comment to the origin tracker (best-effort)",
+    )
+    p_writeback.add_argument("ticket_id")
+    p_writeback.add_argument("--state", default=None, help="state on the origin (github: open|closed; gitlab: opened|closed)")
+    p_writeback.add_argument("--comment", default=None, help="comment body on the origin")
+    p_writeback.add_argument("--label", default=None, help="label to add on the origin")
+    p_writeback.add_argument("--remove-label", dest="remove_label", default=None, help="label to remove on the origin")
+    p_writeback.add_argument("--project", default=None)
     p_ticket.set_defaults(func=lambda a: _dispatch_ticket(a))
 
     p_notify = sub.add_parser(
