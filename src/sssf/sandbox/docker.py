@@ -240,7 +240,7 @@ def runner_source_root() -> Path:
     from the installed package, not the cwd (the Dockerfile's COPY lines expect
     the package layout, whatever the current directory is). parents[3]: the
     Dockerfile lives next to pyproject.toml, two levels above the package
-    (sandbox/ added one level vs the old flat sandbox.py).
+    (the sandbox/ package added one level vs the old flat module).
     """
     return Path(__file__).resolve().parents[3]
 

@@ -230,7 +230,7 @@ def test_status_unions_match_the_viz():
 
 def test_event_type_union_matches_the_engine():
     """events.type carries every type the engine emits — the viz union is
-    missing `integration` (sandbox.py emits it), so the contract pins the
+    missing `integration` (the monitor emits it), so the contract pins the
     engine's real set and codegen fixes the stale viz union."""
     assert _enum(db_schema.EventsRow, "type") == {
         "phase_start", "phase_end", "agent_start", "agent_end", "tool_call",
