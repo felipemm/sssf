@@ -53,7 +53,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one round's wait (default 7200) — a timeout exits 1 without stacking a
   second run on a live one. A sandboxed spawn failure aborts the loop (the
   environment is broken; retrying would just burn the cap).
->>>>>>> origin/main
 
 - **Implement flow drives the ticket machine (#92)** — `sssf flow implement
   <ticket>` now runs one `ready-for-agent` ticket unattended end-to-end
