@@ -156,7 +156,16 @@ def main(argv: list[str] | None = None) -> int:
     p_fimpl = fsub.add_parser(
         "implement", help="implement one ready-for-agent ticket: triage → build → review"
     )
-    p_fimpl.add_argument("ticket_id", help="the ticket to implement (ready-for-agent)")
+    p_fimpl.add_argument(
+        "ticket_id",
+        help="the ticket to implement (ready-for-agent), or `afk` to work the whole queue",
+    )
+    p_fimpl.add_argument(
+        "--cap",
+        type=int,
+        default=flow.DEFAULT_AFK_CAP,
+        help=f"afk: max rounds before stopping (default {flow.DEFAULT_AFK_CAP})",
+    )
     p_fimpl.add_argument("--project", default=None)
     p_fimpl.add_argument(
         "--no-sandbox",
@@ -164,7 +173,11 @@ def main(argv: list[str] | None = None) -> int:
         help="run in the current dir instead of a sandbox container",
     )
     p_fimpl.set_defaults(
-        func=lambda a: flow.implement(Path.cwd(), a.ticket_id, a.project, a.no_sandbox)
+        func=lambda a: (
+            flow.implement_afk(Path.cwd(), a.project, a.cap, a.no_sandbox)
+            if a.ticket_id == "afk"
+            else flow.implement(Path.cwd(), a.ticket_id, a.project, a.no_sandbox)
+        )
     )
     p_fdep = fsub.add_parser(
         "deploy", help="release train: batch signoff on dev → bump → MR → e2e → release"

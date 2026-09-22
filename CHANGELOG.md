@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Ralph loop (#93)** — `sssf flow implement afk` works the whole
+  `ready-for-agent` queue unattended, one ticket per run, each run a fresh
+  context window (a new process/sandbox and a freshly minted adw_id per
+  ticket — agent sessions derive from that adw_id), until the queue is empty
+  or the cap is hit (`--cap`, default 30). Each round re-reads the host
+  queue (tickets is project-owned) and hands the head ticket to the existing
+  implement flow — claim → run → settle — so success moves the ticket to
+  ready-for-signoff and a failure requeues it fix-forward at the head of the
+  queue for another shot (the cap bounds an unpassable ticket). Exit code 0
+  when the queue emptied, 1 when the cap stopped the loop with work
+  remaining.
+
 - **Implement flow drives the ticket machine (#92)** — `sssf flow implement
   <ticket>` now runs one `ready-for-agent` ticket unattended end-to-end
   (triage → build → quality → builder self-review → review) and settles the

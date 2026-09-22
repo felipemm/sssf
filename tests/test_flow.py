@@ -451,6 +451,134 @@ def test_flow_implement_missing_ticket_is_loud(tmp_path, monkeypatch, capsys):
     assert "no ticket internal:nope" in capsys.readouterr().err
 
 
+# ── implement afk (the ralph loop, #93) ────────────────────────────────────────
+
+
+def _afk_runner(monkeypatch, root, *, code=0):
+    """Fake the per-run dispatch: record argv, simulate the ADW's host-side
+    session row (success by default; `code=1` leaves no session so the run is
+    a failure and `implement()` requeues fix-forward)."""
+    calls: list[list[str]] = []
+
+    def fake_call(argv, **kw):
+        if code == 0:
+            _session_for_argv(root, argv, "success")
+        calls.append(argv)
+        return code
+
+    monkeypatch.setattr(flow.subprocess, "call", fake_call)
+    return calls
+
+
+def _seed_queue(root: Path, n: int, *, prefix: str = "t") -> list[str]:
+    """Seed `n` ready-for-agent tickets, oldest first (t1..tN)."""
+    ids = [f"internal:{prefix}{i}" for i in range(1, n + 1)]
+    for i, ticket_id in enumerate(ids):
+        _seed_ticket(root, ticket_id, title=f"Ticket {i}", description=f"Work item {i}")
+    return ids
+
+
+def test_flow_implement_afk_iterates_the_queue(tmp_path, monkeypatch):
+    """afk works the ready-for-agent queue one ticket per run — every ticket
+    dispatched (each a fresh adw-id) and settled to ready-for-signoff; the
+    loop ends 0 once the queue is empty."""
+    root = _setup_project(tmp_path, monkeypatch, sandbox_key=True)
+    ids = _seed_queue(root, 3)
+    calls = _afk_runner(monkeypatch, root)
+
+    assert flow.implement_afk(Path.cwd(), None, cap=10, no_sandbox=True) == 0
+    assert len(calls) == 3
+    adw_ids = [argv[argv.index("--adw-id") + 1] for argv in calls]
+    assert len(set(adw_ids)) == 3  # a fresh run (fresh context window) per ticket
+    conn = _adb(root)
+    rows = conn.execute("SELECT id, status FROM tickets ORDER BY rowid").fetchall()
+    conn.close()
+    assert {r[0]: r[1] for r in rows} == {i: "ready-for-signoff" for i in ids}
+
+
+def test_flow_implement_afk_empty_queue_terminates(tmp_path, monkeypatch):
+    """Nothing ready-for-agent → no dispatch, immediate clean end."""
+    root = _setup_project(tmp_path, monkeypatch, sandbox_key=True)
+    calls = _afk_runner(monkeypatch, root)
+
+    assert flow.implement_afk(Path.cwd(), None, cap=10, no_sandbox=True) == 0
+    assert calls == []
+
+
+def test_flow_implement_afk_cap_stops_the_loop(tmp_path, monkeypatch, capsys):
+    """More tickets than the cap → exactly cap runs, the rest stay
+    ready-for-agent, and the exit code says work remains (1)."""
+    root = _setup_project(tmp_path, monkeypatch, sandbox_key=True)
+    ids = _seed_queue(root, 5)
+    calls = _afk_runner(monkeypatch, root)
+
+    assert flow.implement_afk(Path.cwd(), None, cap=2, no_sandbox=True) == 1
+    assert len(calls) == 2
+    assert "cap" in capsys.readouterr().err
+    conn = _adb(root)
+    rows = conn.execute("SELECT id, status FROM tickets ORDER BY rowid").fetchall()
+    conn.close()
+    by_id = {r[0]: r[1] for r in rows}
+    assert by_id[ids[0]] == "ready-for-signoff"
+    assert by_id[ids[1]] == "ready-for-signoff"
+    assert by_id[ids[2]] == "ready-for-agent"
+    assert by_id[ids[3]] == "ready-for-agent"
+    assert by_id[ids[4]] == "ready-for-agent"
+
+
+def test_flow_implement_afk_retries_a_failing_ticket_until_cap(tmp_path, monkeypatch):
+    """A failing run requeues the ticket fix-forward (still ready-for-agent,
+    still the head of the queue) — the loop keeps working it until the cap."""
+    root = _setup_project(tmp_path, monkeypatch, sandbox_key=True)
+    ids = _seed_queue(root, 1)
+    calls = _afk_runner(monkeypatch, root, code=1)
+
+    assert flow.implement_afk(Path.cwd(), None, cap=3, no_sandbox=True) == 1
+    assert len(calls) == 3
+    for argv in calls:
+        assert argv[argv.index("--adw-id") + 1]  # a fresh adw-id per attempt
+    conn = _adb(root)
+    row = conn.execute(
+        "SELECT status, rejection_feedback FROM tickets WHERE id=?", (ids[0],)
+    ).fetchone()
+    runs = conn.execute(
+        "SELECT COUNT(*) FROM ticket_runs WHERE ticket_id=?", (ids[0],)
+    ).fetchone()[0]
+    conn.close()
+    assert row[0] == "ready-for-agent"  # fix-forward: requeued, never lost
+    assert row[1]  # the failure feedback is attached
+    assert runs == 3  # every attempt recorded in the run history
+
+
+def test_flow_implement_afk_refuses_a_bad_cap(tmp_path, monkeypatch, capsys):
+    root = _setup_project(tmp_path, monkeypatch, sandbox_key=True)
+    _seed_queue(root, 2)
+    assert flow.implement_afk(Path.cwd(), None, cap=0, no_sandbox=True) == 1
+    assert "cap" in capsys.readouterr().err
+
+
+def test_flow_implement_afk_cli_routes_the_afk_sentinel(tmp_path, monkeypatch):
+    """`sssf flow implement afk --cap N` reaches implement_afk with the cap
+    (the documented invocation) — not the single-ticket implement."""
+    from sssf.cli import main
+
+    _setup_project(tmp_path, monkeypatch, sandbox_key=True)
+    seen: dict = {}
+    monkeypatch.setattr(
+        flow,
+        "implement_afk",
+        lambda cwd, project, cap, no_sandbox: seen.update(
+            cwd=cwd, project=project, cap=cap, no_sandbox=no_sandbox
+        )
+        or 0,
+    )
+
+    assert main(["flow", "implement", "afk", "--cap", "7", "--no-sandbox"]) == 0
+    assert seen["cap"] == 7
+    assert seen["no_sandbox"] is True
+    assert seen["cwd"] == Path.cwd()
+
+
 # ── deploy ───────────────────────────────────────────────────────────────────
 
 

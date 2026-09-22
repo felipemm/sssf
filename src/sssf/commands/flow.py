@@ -370,6 +370,80 @@ def implement(
     return code
 
 
+DEFAULT_AFK_CAP = 30
+
+
+def implement_afk(
+    cwd: Path,
+    explicit_project: str | None = None,
+    cap: int = DEFAULT_AFK_CAP,
+    no_sandbox: bool = False,
+) -> int:
+    """`sssf flow implement afk` — the ralph loop (issue #93): work the
+    ready-for-agent queue one ticket per run until it is empty or the cap is
+    hit (default 30, `--cap`).
+
+    Each run is a fresh context window: `implement()` spawns a new
+    process/sandbox with a freshly minted adw_id per ticket, and agent
+    sessions derive from that adw_id (`sssf-<adw_id>-…`), so nothing carries
+    across rounds. A failed run is requeued fix-forward by `implement()` —
+    the ticket stays ready-for-agent at the head of the queue (oldest first)
+    and gets another shot next round; the cap bounds an unpassable ticket.
+
+    Exit code 0 when the queue emptied; 1 when the cap stopped the loop with
+    tickets still ready-for-agent (work outstanding — re-invoke afk to keep
+    going).
+    """
+    import sqlite3
+
+    from sssf import ticketing
+    from sssf.adw_modules import paths
+
+    root = _root(cwd, explicit_project)
+    if root is None:
+        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    if cap < 1:
+        print(f"sssf flow: afk cap must be >= 1 (got {cap})", file=sys.stderr)
+        return 1
+    db_path = paths.data_dir(root) / "sssf.db"
+    rounds = 0
+    while rounds < cap:
+        # A fresh connection per round: the previous round's implement()
+        # wrote on its own connection (claims/settles) — never hold a stale
+        # read snapshot or a lock across a run.
+        conn = sqlite3.connect(str(db_path))
+        ticketing.ensure_schema(conn)
+        queue = ticketing.backlog_tickets(conn)
+        conn.close()
+        if not queue:
+            print(
+                "sssf flow: ralph loop done — ready-for-agent queue empty"
+                f" after {rounds} run(s)"
+            )
+            return 0
+        ticket = queue[0]
+        rounds += 1
+        # backlog_tickets rows are plain tuples: (id, provider, title, status,
+        # kind, tracked, spec, adw_id).
+        print(f"sssf flow: afk {rounds}/{cap} — {ticket[0]}: {ticket[2]}")
+        # The run's outcome settles the machine inside implement(); a failure
+        # requeues fix-forward and the loop keeps working the queue.
+        implement(cwd, ticket[0], explicit_project, no_sandbox)
+    conn = sqlite3.connect(str(db_path))
+    ticketing.ensure_schema(conn)
+    remaining = len(ticketing.backlog_tickets(conn))
+    conn.close()
+    if remaining:
+        print(
+            f"sssf flow: ralph loop stopped at the cap ({cap} run(s)) —"
+            f" {remaining} ticket(s) still ready-for-agent",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 def deploy(
     cwd: Path,
     explicit_project: str | None = None,

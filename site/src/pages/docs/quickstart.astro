@@ -82,7 +82,11 @@ sssf init</code></pre>
     <span class="cmd">--revise</span> re-plans), and
     <span class="cmd">sssf flow implement &lt;ticket-id&gt;</span> implements one
     <span class="cmd">ready-for-agent</span> ticket unattended (triage → build →
-    review).
+    review). To work the whole queue without supervision:
+    <span class="cmd">sssf flow implement afk</span> iterates
+    <span class="cmd">ready-for-agent</span> tickets one per run (each run a fresh
+    context window) until the queue is empty or
+    <span class="cmd">--cap</span> rounds are reached.
   </p>
 
   <h2>4 · Look at the trace</h2>

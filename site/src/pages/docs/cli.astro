@@ -99,6 +99,18 @@ const description =
         </td>
       </tr>
       <tr>
+        <td><code class="hl">sssf flow implement afk [--cap N] [--project P] [--no-sandbox]</code></td>
+        <td>
+          The ralph loop: work the whole <span class="cmd">ready-for-agent</span>
+          queue unattended, one ticket per run — each run a fresh context window
+          — until the queue is empty or the cap is hit
+          (<span class="cmd">--cap</span>, default 30). A failing ticket is
+          requeued fix-forward and retried; the exit code is 0 when the queue
+          emptied and 1 when the cap stopped the loop with work remaining
+          (re-invoke afk to keep going).
+        </td>
+      </tr>
+      <tr>
         <td><code class="hl">sssf flow deploy [--yes] [--project P] [--no-sandbox]</code></td>
         <td>
           Release train: batch signoff on the dev snapshot → version bump → MR
