@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Issue tracker page in the visualizer (#94)** — a new `tracker` tab
+  (`#/p/:project/tracker`) shows every ticket sssf knows — tracked and
+  untracked — grouped by the ticket machine's state (needs-triage →
+  ready-for-agent → in-progress → ready-for-signoff → ready-to-deploy →
+  done/blocked), each card carrying its origin (internal / jira / linear /
+  github / gitlab badge), kind (idea vs implementation), untracked marker,
+  run count, and parent/child lineage (implementation tickets trace to their
+  idea; idea tickets expand to their slices). The backlog is exactly the
+  ready-for-agent column; untracked synced tickets sit in needs-triage and
+  are adopted via an in-page action that runs the audited machine transition.
+  The server's ticket read now surfaces the machine fields (kind, tracked,
+  origin, parent_id, spec) and treats stored machine states as authoritative
+  — never re-derived from a linked session — with a migration for pre-machine
+  dbs that mirrors db_schema's defaults.
+
 - **Implement flow drives the ticket machine (#92)** — `sssf flow implement
   <ticket>` now runs one `ready-for-agent` ticket unattended end-to-end
   (triage → build → quality → builder self-review → review) and settles the

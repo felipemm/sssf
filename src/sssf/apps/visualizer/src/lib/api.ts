@@ -256,6 +256,11 @@ export interface Ticket {
   adw_id: string | null
   source_url: string
   runs: TicketRun[]
+  kind: string
+  tracked: boolean
+  origin: string
+  parent_id: string | null
+  spec: string
 }
 
 export interface TicketsResponse {

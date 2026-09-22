@@ -20,12 +20,32 @@ export interface Ticket {
   adw_id: string | null;
   source_url: string;
   runs: TicketRun[];           // every run of this ticket, oldest first
+  kind: string;                // idea | implementation (the plan flow's kinds)
+  tracked: boolean;            // false = synced, invisible to the backlog
+  origin: string;              // internal | jira | linear | github | gitlab
+  parent_id: string | null;    // lineage: implementation tickets -> their idea
+  spec: string;                // spec reference the plan flow attached
 }
+
+/** The ticket machine's statuses (mirror of ticketing.py MACHINE_STATUSES,
+ *  issue #87). A stored machine state is authoritative — readTickets never
+ *  re-derives it from a session. Keep in sync with the Python constant. */
+export const MACHINE_STATUSES = new Set([
+  "needs-triage",
+  "ready-for-agent",
+  "in-progress",
+  "ready-for-signoff",
+  "ready-to-deploy",
+  "done",
+  "blocked",
+]);
 
 const TICKETS_DDL = `CREATE TABLE IF NOT EXISTS tickets (
   id TEXT PRIMARY KEY, provider TEXT NOT NULL, external_id TEXT,
   title TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'backlog',
   prompt_file TEXT, adw_id TEXT, source_url TEXT, context TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT 'implementation', tracked INTEGER NOT NULL DEFAULT 1,
+  origin TEXT NOT NULL DEFAULT 'internal', parent_id TEXT, spec TEXT NOT NULL DEFAULT '',
   created_at TEXT, updated_at TEXT)`;
 
 const TICKET_RUNS_DDL = `CREATE TABLE IF NOT EXISTS ticket_runs (
@@ -42,39 +62,66 @@ function ensureContextColumn(db: Database) {
   }
 }
 
+/** Migrate a pre-machine db (issue #94): the tracker reads kind/tracked/
+ *  origin/parent_id/spec, which dbs created before the machine lack. Defaults
+ *  mirror db_schema.py exactly, so a migrated row reads identically to a
+ *  machine-born one. */
+function ensureMachineColumns(db: Database) {
+  const cols = new Set(db.query<{ name: string }, []>("PRAGMA table_info(tickets)").all().map((c) => c.name));
+  const add = (name: string, ddl: string) => {
+    if (!cols.has(name)) db.run(`ALTER TABLE tickets ADD COLUMN ${ddl}`);
+  };
+  add("kind", "kind TEXT NOT NULL DEFAULT 'implementation'");
+  add("tracked", "tracked INTEGER NOT NULL DEFAULT 1");
+  add("origin", "origin TEXT NOT NULL DEFAULT 'internal'");
+  add("parent_id", "parent_id TEXT");
+  add("spec", "spec TEXT NOT NULL DEFAULT ''");
+}
+
 export function readTickets(dbPath: string): Ticket[] {
   const db = new Database(dbPath);
   try {
     db.run(TICKETS_DDL);
     db.run(TICKET_RUNS_DDL);
     ensureContextColumn(db);
+    ensureMachineColumns(db);
     let rows: any[] = [];
     try {
       rows = db.query<any, []>(
-        "SELECT t.id, t.provider, t.external_id, t.title, t.description, t.context, t.status, t.prompt_file, t.adw_id, t.source_url, s.status AS session_status"
+        "SELECT t.id, t.provider, t.external_id, t.title, t.description, t.context, t.status, t.prompt_file, t.adw_id, t.source_url, t.kind, t.tracked, t.origin, t.parent_id, t.spec, s.status AS session_status"
         + " FROM tickets t LEFT JOIN sessions s ON t.adw_id = s.adw_id ORDER BY t.created_at DESC, t.rowid DESC",
       ).all();
     } catch {
       // sessions table may not exist yet (no runs)
       rows = db.query<any, []>(
-        "SELECT id, provider, external_id, title, description, context, status, prompt_file, adw_id, source_url, NULL as session_status"
+        "SELECT id, provider, external_id, title, description, context, status, prompt_file, adw_id, source_url, kind, tracked, origin, parent_id, spec, NULL as session_status"
         + " FROM tickets ORDER BY created_at DESC, rowid DESC",
       ).all();
     }
 
     return rows.map((row) => {
       let status = row.status as string;
-      // A ticket moved back to the backlog rests there even though its past
-      // run failed — backlog is the explicit retry state, so it wins over
-      // session derivation. Every other stored status derives from the
-      // CURRENT (latest) run's session.
-      if (row.status !== "backlog" && row.adw_id && row.session_status) {
+      // The ticket machine's states are authoritative — a stored machine state
+      // wins over session derivation. `backlog` keeps its pre-machine meaning
+      // (the explicit retry state) and wins too. Only the remaining legacy
+      // statuses derive from the CURRENT (latest) run's session.
+      if (row.status !== "backlog" && !MACHINE_STATUSES.has(row.status) && row.adw_id && row.session_status) {
         status = row.session_status === "success" ? "done" : row.session_status === "fail" ? "failed" : "running";
       }
 
-      const { session_status, ...rest } = row;
+      const { session_status: _session_status, ...rest } = row;
       const runs = runHistory(db, row.id, row.adw_id);
-      return { ...rest, status, runs, source_url: row.source_url ?? "" };
+      return {
+        ...rest,
+        status,
+        runs,
+        source_url: row.source_url ?? "",
+        tracked: Boolean(row.tracked),
+        parent_id: row.parent_id ?? null,
+        spec: row.spec ?? "",
+        kind: row.kind ?? "implementation",
+        origin: row.origin ?? "internal",
+      };
     });
   } finally {
     db.close();
