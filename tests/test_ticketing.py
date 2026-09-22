@@ -1000,3 +1000,157 @@ def test_origin_repo_no_origin_warns_repo_override(tmp_path):
     repo, warning = ticketing.github_repo(cfg, None)
     assert repo is None
     assert warning is not None and "repo:" in warning
+
+
+def test_fetch_github_parses_gh_output(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(args, capture_output, text, timeout):
+        calls.append(args)
+
+        class R:
+            returncode = 0
+            stdout = json.dumps(
+                [
+                    {
+                        "number": 12,
+                        "title": "Dark mode",
+                        "body": "The app needs a dark theme.",
+                        "url": "https://github.com/owner/repo/issues/12",
+                        "state": "open",
+                        "labels": [{"name": "bug"}],
+                    }
+                ]
+            )
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/gh")
+    records = ticketing.fetch_github(_cfg(tmp_path, providers=("github",)), "owner/repo")
+    assert calls[0] == [
+        "gh",
+        "issue",
+        "list",
+        "--repo",
+        "owner/repo",
+        "--state",
+        "open",
+        "--json",
+        "number,title,body,url,state,labels",
+        "--limit",
+        "100",
+    ]
+    assert records[0].external_id == "owner/repo#12"
+    assert records[0].provider == "github"
+    assert records[0].source_url == "https://github.com/owner/repo/issues/12"
+
+
+def test_fetch_github_repeats_label_flags(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(args, capture_output, text, timeout):
+        calls.append(args)
+
+        class R:
+            returncode = 0
+            stdout = "[]"
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/gh")
+    cfg = _cfg(tmp_path, providers=("github",))
+    cfg.github = {"labels": ["bug", "p1"]}
+    ticketing.fetch_github(cfg, "owner/repo")
+    assert calls[0][5:13] == ["owner/repo", "--state", "open", "--label", "bug", "--label", "p1"]
+
+
+def test_fetch_github_missing_gh_raises_actionable(tmp_path, monkeypatch):
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: None)
+    with pytest.raises(RuntimeError, match="install gh"):
+        ticketing.fetch_github(_cfg(tmp_path, providers=("github",)), "owner/repo")
+
+
+def test_fetch_github_nonzero_exit_raises(tmp_path, monkeypatch):
+    def fake_run(args, capture_output, text, timeout):
+        class R:
+            returncode = 1
+            stdout = ""
+            stderr = "gh: not authenticated"
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/gh")
+    with pytest.raises(RuntimeError, match="gh failed"):
+        ticketing.fetch_github(_cfg(tmp_path, providers=("github",)), "owner/repo")
+
+
+def test_fetch_gitlab_parses_glab_output(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(args, capture_output, text, timeout):
+        calls.append(args)
+
+        class R:
+            returncode = 0
+            stdout = json.dumps(
+                [
+                    {
+                        "iid": 5,
+                        "title": "Dark mode",
+                        "description": "The app needs a dark theme.",
+                        "web_url": "https://gitlab.com/group/proj/-/issues/5",
+                        "labels": ["bug"],
+                    }
+                ]
+            )
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/glab")
+    records = ticketing.fetch_gitlab(_cfg(tmp_path, providers=("gitlab",)), "group/proj")
+    assert calls[0] == [
+        "glab",
+        "issue",
+        "list",
+        "--repo",
+        "group/proj",
+        "--state",
+        "opened",
+        "--output",
+        "json",
+    ]
+    assert records[0].external_id == "group/proj#5"
+    assert records[0].provider == "gitlab"
+    assert records[0].source_url == "https://gitlab.com/group/proj/-/issues/5"
+
+
+def test_fetch_gitlab_label_flags_and_missing_binary(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(args, capture_output, text, timeout):
+        calls.append(args)
+
+        class R:
+            returncode = 0
+            stdout = "[]"
+            stderr = ""
+
+        return R()
+
+    monkeypatch.setattr(ticketing.subprocess, "run", fake_run)
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: "/usr/local/bin/glab")
+    cfg = _cfg(tmp_path, providers=("gitlab",))
+    cfg.gitlab = {"labels": ["bug"]}
+    ticketing.fetch_gitlab(cfg, "group/proj")
+    assert calls[0][5:11] == ["group/proj", "--state", "opened", "--label", "bug"]
+
+    monkeypatch.setattr(ticketing.shutil, "which", lambda name: None)
+    with pytest.raises(RuntimeError, match="install glab"):
+        ticketing.fetch_gitlab(cfg, "group/proj")

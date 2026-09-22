@@ -1003,6 +1003,90 @@ def gitlab_repo(cfg: TicketingConfig, origin: tuple[str, str] | None) -> tuple[s
     return _origin_repo(cfg.gitlab or {}, origin, "gitlab.com", "gitlab")
 
 
+def _run_gh(args: list[str]) -> list[dict]:
+    """Shell the user-authenticated gh CLI and parse its JSON stdout."""
+    if shutil.which("gh") is None:
+        raise RuntimeError(
+            "the github provider needs the gh CLI — install gh and run `gh auth login`: "
+            "https://cli.github.com"
+        )
+    result = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"gh failed ({result.returncode}): {result.stderr.strip() or result.stdout.strip()}"
+        )
+    return json.loads(result.stdout or "[]")
+
+
+def fetch_github(cfg: TicketingConfig, repo: str) -> list[TicketRecord]:
+    """Open GitHub issues for a repo via `gh issue list` (gh owns auth+host).
+
+    external_id is `<repo>#<number>` so the db id (`github:<repo>#<n>`) is
+    the same dedupe key shape as jira/linear.
+    """
+    cmd = ["issue", "list", "--repo", repo, "--state", "open"]
+    for label in cfg.github.get("labels") or []:
+        cmd += ["--label", str(label)]
+    cmd += ["--json", "number,title,body,url,state,labels", "--limit", "100"]
+    records = []
+    for issue in _run_gh(cmd):
+        number = str(issue.get("number") or "")
+        if not number:
+            continue
+        records.append(
+            TicketRecord(
+                provider="github",
+                external_id=f"{repo}#{number}",
+                title=str(issue.get("title") or ""),
+                description=str(issue.get("body") or ""),
+                source_url=str(issue.get("url") or ""),
+            )
+        )
+    return records
+
+
+def _run_glab(args: list[str]) -> list[dict]:
+    """Shell the user-authenticated glab CLI and parse its JSON stdout."""
+    if shutil.which("glab") is None:
+        raise RuntimeError(
+            "the gitlab provider needs the glab CLI — install glab and run `glab auth login`: "
+            "https://gitlab.com/gitlab-org/cli"
+        )
+    result = subprocess.run(["glab", *args], capture_output=True, text=True, timeout=60)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"glab failed ({result.returncode}): {result.stderr.strip() or result.stdout.strip()}"
+        )
+    return json.loads(result.stdout or "[]")
+
+
+def fetch_gitlab(cfg: TicketingConfig, repo: str) -> list[TicketRecord]:
+    """Open GitLab issues for a repo via `glab issue list` (glab owns auth+host).
+
+    external_id is `<repo>#<iid>`; labels are normalized defensively (glab
+    may return a string or a `{"name": …}` object).
+    """
+    cmd = ["issue", "list", "--repo", repo, "--state", "opened"]
+    for label in cfg.gitlab.get("labels") or []:
+        cmd += ["--label", str(label)]
+    cmd += ["--output", "json"]
+    records = []
+    for issue in _run_glab(cmd):
+        iid = str(issue.get("iid") or "")
+        if not iid:
+            continue
+        records.append(
+            TicketRecord(
+                provider="gitlab",
+                external_id=f"{repo}#{iid}",
+                title=str(issue.get("title") or ""),
+                description=str(issue.get("description") or ""),
+                source_url=str(issue.get("web_url") or ""),
+            )
+        )
+    return records
+
+
 def upsert_tickets(db_path: Path, records: list[TicketRecord]) -> int:
     conn = sqlite3.connect(db_path)
     try:
