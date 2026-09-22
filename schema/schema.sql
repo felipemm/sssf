@@ -169,4 +169,16 @@ CREATE TABLE IF NOT EXISTS sandbox_run (
   updated_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS workbench_runs (
+  adw_id TEXT PRIMARY KEY,
+  container TEXT NOT NULL,
+  worktree TEXT NOT NULL,
+  container_port INTEGER,
+  host_port INTEGER,
+  url TEXT,
+  status TEXT,
+  created_at TEXT,
+  updated_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_ticket_events_ticket ON ticket_events (ticket_id, created_at);

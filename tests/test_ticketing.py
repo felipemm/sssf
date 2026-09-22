@@ -663,6 +663,131 @@ def test_finish_implement_unknown_run_is_a_noop(tmp_path):
     assert ticketing.finish_implement_run(conn, "no-such-run") is None
 
 
+# ── deploy batch edges (#96): batch signoff on the dev snapshot ─────────────
+
+
+def _deploy_conn(tmp_path):
+    """Two ready-for-signoff tickets awaiting the batch verdict, plus one
+    ready-for-agent ticket that must never move."""
+    conn = _machine_conn(tmp_path / "m.db")
+    for tid in ("t1", "t2"):
+        _insert_ticket(conn, tid, status="ready-for-signoff")
+    _insert_ticket(conn, "t-outside", status="ready-for-agent")
+    conn.commit()
+    return conn
+
+
+def test_deploy_batch_tickets_filters_to_ready_for_signoff(tmp_path):
+    conn = _deploy_conn(tmp_path)
+    conn.execute("UPDATE tickets SET status='ready-to-deploy' WHERE id='t1'")
+    conn.commit()
+    # only the ready-for-signoff ticket is settleable — a ticket already past
+    # the MR (ready-to-deploy) is never part of the batch verdict
+    assert ticketing.deploy_batch_tickets(conn, ["t1", "t2"]) == ["t2"]
+    assert ticketing.deploy_batch_tickets(conn, []) == []
+    conn.close()
+
+
+def test_reject_deploy_batch_requeues_fix_forward(tmp_path):
+    conn = _deploy_conn(tmp_path)
+    moved = ticketing.reject_deploy_batch(
+        conn, ["t1", "t2"], actor="ralph", feedback="dark mode regressed on the workbench"
+    )
+    assert moved == ["t1", "t2"]
+    rows = conn.execute(
+        "SELECT id, status, rejection_feedback FROM tickets WHERE id IN ('t1','t2')"
+        " ORDER BY id"
+    ).fetchall()
+    assert [(r[1], r[2]) for r in rows] == [
+        ("ready-for-agent", "dark mode regressed on the workbench"),
+        ("ready-for-agent", "dark mode regressed on the workbench"),
+    ]
+    # the outsider never moves
+    assert conn.execute("SELECT status FROM tickets WHERE id='t-outside'").fetchone() == (
+        "ready-for-agent",
+    )
+    # audited per ticket like every machine write
+    ev = ticketing.ticket_events(conn, "t1")[-1]
+    assert ev["event_type"] == "transition"
+    assert ev["payload"]["from"] == "ready-for-signoff"
+    assert ev["payload"]["to"] == "ready-for-agent"
+    assert "dark mode regressed" in ev["payload"]["feedback"]
+    assert ev["actor"] == "ralph"
+    conn.close()
+
+
+def test_reject_deploy_batch_never_touches_non_signoff_tickets(tmp_path):
+    conn = _deploy_conn(tmp_path)
+    conn.execute("UPDATE tickets SET status='ready-to-deploy' WHERE id='t1'")
+    conn.commit()
+    assert ticketing.reject_deploy_batch(conn, ["t1"]) == []
+    assert conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone() == (
+        "ready-to-deploy",
+    )
+    conn.close()
+
+
+def test_approve_deploy_batch_moves_to_ready_to_deploy_and_registers_mr(tmp_path):
+    conn = _deploy_conn(tmp_path)
+    moved = ticketing.approve_deploy_batch(
+        conn, ["t1", "t2"], actor="ralph",
+        mr_url="https://gitlab.example/x/-/merge_requests/7", mr_iid="7",
+        repo="org/repo",
+    )
+    assert moved == ["t1", "t2"]
+    for tid in ("t1", "t2"):
+        row = conn.execute("SELECT status FROM tickets WHERE id=?", (tid,)).fetchone()
+        assert row == ("ready-to-deploy",)
+        mr = ticketing.mr_for_ticket(conn, tid)
+        assert mr is not None
+        assert mr.iid == "7"
+        assert mr.url == "https://gitlab.example/x/-/merge_requests/7"
+    # the outsider never moves
+    assert conn.execute("SELECT status FROM tickets WHERE id='t-outside'").fetchone() == (
+        "ready-for-agent",
+    )
+    conn.close()
+
+
+def test_approve_deploy_batch_without_mr_info_still_moves(tmp_path):
+    """No glab / no MR opened: the tickets still move to ready-to-deploy (the
+    operator opens the MR by hand from the recorded payload) — no registration."""
+    conn = _deploy_conn(tmp_path)
+    assert ticketing.approve_deploy_batch(conn, ["t1", "t2"], actor="ralph") == ["t1", "t2"]
+    assert conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone() == (
+        "ready-to-deploy",
+    )
+    assert ticketing.mr_for_ticket(conn, "t1") is None
+    conn.close()
+
+
+def test_revert_deploy_ticket_requeues_only_signoff(tmp_path):
+    """The revert escape hatch's edge: a genuinely unwanted ticket comes back
+    ready-for-agent fix-forward — but only while it is still waiting for the
+    batch verdict; a ticket already past the MR is never yanked."""
+    conn = _deploy_conn(tmp_path)
+    conn.execute("UPDATE tickets SET status='ready-to-deploy' WHERE id='t1'")
+    conn.commit()
+    assert ticketing.revert_deploy_ticket(conn, "t1", actor="ralph") is False
+    assert conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone() == (
+        "ready-to-deploy",
+    )
+
+    conn2 = _machine_conn(tmp_path / "m2.db")
+    _insert_ticket(conn2, "t2", status="ready-for-signoff")
+    assert ticketing.revert_deploy_ticket(
+        conn2, "t2", actor="ralph", feedback="unwanted feature — removed from dev"
+    ) is True
+    row = conn2.execute(
+        "SELECT status, rejection_feedback FROM tickets WHERE id='t2'"
+    ).fetchone()
+    assert row == ("ready-for-agent", "unwanted feature — removed from dev")
+    ev = ticketing.ticket_events(conn2, "t2")[-1]
+    assert ev["payload"]["to"] == "ready-for-agent"
+    conn.close()
+    conn2.close()
+
+
 # ── plan flow: guard + breakdown parser + the settle (issue #91) ────────────
 
 

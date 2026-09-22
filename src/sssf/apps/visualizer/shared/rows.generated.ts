@@ -207,3 +207,16 @@ export interface SandboxRunRow {
   status: string | null;
   updated_at: string | null;
 }
+
+/** `workbench_runs` table — generated from db_schema.WorkbenchRunsRow. */
+export interface WorkbenchRunsRow {
+  adw_id: string;
+  container: string;
+  worktree: string;
+  container_port: number | null;
+  host_port: number | null;
+  url: string | null;
+  status: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}

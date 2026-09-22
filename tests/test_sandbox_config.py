@@ -20,43 +20,29 @@ def test_validation_errors():
     assert SandboxConfig().enabled is True
 
 
-def test_review_config_parses(tmp_path):
+def test_review_block_is_dropped_and_ignored(tmp_path):
+    """ADR-0004: `review.command` is dropped — the config no longer models
+    it, and a legacy project whose stamped yaml still carries the block loads
+    cleanly (the workbench in deploy.yaml replaces it)."""
     from sssf.adw_modules.agents import load_config
 
     cfg_file = tmp_path / "sssf.config.yaml"
     cfg_file.write_text(
         "sandbox:\n"
+        "  enabled: true\n"
         "  review:\n"
-        "    command: [\"npm\", \"run\", \"dev\", \"--workspace=web\"]\n"
+        "    command: [\"npm\", \"run\", \"dev\"]\n"
         "    container_port: 3000\n"
-        "    instructions: \"open the url\"\n"
     )
     cfg = load_config(str(cfg_file))
-    assert cfg.sandbox.review.command == ["npm", "run", "dev", "--workspace=web"]
-    assert cfg.sandbox.review.container_port == 3000
-    assert cfg.sandbox.review.instructions == "open the url"
+    assert cfg.sandbox.enabled is True
+    assert not hasattr(cfg.sandbox, "review")  # the model no longer declares it
 
 
-def test_review_config_absent_by_default():
+def test_review_block_absent_by_default():
     # default factory — no config file needed
     from sssf.adw_modules.data_types import SSSFConfig
 
     cfg = SSSFConfig()
-    assert cfg.sandbox.review.command is None
-    assert cfg.sandbox.review.container_port is None
-    assert cfg.sandbox.review.instructions == ""
-
-
-def test_review_config_rejects_bad_port(tmp_path):
-    import pydantic
-
-    from sssf.adw_modules.agents import load_config
-
-    cfg_file = tmp_path / "sssf.config.yaml"
-    cfg_file.write_text("sandbox:\n  review:\n    container_port: 99999\n")
-    try:
-        load_config(str(cfg_file))
-    except pydantic.ValidationError as exc:
-        assert "container_port" in str(exc)
-    else:
-        raise AssertionError("expected ValidationError for container_port 99999")
+    assert cfg.sandbox.enabled is True
+    assert not hasattr(cfg.sandbox, "review")

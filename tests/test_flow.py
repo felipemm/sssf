@@ -7,6 +7,7 @@ are the only entry point for starting work.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -30,9 +31,14 @@ def _setup_project(tmp_path, monkeypatch, *, sandbox_key: bool = False) -> Path:
     return root
 
 
-def _seed_ticket(root: Path, ticket_id: str, status: str = "ready-for-agent",
-                 title: str = "Dark mode", description: str = "Make it dark",
-                 kind: str = "implementation") -> None:
+def _seed_ticket(
+    root: Path,
+    ticket_id: str,
+    status: str = "ready-for-agent",
+    title: str = "Dark mode",
+    description: str = "Make it dark",
+    kind: str = "implementation",
+) -> None:
     conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
     ticketing.ensure_schema(conn)
     conn.execute(
@@ -85,8 +91,14 @@ def _adb(root: Path) -> sqlite3.Connection:
 
 def test_flow_plan_with_ticket_builds_prompt_from_ticket(tmp_path, monkeypatch):
     root = _setup_project(tmp_path, monkeypatch)
-    _seed_ticket(root, "internal:abc", status="needs-triage", kind="idea",
-                 title="Dark mode", description="Make it dark")
+    _seed_ticket(
+        root,
+        "internal:abc",
+        status="needs-triage",
+        kind="idea",
+        title="Dark mode",
+        description="Make it dark",
+    )
     calls = _capture_call(monkeypatch)
     assert flow.plan(Path.cwd(), "internal:abc", None, False, no_sandbox=True) == 0
     prompt = calls[0][2]
@@ -136,9 +148,9 @@ def test_flow_plan_links_the_run_before_the_spawn(tmp_path, monkeypatch):
 
     def fake_call(argv, **kw):
         conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
-        seen_link.append(conn.execute(
-            "SELECT adw_id FROM tickets WHERE id='internal:idea'"
-        ).fetchone()[0])
+        seen_link.append(
+            conn.execute("SELECT adw_id FROM tickets WHERE id='internal:idea'").fetchone()[0]
+        )
         conn.close()
         calls.append(argv)
         return 0
@@ -148,12 +160,8 @@ def test_flow_plan_links_the_run_before_the_spawn(tmp_path, monkeypatch):
     linked = calls[0][calls[0].index("--adw-id") + 1]
     assert seen_link == [linked]  # mid-run read sees the link
     conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
-    row = conn.execute(
-        "SELECT adw_id FROM tickets WHERE id='internal:idea'"
-    ).fetchone()
-    runs = conn.execute(
-        "SELECT adw_id FROM ticket_runs WHERE ticket_id='internal:idea'"
-    ).fetchall()
+    row = conn.execute("SELECT adw_id FROM tickets WHERE id='internal:idea'").fetchone()
+    runs = conn.execute("SELECT adw_id FROM ticket_runs WHERE ticket_id='internal:idea'").fetchall()
     conn.close()
     assert row == (linked,)
     assert [r[0] for r in runs] == [linked]
@@ -186,12 +194,8 @@ def test_flow_plan_no_sandbox_success_lands_the_transform(tmp_path, monkeypatch,
     monkeypatch.setattr(flow.subprocess, "call", fake_call)
     assert flow.plan(Path.cwd(), "internal:idea", None, False, no_sandbox=True) == 0
     conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
-    row = conn.execute(
-        "SELECT spec FROM tickets WHERE id='internal:idea'"
-    ).fetchone()
-    children = conn.execute(
-        "SELECT title FROM tickets WHERE parent_id='internal:idea'"
-    ).fetchall()
+    row = conn.execute("SELECT spec FROM tickets WHERE id='internal:idea'").fetchone()
+    children = conn.execute("SELECT title FROM tickets WHERE parent_id='internal:idea'").fetchall()
     conn.close()
     assert row[0].endswith("_spec-dark-mode.md")
     assert [c[0] for c in children] == ["Toggle", "Persist"]
@@ -207,9 +211,7 @@ def test_flow_plan_no_sandbox_failure_lands_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(flow.subprocess, "call", fake_call)
     assert flow.plan(Path.cwd(), "internal:idea", None, False, no_sandbox=True) == 1
     conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
-    row = conn.execute(
-        "SELECT spec, status FROM tickets WHERE id='internal:idea'"
-    ).fetchone()
+    row = conn.execute("SELECT spec, status FROM tickets WHERE id='internal:idea'").fetchone()
     conn.close()
     assert row == ("", "needs-triage")  # untouched
 
@@ -223,9 +225,7 @@ def test_flow_plan_sandbox_spawn_failure_leaves_the_ticket_planable(tmp_path, mo
     monkeypatch.setattr(flow, "_dispatch_chain", lambda *a, **k: 1)
     assert flow.plan(Path.cwd(), "internal:idea", None, False, no_sandbox=False) == 1
     conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
-    status = conn.execute(
-        "SELECT status FROM tickets WHERE id='internal:idea'"
-    ).fetchone()[0]
+    status = conn.execute("SELECT status FROM tickets WHERE id='internal:idea'").fetchone()[0]
     conn.close()
     assert status == "needs-triage"
 
@@ -256,9 +256,7 @@ def test_flow_plan_no_args_success_creates_idea_ticket_and_children(tmp_path, mo
     monkeypatch.setattr(flow.subprocess, "call", fake_call)
     assert flow.plan(Path.cwd(), None, None, False, no_sandbox=True) == 0
     conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
-    parents = conn.execute(
-        "SELECT id, title, kind FROM tickets WHERE kind='idea'"
-    ).fetchall()
+    parents = conn.execute("SELECT id, title, kind FROM tickets WHERE kind='idea'").fetchall()
     conn.close()
     assert len(parents) == 1 and parents[0][1] == "Dark mode"
     out = capsys.readouterr().out
@@ -309,9 +307,7 @@ def test_flow_implement_rejects_live_run(tmp_path, monkeypatch, capsys):
     _seed_ticket(root, "internal:abc")
     conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
     conn.execute("CREATE TABLE IF NOT EXISTS sessions (adw_id TEXT PRIMARY KEY, status TEXT)")
-    conn.execute(
-        "UPDATE tickets SET adw_id='run1' WHERE id='internal:abc'"
-    )
+    conn.execute("UPDATE tickets SET adw_id='run1' WHERE id='internal:abc'")
     conn.execute("INSERT INTO sessions (adw_id, status) VALUES ('run1', 'running')")
     conn.commit()
     conn.close()
@@ -326,7 +322,9 @@ def _adb(root: Path) -> sqlite3.Connection:
     return conn
 
 
-def _session_for_argv(root: Path, argv: list[str], status: str, adw_name: str = "adw_implement") -> None:
+def _session_for_argv(
+    root: Path, argv: list[str], status: str, adw_name: str = "adw_implement"
+) -> None:
     """Simulate the ADW's host-side trace: the adw-id in the dispatch argv gets
     its session row (the real ADW writes it directly to the project db)."""
     adw_id = argv[argv.index("--adw-id") + 1]
@@ -365,9 +363,7 @@ def test_flow_implement_claims_ticket_before_the_run(tmp_path, monkeypatch):
     assert seen_in_progress == ["in-progress"]
     conn = _adb(root)
     row = conn.execute("SELECT status, adw_id FROM tickets WHERE id='internal:abc'").fetchone()
-    runs = conn.execute(
-        "SELECT adw_id FROM ticket_runs WHERE ticket_id='internal:abc'"
-    ).fetchall()
+    runs = conn.execute("SELECT adw_id FROM ticket_runs WHERE ticket_id='internal:abc'").fetchall()
     conn.close()
     # success → the run settles the machine to ready-for-signoff
     assert row == ("ready-for-signoff", calls[0][calls[0].index("--adw-id") + 1])
@@ -392,7 +388,7 @@ def test_flow_implement_no_sandbox_failure_requeues_with_feedback(tmp_path, monk
         conn.execute(
             "INSERT INTO envelopes (envelope_id, adw_id, agent, output_type, payload_json,"
             " valid, attempt, created_at) VALUES (?,?, 'reviewer', 'ReviewOutput',"
-            " '{\"approved\": false, \"blocking\": [\"move the button above the fold\"]}',"
+            ' \'{"approved": false, "blocking": ["move the button above the fold"]}\','
             " 1, 1, '2026-09-01T01:00:00+00:00')",
             ("env1", adw_id),
         )
@@ -438,9 +434,7 @@ def test_flow_implement_forwards_adw_id_in_no_sandbox_dispatch(tmp_path, monkeyp
     assert flow.implement(Path.cwd(), "internal:abc", None, no_sandbox=True) == 0
     assert "--adw-id" in calls[0]
     conn = _adb(root)
-    linked = conn.execute(
-        "SELECT adw_id FROM tickets WHERE id='internal:abc'"
-    ).fetchone()[0]
+    linked = conn.execute("SELECT adw_id FROM tickets WHERE id='internal:abc'").fetchone()[0]
     conn.close()
     assert linked == calls[0][calls[0].index("--adw-id") + 1]
 
@@ -451,6 +445,12 @@ def test_flow_implement_missing_ticket_is_loud(tmp_path, monkeypatch, capsys):
     assert "no ticket internal:nope" in capsys.readouterr().err
 
 
+# ── deploy (#96): batch-level release train + workbench signoff ────────────
+
+# A fake docker on PATH: every docker verb succeeds; `port` resolves the
+# workbench's random host port. The tests cross the same PATH seam the
+# real docker shim does (resolved per call).
+_DOCKER_SHIM = "#!/usr/bin/env python3\nimport sys\nif sys.argv[1:] and sys.argv[1] == 'port':\n    print('0.0.0.0:41234')\nsys.exit(0)\n"
 # ── implement afk: the unattended queue loop (#93) ──────────────────────────
 
 
@@ -683,20 +683,260 @@ def test_flow_implement_afk_sandboxed_spawn_failure_aborts(tmp_path, monkeypatch
 # ── deploy ───────────────────────────────────────────────────────────────────
 
 
-def test_flow_deploy_dispatches_deploy_chain(tmp_path, monkeypatch):
-    _root = _setup_project(tmp_path, monkeypatch)
-    calls = _capture_call(monkeypatch)
-    assert flow.deploy(Path.cwd(), None, yes=False, no_sandbox=True) == 0
-    argv = calls[0]
-    assert argv[1].endswith("adw_deploy.py")
-    assert "--yes" not in argv
+def _deploy_project(
+    tmp_path, monkeypatch, *, ticket="internal:abc", dev_commit="feat: dark mode (#internal:abc)"
+):
+    """A project with main + dev branches; one ready-for-signoff ticket whose
+    commit is on dev, its run recorded, the workbench config stamped, and a
+    fake docker on PATH (bring_up/tear_down cross the PATH seam)."""
+    import subprocess
+
+    root = _setup_project(tmp_path, monkeypatch)
+    for cmd in (
+        ["git", "init", "-q", "-b", "main"],
+        ["git", "config", "user.email", "t@t"],
+        ["git", "config", "user.name", "T"],
+        ["git", "add", "-A"],
+        ["git", "commit", "-qm", "base"],
+        ["git", "checkout", "-q", "-b", "dev"],
+    ):
+        subprocess.run(cmd, cwd=root, check=True)
+    (root / "feature.txt").write_text("x\n")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", dev_commit], cwd=root, check=True)
+    subprocess.run(["git", "checkout", "-q", "main"], cwd=root, check=True)
+    _seed_ticket(root, ticket, status="ready-for-signoff")
+    conn = _adb(root)
+    conn.execute(
+        "INSERT INTO ticket_runs (ticket_id, adw_id, created_at)"
+        " VALUES (?, 'r1', '2026-09-01T00:00:00+00:00')",
+        (ticket,),
+    )
+    conn.commit()
+    conn.close()
+    (root / "adws" / "config" / "deploy.yaml").write_text(
+        "version_files:\n  - pyproject.toml\n"
+        'workbench:\n  command: ["bun", "run", "dev"]\n  container_port: 3000\n'
+    )
+    fake = tmp_path / "bin"
+    fake.mkdir(exist_ok=True)
+    shim = fake / "docker"
+    shim.write_text(_DOCKER_SHIM)
+    shim.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake}{os.pathsep}{os.environ.get('PATH', '')}")
+    return root
 
 
-def test_flow_deploy_yes_is_forwarded(tmp_path, monkeypatch):
-    _root = _setup_project(tmp_path, monkeypatch)
+def _workbench_rows(root: Path) -> list[tuple]:
+    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    rows = conn.execute(
+        "SELECT adw_id, container, host_port, url, status FROM workbench_runs"
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def test_flow_deploy_brings_up_workbench_and_approves_batch(tmp_path, monkeypatch):
+    """Approve at the signoff: the workbench is up (recorded with the
+    published URL), the release-train chain runs with a pinned adw-id, and the
+    batch's ready-for-signoff ticket moves to ready-to-deploy."""
+    root = _deploy_project(tmp_path, monkeypatch)
     calls = _capture_call(monkeypatch)
-    assert flow.deploy(Path.cwd(), None, yes=True, no_sandbox=True) == 0
-    assert "--yes" in calls[0]
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    assert flow.deploy(Path.cwd(), None, yes=False) == 0
+    # the workbench came up from dev and was recorded
+    rows = _workbench_rows(root)
+    assert len(rows) == 1
+    assert rows[0][1].startswith("sssf-wb-")  # container
+    assert rows[0][2] == 41234  # host port resolved from the fake docker
+    assert rows[0][3] == "http://127.0.0.1:41234"
+    assert rows[0][4] == "up"
+    # the release train ran as the adw_deploy chain with a pinned adw-id
+    assert len(calls) == 1
+    assert calls[0][1].endswith("adw_deploy.py")
+    assert "--adw-id" in calls[0]
+    # the batch settled: ready-for-signoff -> ready-to-deploy
+    conn = _adb(root)
+    row = conn.execute("SELECT status FROM tickets WHERE id='internal:abc'").fetchone()
+    assert row == ("ready-to-deploy",)
+    conn.close()
+
+
+def test_flow_deploy_yes_autoapproves_without_prompt(tmp_path, monkeypatch):
+    root = _deploy_project(tmp_path, monkeypatch)
+    calls = _capture_call(monkeypatch)
+    prompts = []
+    monkeypatch.setattr("builtins.input", lambda p: prompts.append(p) or "n")
+    assert flow.deploy(Path.cwd(), None, yes=True) == 0
+    assert prompts == []  # --yes never asks
+    assert len(calls) == 1
+    conn = _adb(root)
+    assert conn.execute("SELECT status FROM tickets WHERE id='internal:abc'").fetchone() == (
+        "ready-to-deploy",
+    )
+    conn.close()
+
+
+def test_flow_deploy_rejection_requeues_and_tears_down(tmp_path, monkeypatch):
+    """A 'no' at the signoff re-queues the failing tickets fix-forward with
+    the batch verdict and tears the workbench down ("rebuilt" by the next
+    run) — and returns 0, because rejection is the expected outcome."""
+    root = _deploy_project(tmp_path, monkeypatch)
+    calls = _capture_call(monkeypatch)
+    answers = iter(["n", ""])  # reject, then blank = the whole batch failed
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    assert flow.deploy(Path.cwd(), None, yes=False) == 0
+    assert calls == []  # no release train ran
+    conn = _adb(root)
+    row = conn.execute(
+        "SELECT status, rejection_feedback FROM tickets WHERE id='internal:abc'"
+    ).fetchone()
+    assert row[0] == "ready-for-agent"
+    assert "batch rejected at signoff" in row[1]
+    ev = ticketing.ticket_events(conn, "internal:abc")[-1]
+    assert ev["payload"]["to"] == "ready-for-agent"
+    conn.close()
+    # the workbench was torn down (record marked down; container removed)
+    rows = _workbench_rows(root)
+    assert rows and rows[0][4] == "down"
+
+
+def test_flow_deploy_rejection_with_picked_tickets_only_requeues_them(tmp_path, monkeypatch):
+    """The operator names the failing tickets at rejection: only those
+    re-queue; the rest of the batch stays ready-for-signoff for the next run."""
+    root = _deploy_project(tmp_path, monkeypatch)
+    conn = _adb(root)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, external_id, title, status, kind)"
+        " VALUES ('internal:def', 'internal', '', 'Another', 'ready-for-signoff',"
+        " 'implementation')"
+    )
+    conn.commit()
+    conn.close()
+    answers = iter(["n", "internal:abc"])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    assert flow.deploy(Path.cwd(), None, yes=False) == 0
+    conn = _adb(root)
+    assert conn.execute("SELECT status FROM tickets WHERE id='internal:abc'").fetchone() == (
+        "ready-for-agent",
+    )
+    assert conn.execute("SELECT status FROM tickets WHERE id='internal:def'").fetchone() == (
+        "ready-for-signoff",
+    )  # not named — not requeued
+    conn.close()
+
+
+def test_flow_deploy_no_dev_branch_is_loud(tmp_path, monkeypatch, capsys):
+    _setup_project(tmp_path, monkeypatch)
+    assert flow.deploy(Path.cwd(), None, yes=True) == 1
+    assert "no dev integration branch" in capsys.readouterr().err
+
+
+def test_flow_deploy_nothing_beyond_main_is_loud(tmp_path, monkeypatch, capsys):
+    """dev exists but is not ahead of main: there is no batch to ship."""
+    import subprocess
+
+    root = _setup_project(tmp_path, monkeypatch)
+    for cmd in (
+        ["git", "init", "-q", "-b", "main"],
+        ["git", "config", "user.email", "t@t"],
+        ["git", "config", "user.name", "T"],
+        ["git", "add", "-A"],
+        ["git", "commit", "-qm", "base"],
+        ["git", "checkout", "-q", "-b", "dev"],
+        ["git", "checkout", "-q", "main"],
+    ):
+        subprocess.run(cmd, cwd=root, check=True)
+    assert flow.deploy(Path.cwd(), None, yes=True) == 1
+    assert "nothing to deploy" in capsys.readouterr().err
+
+
+def test_flow_deploy_down_tears_the_workbench(tmp_path, monkeypatch, capsys):
+    """`sssf flow deploy --down` is the human's teardown (ADR-0004): the
+    container is removed and the record flips to down; with nothing to tear
+    down it is loud."""
+    root = _deploy_project(tmp_path, monkeypatch)
+    calls = _capture_call(monkeypatch)
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    assert flow.deploy(Path.cwd(), None, yes=False) == 0
+    calls.clear()
+    assert flow.deploy_down(Path.cwd(), None) == 0
+    assert "torn down" in capsys.readouterr().out
+    assert _workbench_rows(root)[0][4] == "down"
+    # a second teardown has nothing to remove
+    assert flow.deploy_down(Path.cwd(), None) == 1
+
+
+def test_flow_deploy_revert_removes_the_ticket_from_dev(tmp_path, monkeypatch):
+    """The revert escape hatch: the ticket's own commits (message references
+    the ticket id) are reverted on dev and the ticket comes back
+    ready-for-agent fix-forward — the next deploy ships the clean snapshot."""
+    import subprocess
+
+    root = _deploy_project(tmp_path, monkeypatch)
+    assert flow.deploy_revert(Path.cwd(), "internal:abc", None) == 0
+    conn = _adb(root)
+    row = conn.execute(
+        "SELECT status, rejection_feedback FROM tickets WHERE id='internal:abc'"
+    ).fetchone()
+    assert row[0] == "ready-for-agent"
+    assert "reverted from dev" in row[1]
+    conn.close()
+    # the dev snapshot no longer carries the ticket's change
+    r = subprocess.run(
+        ["git", "-C", str(root), "show", "dev:feature.txt"],
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode != 0  # the file is gone from dev after the revert
+    log = subprocess.run(
+        ["git", "-C", str(root), "log", "--oneline", "dev"],
+        capture_output=True,
+        text=True,
+    )
+    assert "Revert" in log.stdout  # the revert commit landed on dev
+
+
+def test_flow_deploy_revert_without_commits_is_loud(tmp_path, monkeypatch, capsys):
+
+    _deploy_project(tmp_path, monkeypatch, dev_commit="feat: unrelated (#internal:xyz)")
+    assert flow.deploy_revert(Path.cwd(), "internal:abc", None) == 1
+    assert "nothing to revert" in capsys.readouterr().err
+
+
+def test_flow_deploy_workbench_failure_is_loud(tmp_path, monkeypatch, capsys):
+    """A workbench that cannot come up (no `workbench:` config) stops the
+    deploy before any machine write — never a silent skip."""
+
+    root = _deploy_project(tmp_path, monkeypatch)
+    (root / "adws" / "config" / "deploy.yaml").write_text("version_files:\n  - pyproject.toml\n")
+    assert flow.deploy(Path.cwd(), None, yes=True) == 1
+    assert "workbench" in capsys.readouterr().err
+    conn = _adb(root)
+    assert conn.execute("SELECT status FROM tickets WHERE id='internal:abc'").fetchone() == (
+        "ready-for-signoff",
+    )  # nothing moved
+    conn.close()
+
+
+def test_flow_deploy_failed_release_train_requeues(tmp_path, monkeypatch):
+    """The batch was approved but the release train itself failed (e2e red,
+    MR refused): the batch re-queues fix-forward with the run's feedback —
+    approval is not a guarantee."""
+    root = _deploy_project(tmp_path, monkeypatch)
+
+    def failing_call(argv, **kw):
+        return 1
+
+    monkeypatch.setattr(flow.subprocess, "call", failing_call)
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    assert flow.deploy(Path.cwd(), None, yes=False) == 1
+    conn = _adb(root)
+    row = conn.execute(
+        "SELECT status, rejection_feedback FROM tickets WHERE id='internal:abc'"
+    ).fetchone()
+    assert row[0] == "ready-for-agent"
+    conn.close()
 
 
 # ── shared dispatch ──────────────────────────────────────────────────────────
@@ -710,12 +950,13 @@ def test_flow_no_project_is_loud(tmp_path, monkeypatch, capsys):
 
 def test_flow_sandboxed_dispatch_uses_the_sandbox(tmp_path, monkeypatch):
     """No `sandbox:` key in the config → sandboxed by default: the spawn goes
-    through _run_sandboxed, never a bare subprocess call."""
+    through _run_sandboxed, never a bare subprocess call (the plan flow's
+    dispatch — deploy is host-side by design since #96)."""
     _root = _setup_project(tmp_path, monkeypatch)
     captured: dict = {}
     monkeypatch.setattr(flow, "_run_sandboxed", lambda *a, **k: captured.update(a=a) or 0)
-    assert flow.deploy(Path.cwd(), None, yes=False, no_sandbox=False) == 0
-    assert captured["a"][1].name == "adw_deploy.py"
+    assert flow.plan(Path.cwd(), None, None, skip_exploration=False, no_sandbox=False) == 0
+    assert captured["a"][1].name == "adw_plan.py"
 
 
 def test_flow_warns_on_legacy_layout(tmp_path, monkeypatch, capsys):

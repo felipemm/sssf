@@ -67,8 +67,10 @@ Failures return the same session for corrections.
 A phase orchestrator invoked by the human, mapping one of the factory's phases
 of work to chains: `plan` (exploration → spec → tickets, one ticket at a time),
 `implement` (triage → build → review, unattended; `implement afk` is the ralph
-loop), `deploy` (sandbox → signoff → bump → MR → e2e → release — the QA stage
-is embedded in the deployment workflow).
+loop), `deploy` (workbench signoff on the dev snapshot → bump → MR → e2e →
+release — one workbench, one batch verdict; the QA stage is embedded in the
+deployment workflow, and the deterministic release train runs host-side in a
+worktree at dev).
 _Avoid_: running chains ad hoc from the terminal
 
 **Plan flow**:

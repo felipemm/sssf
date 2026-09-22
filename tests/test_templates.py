@@ -87,13 +87,16 @@ def test_template_scaffolds_prompts_specs_kb():
 
 
 def test_deploy_flow_ends_with_the_release_step():
-    """The deploy chain ships the AC phase list — sandbox → signoff → bump →
-    MR → e2e → release — with the human signoff gate and the release
-    close-by-commits anchor; deeper mechanics land with #96/#97."""
+    """The deploy chain ships the release-train phase list — bump → MR → e2e →
+    release (the batch signoff + workbench are host-side since #96) — with the
+    release close-by-commits anchor; canary/promote land with #97."""
     text = (TEMPLATES / "adws" / "modules" / "adw_deploy.py").read_text()
-    for needle in ('"sandbox"', '"signoff"', '"bump"', '"mr"', 'name="e2e"', '"release"',
-                   "ChainFailure", "sign off this batch", "input("):
+    for needle in ('"bump"', '"mr"', 'name="e2e"', '"release"',
+                   "ChainFailure", "-mr.json"):
         assert needle in text, f"adw_deploy missing {needle}"
+    # the in-chain human signoff is gone — the verdict moved to the HOST flow
+    assert '"signoff"' not in text
+    assert '"sandbox"' not in text
 
 
 def test_every_adw_lands_its_working_tree():

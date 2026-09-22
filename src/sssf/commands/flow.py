@@ -2,9 +2,7 @@
 
 Flows are the ONLY entry point for starting work (#89): ad-hoc `sssf run <adw>
 "<prompt>"` is removed. Already-stamped projects' legacy ADWs stay runnable
-through the legacy ticket-run path (`sssf ticket run`). The flow command is a
-thin orchestration layer over the existing chain runner — it builds the prompt
-from the ticket, then dispatches the flow chain (sandboxed by default).
+through the legacy ticket-run path (`sssf ticket run`).
 
 The implement flow drives the ticket machine (#92): it claims the ticket
 (ready-for-agent → in-progress) before the run spawns, records every run in
@@ -12,11 +10,18 @@ ticket_runs, and settles the outcome — success moves the ticket to
 ready-for-signoff, failure requeues it fix-forward with the run's feedback.
 The plan flow lands its db transform (#91) host-side: the sandbox monitor
 settles a sandboxed run's end, `--no-sandbox` runs settle here from the ADW's
-exit code.
+exit code. The deploy flow (#96) is a HOST-side orchestration: it brings up
+the QA workbench from the `dev` branch (one workbench, one batch verdict),
+signs the batch off at the terminal, and runs the deterministic release train
+(bump → MR → e2e → release) in a release worktree at `dev` — rejection
+re-queues the failing tickets fix-forward, approval moves them to
+ready-to-deploy once the MR exists, and `--revert` is the escape hatch that
+removes a genuinely unwanted ticket from dev by its own commits.
 """
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import subprocess
 import sys
@@ -88,7 +93,6 @@ def _run_sandboxed(
             pi_home=pi_home,
             env=env,
             attach=attach,
-            review=cfg.sandbox.review.model_dump(),
         )
     except SandboxError as e:
         from sssf.sandbox import abort_sandbox
@@ -156,8 +160,9 @@ def _ticket_prompt(root: Path, ticket_id: str) -> tuple[str, str, str] | None:
     title, description, context, status, provider, external_id, source_url = row
     from sssf.commands.ticket import _prompt_text
 
-    prompt = _prompt_text(title, description or "", context or "", provider,
-                          external_id or "", source_url or "")
+    prompt = _prompt_text(
+        title, description or "", context or "", provider, external_id or "", source_url or ""
+    )
     return prompt, status, title
 
 
@@ -187,13 +192,10 @@ def _land_plan_run(root: Path, conn: sqlite3.Connection, adw_id: str) -> int:
         count = conn.execute(
             "SELECT COUNT(*) FROM tickets WHERE parent_id=?", (landed,)
         ).fetchone()[0]
-        title_row = conn.execute(
-            "SELECT title FROM tickets WHERE id=?", (landed,)
-        ).fetchone()
+        title_row = conn.execute("SELECT title FROM tickets WHERE id=?", (landed,)).fetchone()
         title = title_row[0] if title_row else ""
         print(
-            f"sssf flow: plan landed — {landed} ({title}) now has"
-            f" {count} implementation ticket(s)"
+            f"sssf flow: plan landed — {landed} ({title}) now has {count} implementation ticket(s)"
         )
     return 0
 
@@ -256,7 +258,9 @@ def plan(
         conn.close()
         return 1
     if _has_live_run(root, ticket_id):
-        print(f"sssf flow: ticket {ticket_id} has a live run — wait for it to finish", file=sys.stderr)
+        print(
+            f"sssf flow: ticket {ticket_id} has a live run — wait for it to finish", file=sys.stderr
+        )
         conn.close()
         return 1
 
@@ -328,7 +332,9 @@ def implement(
         )
         return 1
     if _has_live_run(root, ticket_id):
-        print(f"sssf flow: ticket {ticket_id} has a live run — wait for it to finish", file=sys.stderr)
+        print(
+            f"sssf flow: ticket {ticket_id} has a live run — wait for it to finish", file=sys.stderr
+        )
         return 1
 
     # Claim the ticket + record the run BEFORE the run spawns (machine write,
@@ -369,6 +375,207 @@ def implement(
     conn.commit()
     conn.close()
     return code
+
+
+_DEPLOY_PROMPT = "Deploy the dev integration branch batch to main (release train)."
+
+
+def _git(root: Path, *args: str) -> str:
+    """One git query against the project root; empty string on failure."""
+    r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+    return r.stdout.strip()
+
+
+def _batch_commits(root: Path, dev: str) -> list[str]:
+    """The dev snapshot: commits on dev not in main (newest first, as git
+    logs them) — the batch this deploy ships."""
+    base = (
+        "origin/main"
+        if _git(root, "rev-parse", "--verify", "--quiet", "origin/main^{commit}")
+        else "main"
+    )
+    out = _git(root, "log", "--oneline", f"{base}..{dev}")
+    return [line for line in out.splitlines() if line.strip()]
+
+
+def _batch_tickets(conn: sqlite3.Connection, root: Path, commits: list[str]) -> list[str]:
+    """The batch's tickets: the ready-for-signoff tickets whose work
+    demonstrably landed in the dev snapshot. A ticket's commits are matched by
+    message — the id (`#<ticket-id>`) or any of the ticket's run adw_ids
+    (`sssf(<adw_id>)`, the chain's fallback commit subject). When NO commit
+    reference parses, the operator's batch is everything awaiting signoff
+    (ready-for-signoff is "work on dev waiting for the batch verdict").
+    """
+    from sssf import ticketing
+
+    signoff = [
+        r[0]
+        for r in conn.execute(
+            "SELECT id FROM tickets WHERE status=?", (ticketing.STATUS_SIGNOFF,)
+        ).fetchall()
+    ]
+    if not signoff:
+        return []
+    runs: dict[str, list[str]] = {}
+    for tid, adw_id in conn.execute("SELECT ticket_id, adw_id FROM ticket_runs").fetchall():
+        runs.setdefault(tid, []).append(adw_id)
+    text = "\n".join(commits)
+    matched = [
+        tid
+        for tid in signoff
+        if f"#{tid}" in text or any(f"sssf({a})" in text for a in runs.get(tid, []))
+    ]
+    return matched or signoff
+
+
+def _release_worktree(root: Path, adw_id: str, dev: str) -> Path | None:
+    """The release-train worktree: a checkout at the `dev` BRANCH so the
+    chain's commits (the bump) land on dev — never on the operator's checkout.
+    When the operator is already ON dev, the chain runs in the project tree
+    (the bump lands on dev either way). Returns None when the worktree cannot
+    be created."""
+    head = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    if head == "dev":
+        if _git(root, "status", "--porcelain"):
+            print(
+                "sssf flow: your checkout is on dev with uncommitted changes — the"
+                " release train commits the bump onto dev (git add -A), so a dirty"
+                " tree would sweep unrelated files. Commit or stash, or run deploy"
+                " from a checkout on main.",
+                file=sys.stderr,
+            )
+            return None
+        return root
+    wt = root / ".worktrees" / f"deploy-{adw_id}"
+    wt.parent.mkdir(parents=True, exist_ok=True)
+    if dev == "dev":
+        r = subprocess.run(
+            ["git", "-C", str(root), "worktree", "add", "-q", str(wt), "dev"],
+            capture_output=True,
+            text=True,
+        )
+    else:  # origin/dev: create the local dev branch in the worktree
+        r = subprocess.run(
+            ["git", "-C", str(root), "worktree", "add", "-q", "-b", "dev", str(wt), "origin/dev"],
+            capture_output=True,
+            text=True,
+        )
+    if r.returncode != 0:
+        print(
+            "sssf flow: cannot create the release worktree at dev:"
+            f" {r.stderr.strip()[:300]}\n"
+            "  (is `dev` checked out in another worktree? run deploy from a"
+            " checkout on main, or on dev itself)",
+            file=sys.stderr,
+        )
+        return None
+    return wt
+
+
+def _repo(root: Path) -> str:
+    """The origin remote as org/repo (for MR registration); '' without a
+    remote or a parseable URL."""
+    url = _git(root, "config", "--get", "remote.origin.url")
+    if not url:
+        return ""
+    cleaned = url.removesuffix(".git")
+    parts = [p for p in cleaned.replace(":", "/").split("/") if p]
+    return "/".join(parts[-2:]) if len(parts) >= 2 else cleaned
+
+
+def _read_mr_record(wt: Path, adw_id: str) -> dict:
+    """The MR the deploy chain opened (title/url/iid), or {} when none was
+    recorded (no glab — the payload markdown is the operator's manual path)."""
+    path = wt / "adws" / "data" / "deploy" / f"{adw_id}-mr.json"
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _deploy_failure_feedback(conn: sqlite3.Connection, adw_id: str) -> str:
+    """What the failed release train attaches to the batch's tickets
+    (fix-forward): the run's last error event, else a generic line."""
+    row = conn.execute(
+        "SELECT name, payload_json FROM events WHERE adw_id=? AND type='error'"
+        " ORDER BY rowid DESC LIMIT 1",
+        (adw_id,),
+    ).fetchone()
+    if row:
+        try:
+            payload = json.loads(row[1] or "{}")
+        except ValueError:
+            payload = {}
+        text = payload.get("reason") or payload.get("error") or ""
+        if text:
+            return f"release train failed: {str(text)[:400]}"
+        return f"release train failed ({row[0]})"
+    return "the deploy flow run failed"
+
+
+def _run_release_train(
+    root: Path, conn: sqlite3.Connection, adw_id: str, dev: str, batch: list[str]
+) -> int:
+    """The deterministic release train after batch approval (#96): run the
+    adw_deploy chain (bump → MR → e2e → release) in a release worktree at
+    `dev`, sync its per-run db into the project db, then settle the batch's
+    machine edges from the outcome — success moves the batch to
+    ready-to-deploy and registers the MRs (#98 monitor); failure re-queues it
+    fix-forward with the run's feedback."""
+    from sssf import ticketing
+    from sssf.sandbox.rundb import sync_run_db
+
+    wt = _release_worktree(root, adw_id, dev)
+    if wt is None:
+        return 1
+    adw_file = _adw_file(root, "adw_deploy")
+    if adw_file is None:
+        print(
+            "sssf flow: no deploy chain 'adw_deploy' (looked for"
+            " adws/modules/adw_deploy.py)",
+            file=sys.stderr,
+        )
+        return 1
+    argv = [sys.executable, str(adw_file), _DEPLOY_PROMPT, "--adw-id", adw_id]
+    code = subprocess.call(argv, cwd=wt)
+    try:  # the chain's per-run db (worktree adws/data) merges like any run
+        sync_run_db(conn, wt / "adws" / "data" / "sssf.db", adw_id)
+    except Exception as error:  # the trace is best-effort — the exit code is the truth
+        print(f"sssf flow: could not sync the deploy run trace ({error})", file=sys.stderr)
+    if code != 0:
+        moved = ticketing.reject_deploy_batch(
+            conn,
+            batch,
+            actor=_actor(),
+            feedback=_deploy_failure_feedback(conn, adw_id),
+        )
+        conn.commit()
+        print(
+            f"sssf flow: release train failed — {len(moved)} ticket(s) requeued"
+            " fix-forward (ready-for-agent)",
+            file=sys.stderr,
+        )
+        return 1
+    mr = _read_mr_record(wt, adw_id)
+    moved = ticketing.approve_deploy_batch(
+        conn,
+        batch,
+        actor=_actor(),
+        mr_url=mr.get("url", ""),
+        mr_iid=mr.get("iid", ""),
+        repo=_repo(root),
+    )
+    conn.commit()
+    print(f"sssf flow: release train landed — {len(moved)} ticket(s) moved to ready-to-deploy")
+    if mr.get("url"):
+        print(f"sssf flow: MR {mr['url']} — the monitor (#98) watches it")
+    else:
+        print(
+            "sssf flow: no MR opened (glab absent) — the payload is under"
+            " adws/data/deploy/; open the dev→main MR, then `sssf mr add` to"
+            " register it for the monitor"
+        )
+    return 0
 
 
 def implement_afk(
@@ -479,16 +686,251 @@ def deploy(
     cwd: Path,
     explicit_project: str | None = None,
     yes: bool = False,
-    no_sandbox: bool = False,
 ) -> int:
-    """`sssf flow deploy` — batch-level release train dev → main. No ticket:
-    the batch is the dev snapshot (signoff is batch-level)."""
+    """`sssf flow deploy` — batch-level release train dev → main, with the
+    workbench signoff (issue #96). No ticket: the batch is the dev snapshot.
+
+    Host-side by design: the signoff is the operator's terminal verdict (a
+    detached runner container's stdin is /dev/null — the old sandboxed signoff
+    could never be answered), and the only container the deploy flow runs is
+    the WORKBENCH — the QA surface brought up from the `dev` branch with a
+    published port. The deterministic release train (bump → MR → e2e →
+    release) runs as the adw_deploy chain in a release worktree checked out at
+    `dev`, so its git steps land on dev, and its per-run db is merged back
+    into the project db.
+
+    Machine edges (host, all legal transitions):
+    - rejection: the failing ready-for-signoff tickets → ready-for-agent with
+      the batch verdict as feedback (fix-forward), and the workbench is torn
+      down ("the workbench is rebuilt" by the next run after the fix);
+    - approval: the batch's ready-for-signoff tickets → ready-to-deploy once
+      the dev→main MR exists, with the MR registered for the #98 monitor.
+    """
+    from sssf import ticketing, workbench
+    from sssf.adw_modules import agents, paths
+
     root = _root(cwd, explicit_project)
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
         return 1
-    prompt = "Deploy the dev integration branch batch to main (release train)."
-    return _dispatch_chain(root, "adw_deploy", prompt, ["--yes"] if yes else [], no_sandbox)
+    registry.update_last_run(root)
+    paths.warn_if_legacy(root, command="flow")
+
+    conn = sqlite3.connect(str(paths.data_dir(root) / "sssf.db"))
+    ticketing.ensure_schema(conn)
+
+    dev = workbench.dev_ref(root)
+    if dev is None:
+        print(
+            "sssf flow: no dev integration branch — run an implement flow first"
+            " (the release train lands on dev, and deploy ships dev → main)",
+            file=sys.stderr,
+        )
+        conn.close()
+        return 1
+    commits = _batch_commits(root, dev)
+    if not commits:
+        print("sssf flow: dev has nothing beyond main — nothing to deploy", file=sys.stderr)
+        conn.close()
+        return 1
+    batch = _batch_tickets(conn, root, commits)
+
+    print("── dev snapshot to ship ──")
+    for line in commits:
+        print(f"  {line}")
+    if batch:
+        print("batch tickets:")
+        for tid in batch:
+            print(f"  {tid}")
+    else:
+        print("  (no ready-for-signoff tickets matched this snapshot — the MR")
+        print("   still ships the commits)")
+    print("──────────────────────────")
+
+    adw_id = uuid.uuid4().hex[:8]
+    try:
+        cfg = agents.load_config(str(paths.config_file(root)))
+        wb = workbench.bring_up(root, adw_id, cfg.sandbox.image)
+    except Exception as error:  # workbench.WorkbenchError + docker/config surprises
+        print(f"sssf flow: workbench failed: {error}", file=sys.stderr)
+        conn.close()
+        return 1
+    print(
+        f"sssf flow: workbench up — {wb['url'] or '(port not resolved yet)'}"
+        f" (container {wb['container']}; tear down with `sssf flow deploy --down`)"
+    )
+
+    if yes:
+        verdict = "y"
+    else:
+        try:
+            verdict = input("QA the workbench. Sign off this batch on dev? [y/N] ").strip().lower()
+        except EOFError:
+            verdict = "n"
+    if verdict not in ("y", "yes"):
+        failing = batch
+        if batch:
+            try:
+                picked = input(
+                    "which tickets failed QA? (ids, comma-separated; blank = the whole batch) "
+                ).strip()
+            except EOFError:
+                picked = ""
+            if picked:
+                picked_ids = [p.strip() for p in picked.split(",") if p.strip()]
+                failing = [t for t in batch if t in picked_ids or t.split(":")[-1] in picked_ids]
+        moved = ticketing.reject_deploy_batch(
+            conn,
+            failing,
+            actor=_actor(),
+            feedback="batch rejected at signoff on the workbench",
+        )
+        conn.commit()
+        workbench.tear_down(root, adw_id)
+        print(
+            f"sssf flow: batch rejected — {len(moved)} ticket(s) requeued"
+            " fix-forward (ready-for-agent)"
+        )
+        print(
+            "  fix-forward: a new implement run stacks the fix on dev, then re-run"
+            " `sssf flow deploy` (the workbench is rebuilt)"
+        )
+        print("  to remove a ticket from dev permanently: `sssf flow deploy --revert <ticket-id>`")
+        conn.close()
+        return 0  # rejection is the expected outcome, not an error
+
+    conn.commit()
+    try:
+        return _run_release_train(root, conn, adw_id, dev, batch)
+    finally:
+        conn.close()
+
+
+def deploy_down(
+    cwd: Path,
+    explicit_project: str | None = None,
+    adw_id: str | None = None,
+) -> int:
+    """`sssf flow deploy --down [<adw-id>]` — the human's workbench teardown
+    (ADR-0004: the workbench is brought up by deploy and torn down by the
+    human). With no adw_id the latest workbench is torn down."""
+    from sssf import workbench
+
+    root = _root(cwd, explicit_project)
+    if root is None:
+        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    if workbench.tear_down(root, adw_id):
+        print(f"sssf flow: workbench torn down{(' (' + adw_id + ')') if adw_id else ''}")
+        return 0
+    print("sssf flow: no workbench to tear down", file=sys.stderr)
+    return 1
+
+
+def deploy_revert(
+    cwd: Path,
+    ticket_id: str,
+    explicit_project: str | None = None,
+) -> int:
+    """`sssf flow deploy --revert <ticket-id>` — the revert escape hatch
+    (issue #96): remove a genuinely unwanted ticket from dev by its own
+    commits BEFORE the MR, so the dev→main MR carries the clean snapshot. The
+    ticket's commits on dev are those whose message references the ticket
+    (`#<id>`) or one of its run adw_ids (`sssf(<adw_id>)`); they are reverted
+    (newest first) on the dev branch and pushed. The ticket comes back
+    ready-for-agent fix-forward — it can be re-implemented if wanted.
+    """
+    import sqlite3 as _sqlite3
+
+    from sssf import ticketing
+    from sssf.adw_modules import paths
+
+    root = _root(cwd, explicit_project)
+    if root is None:
+        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    conn = _sqlite3.connect(str(paths.data_dir(root) / "sssf.db"))
+    ticketing.ensure_schema(conn)
+    from sssf import workbench
+
+    dev = workbench.dev_ref(root)
+    if dev is None:
+        print("sssf flow: no dev integration branch", file=sys.stderr)
+        conn.close()
+        return 1
+    commits = _batch_commits(root, dev)
+    runs = [
+        r[0]
+        for r in conn.execute(
+            "SELECT adw_id FROM ticket_runs WHERE ticket_id=?", (ticket_id,)
+        ).fetchall()
+    ]
+    targets = [
+        line.split()[0]
+        for line in commits
+        if f"#{ticket_id}" in line or any(f"sssf({a})" in line for a in runs)
+    ]
+    if not targets:
+        print(
+            f"sssf flow: no commits on dev reference {ticket_id} — nothing to revert",
+            file=sys.stderr,
+        )
+        conn.close()
+        return 1
+    adw_id = uuid.uuid4().hex[:8]
+    wt = _release_worktree(root, adw_id, dev)
+    if wt is None:
+        conn.close()
+        return 1
+    r = subprocess.run(
+        ["git", "-C", str(wt), "revert", "--no-edit", *targets],
+        capture_output=True,
+        text=True,
+    )
+    if r.returncode != 0:
+        print(
+            f"sssf flow: git revert failed: {r.stderr.strip()[:400]}",
+            file=sys.stderr,
+        )
+        conn.close()
+        return 1
+    if _git(root, "config", "--get", "remote.origin.url"):
+        p = subprocess.run(
+            ["git", "-C", str(wt), "push", "-q", "origin", "dev"],
+            capture_output=True,
+            text=True,
+        )
+        if p.returncode != 0:
+            print(
+                f"sssf flow: reverts committed on dev but the push failed:"
+                f" {p.stderr.strip()[:300]} — push dev manually",
+                file=sys.stderr,
+            )
+    moved = ticketing.revert_deploy_ticket(
+        conn,
+        ticket_id,
+        actor=_actor(),
+        feedback="reverted from dev by its own commits before the MR",
+    )
+    conn.commit()
+    conn.close()
+    if moved:
+        print(
+            f"sssf flow: reverted {len(targets)} commit(s) on dev — ticket"
+            f" {ticket_id} requeued fix-forward (ready-for-agent)"
+        )
+        print(
+            "  the revert removed the ticket from the dev snapshot — the next"
+            " `sssf flow deploy` ships the clean batch"
+        )
+    else:
+        print(
+            f"sssf flow: commits reverted on dev, but ticket {ticket_id} is not"
+            " waiting for signoff (ready-to-deploy or later) — the machine did"
+            " not move it",
+            file=sys.stderr,
+        )
+    return 0
 
 
 def _has_live_run(root: Path, ticket_id: str) -> bool:
