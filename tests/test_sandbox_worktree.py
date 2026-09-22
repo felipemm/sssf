@@ -78,7 +78,7 @@ def test_abort_keeps_worktree_for_manual_debug(repo, tmp_path, monkeypatch):
 
     wt = create_worktree(repo, "abrt1")
     stopped = []
-    monkeypatch.setattr(sandbox, "stop_container", lambda name: stopped.append(name))
+    monkeypatch.setattr("sssf.sandbox.orchestrator.stop_container", lambda name: stopped.append(name))
     sandbox.abort_sandbox(repo, "abrt1")
     assert stopped == ["sssf-abrt1"]  # stopped, never removed
     assert wt.is_dir()  # failed spawns leave the worktree too
@@ -422,7 +422,6 @@ def test_monitor_exits_when_run_ends_but_container_alive(tmp_path, monkeypatch):
     the run's end must not depend on container teardown)."""
     import sqlite3
 
-    import sssf.sandbox as sb
     from sssf.sandbox import monitor_run, sandbox_dir
 
     root = tmp_path / "proj"
@@ -437,10 +436,10 @@ def test_monitor_exits_when_run_ends_but_container_alive(tmp_path, monkeypatch):
     wt_data = sandbox_dir(root, "r6") / "adws" / "data"
     (wt_data / "sessions").mkdir(parents=True)
 
-    monkeypatch.setattr(sb, "_container_gone", lambda fn, name: False)  # container stays up
-    monkeypatch.setattr(sb.time, "sleep", lambda s: None)  # no real waiting
-    monkeypatch.setattr(sb, "sync_run_db", lambda *a, **k: None)
-    monkeypatch.setattr(sb, "record_never_started", lambda *a, **k: None)
+    monkeypatch.setattr("sssf.sandbox.orchestrator._container_gone", lambda fn, name: False)  # container stays up
+    monkeypatch.setattr("sssf.sandbox.orchestrator.time.sleep", lambda s: None)  # no real waiting
+    monkeypatch.setattr("sssf.sandbox.orchestrator.sync_run_db", lambda *a, **k: None)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.record_never_started", lambda *a, **k: None)
 
     # the supervisor wrote its exit marker (the ADW ended; container idles)
     (wt_data / "sessions" / "r6.supervisor-exit").write_text("0")
@@ -461,7 +460,7 @@ def test_stop_run_stops_container_keeps_worktree_and_marks_stopped(tmp_path, mon
 
     calls: list[list[str]] = []
     monkeypatch.setattr(
-        sb, "_docker",
+        "sssf.sandbox.docker._docker",
         lambda *a, timeout_s=30: calls.append(list(a))
         or subprocess.CompletedProcess(list(a), 0, "", ""),
     )
@@ -506,7 +505,7 @@ def test_abort_sandbox_stops_not_removes(tmp_path, monkeypatch):
 
     calls: list[list[str]] = []
     monkeypatch.setattr(
-        sb, "_docker",
+        "sssf.sandbox.docker._docker",
         lambda *a, timeout_s=30: calls.append(list(a))
         or subprocess.CompletedProcess(list(a), 0, "", ""),
     )

@@ -184,6 +184,10 @@ def test_sweep_removes_orphan_containers(tmp_path, monkeypatch):
         return subprocess.CompletedProcess(list(a), 0, "", "")
 
     monkeypatch.setattr(sb, "_docker", fake_docker)
+    # sweep reads sandbox._docker for the ps probe but reaches the rm through
+    # stop_remove → docker.stop_remove → docker's own _docker global; the
+    # fake must cover both seams (the package split moved the second one).
+    monkeypatch.setattr("sssf.sandbox.docker._docker", fake_docker)
     removed = sweep_mod._clean_orphan_containers(root, db_path)
     assert removed == ["sssf-orphanx"]  # live1 has a session → kept
     assert ["rm", "-f", "sssf-orphanx"] in calls

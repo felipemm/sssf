@@ -94,7 +94,7 @@ def test_build_image_captured_timeout_raises_helpful(fake_docker, tmp_path, monk
     def slow(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout_s", 300))
 
-    monkeypatch.setattr(sandbox, "_docker", slow)
+    monkeypatch.setattr("sssf.sandbox.docker._docker", slow)
     with pytest.raises(SandboxError, match="timed out"):
         build_image("sssf-runner", tmp_path / "Dockerfile")
 
@@ -168,7 +168,7 @@ def test_ensure_image_current_real_fingerprint(fake_docker, monkeypatch):
     def fake(*args, **kwargs):
         return subprocess.CompletedProcess(args, 0, stdout=real, stderr="")
 
-    monkeypatch.setattr(sandbox, "_docker", fake)
+    monkeypatch.setattr("sssf.sandbox.docker._docker", fake)
     sandbox.ensure_image_current("sssf-real")  # no raise — real fingerprint path
 
 
@@ -176,8 +176,8 @@ def _fake_docker_stdout(monkeypatch, stdout: str, rc: int = 0):
     def fake(*args, **kwargs):
         return subprocess.CompletedProcess(args, rc, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(sandbox, "_docker", fake)
-    monkeypatch.setattr(sandbox, "_engine_fingerprint", lambda: "FPWANT")
+    monkeypatch.setattr("sssf.sandbox.docker._docker", fake)
+    monkeypatch.setattr("sssf.sandbox.docker._engine_fingerprint", lambda: "FPWANT")
 
 
 def test_ensure_image_current_matches(fake_docker, monkeypatch):
@@ -229,7 +229,7 @@ def test_record_never_started_leaves_evidence(monkeypatch, tmp_path):
             )
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
-    monkeypatch.setattr(sandbox, "_docker", fake_docker)
+    monkeypatch.setattr("sssf.sandbox.orchestrator._docker", fake_docker)
     per_run = tmp_path / "proj" / ".worktrees" / "abc123" / "adws" / "data" / "sssf.db"
     sandbox.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
 
@@ -266,7 +266,7 @@ def test_record_never_started_zero_evidence_has_null_remediation(monkeypatch, tm
         # container already gone: both evidence captures come back empty
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
-    monkeypatch.setattr(sandbox, "_docker", fake_docker)
+    monkeypatch.setattr("sssf.sandbox.orchestrator._docker", fake_docker)
     per_run = tmp_path / "proj" / ".worktrees" / "abc123" / "adws" / "data" / "sssf.db"
     sandbox.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
 
@@ -292,7 +292,7 @@ def test_record_never_started_skips_when_adw_started(monkeypatch, tmp_path):
     def fake_docker(*args, **kwargs):
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
-    monkeypatch.setattr(sandbox, "_docker", fake_docker)
+    monkeypatch.setattr("sssf.sandbox.orchestrator._docker", fake_docker)
     per_run = tmp_path / "proj" / ".worktrees" / "abc123" / "adws" / "data" / "sssf.db"
     sandbox.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
 
@@ -340,19 +340,19 @@ def test_image_is_current_real_fingerprint(fake_docker, monkeypatch):
     def fake(*args, **kwargs):
         return subprocess.CompletedProcess(args, 0, stdout=real, stderr="")
 
-    monkeypatch.setattr(sandbox, "_docker", fake)
+    monkeypatch.setattr("sssf.sandbox.docker._docker", fake)
     assert sandbox.image_is_current("sssf-current") is True
 
 
 def test_image_is_current_stale(monkeypatch):
-    monkeypatch.setattr(sandbox, "_engine_fingerprint", lambda: "FPWANT")
-    monkeypatch.setattr(sandbox, "image_engine_fingerprint", lambda image: "OLDHASH")
+    monkeypatch.setattr("sssf.sandbox.docker._engine_fingerprint", lambda: "FPWANT")
+    monkeypatch.setattr("sssf.sandbox.docker.image_engine_fingerprint", lambda image: "OLDHASH")
     assert sandbox.image_is_current("sssf-stale") is False
 
 
 def test_image_is_current_missing(monkeypatch):
-    monkeypatch.setattr(sandbox, "_engine_fingerprint", lambda: "FPWANT")
-    monkeypatch.setattr(sandbox, "image_engine_fingerprint", lambda image: None)
+    monkeypatch.setattr("sssf.sandbox.docker._engine_fingerprint", lambda: "FPWANT")
+    monkeypatch.setattr("sssf.sandbox.docker.image_engine_fingerprint", lambda image: None)
     assert sandbox.image_is_current("sssf-missing") is False
 
 
@@ -368,7 +368,7 @@ def test_build_runner_image_clears_fingerprint_cache(fake_docker):
 
 
 def test_build_runner_image_missing_dockerfile_raises(monkeypatch):
-    monkeypatch.setattr(sandbox, "runner_dockerfile", lambda: None)
+    monkeypatch.setattr("sssf.sandbox.docker.runner_dockerfile", lambda: None)
     with pytest.raises(SandboxError, match=r"sssf-runner\.Dockerfile"):
         sandbox.build_runner_image("sssf-runner")
 
@@ -385,7 +385,7 @@ def test_run_sandbox_publishes_review_port(tmp_path, monkeypatch):
         captured.append(list(args))
         return subprocess.CompletedProcess(list(args), 0, stdout="", stderr="")
 
-    monkeypatch.setattr(sb, "_docker", fake_docker)
+    monkeypatch.setattr("sssf.sandbox.docker._docker", fake_docker)
     sb.run_sandbox(
         "sssf-runner", "sssf-x1",
         worktree=tmp_path / "wt", data_dir=tmp_path / "adws" / "data",
@@ -402,7 +402,7 @@ def test_run_sandbox_skips_publish_without_port(tmp_path, monkeypatch):
 
     captured: list[list[str]] = []
     monkeypatch.setattr(
-        sb, "_docker",
+        "sssf.sandbox.docker._docker",
         lambda *a, timeout_s=30: captured.append(list(a))
         or subprocess.CompletedProcess(list(a), 0, "", ""),
     )
@@ -419,7 +419,7 @@ def test_stop_container_stops_and_keeps(tmp_path, monkeypatch):
 
     calls: list[list[str]] = []
     monkeypatch.setattr(
-        sb, "_docker",
+        "sssf.sandbox.docker._docker",
         lambda *a, timeout_s=30: calls.append(list(a))
         or subprocess.CompletedProcess(list(a), 0, "", ""),
     )
@@ -453,9 +453,9 @@ def test_spawn_wraps_supervisor_and_records_sandbox_run(tmp_path, monkeypatch):
             return subprocess.CompletedProcess(list(a), 0, "127.0.0.1:41234\n", "")
         return subprocess.CompletedProcess(list(a), 0, "", "")
 
-    monkeypatch.setattr(sb, "_docker", fake_docker)
-    monkeypatch.setattr(sb, "ensure_image_current", lambda image: None)
-    monkeypatch.setattr(sb, "stamp_adw_template", lambda wt_dir: None)
+    monkeypatch.setattr("sssf.sandbox.rundb._docker", fake_docker)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.ensure_image_current", lambda image: None)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.stamp_adw_template", lambda wt_dir: None)
 
     captured: dict = {}
 
@@ -464,7 +464,7 @@ def test_spawn_wraps_supervisor_and_records_sandbox_run(tmp_path, monkeypatch):
         captured["cmd"] = kw["cmd"]
         captured["publish_port"] = kw.get("publish_port")
 
-    monkeypatch.setattr(sb, "run_sandbox", fake_run_sandbox)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.run_sandbox", fake_run_sandbox)
 
     review = {"command": ["npm", "run", "dev"], "container_port": 3000, "instructions": "open it"}
     sb.spawn_sandbox(
@@ -505,10 +505,10 @@ def test_spawn_records_row_without_review_config(tmp_path, monkeypatch):
         " review_command TEXT, instructions TEXT, status TEXT, updated_at TEXT)"
     )
     conn.close()
-    monkeypatch.setattr(sb, "_docker", lambda *a, timeout_s=30: subprocess.CompletedProcess(list(a), 0, "", ""))
-    monkeypatch.setattr(sb, "ensure_image_current", lambda image: None)
-    monkeypatch.setattr(sb, "stamp_adw_template", lambda wt_dir: None)
-    monkeypatch.setattr(sb, "run_sandbox", lambda image, name, **kw: None)
+    monkeypatch.setattr("sssf.sandbox.rundb._docker", lambda *a, timeout_s=30: subprocess.CompletedProcess(list(a), 0, "", ""))
+    monkeypatch.setattr("sssf.sandbox.orchestrator.ensure_image_current", lambda image: None)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.stamp_adw_template", lambda wt_dir: None)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.run_sandbox", lambda image, name, **kw: None)
 
     sb.spawn_sandbox(
         tmp_path, "abc2", cmd=["python", "-c", "pass"], image="sssf-runner",
