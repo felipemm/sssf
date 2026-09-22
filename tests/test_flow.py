@@ -129,6 +129,132 @@ def test_flow_implement_rejects_live_run(tmp_path, monkeypatch, capsys):
     assert "live run" in capsys.readouterr().err
 
 
+def _adb(root: Path) -> sqlite3.Connection:
+    """The project db the flow writes (same as _db in commands/ticket)."""
+    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    ticketing.ensure_schema(conn)
+    return conn
+
+
+def _session_for_argv(root: Path, argv: list[str], status: str, adw_name: str = "adw_implement") -> None:
+    """Simulate the ADW's host-side trace: the adw-id in the dispatch argv gets
+    its session row (the real ADW writes it directly to the project db)."""
+    adw_id = argv[argv.index("--adw-id") + 1]
+    conn = _adb(root)
+    conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, status, started_at, ended_at)"
+        " VALUES (?,?,?, '2026-09-01T00:00:00+00:00', '2026-09-01T01:00:00+00:00')",
+        (adw_id, adw_name, status),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_flow_implement_claims_ticket_before_the_run(tmp_path, monkeypatch):
+    """The machine claim (ready-for-agent → in-progress) and the run-history
+    link exist BEFORE the run spawns — a mid-run read sees in-progress, and
+    the sandbox monitor can settle the ticket later."""
+    root = _setup_project(tmp_path, monkeypatch, sandbox_key=True)
+    _seed_ticket(root, "internal:abc")
+    calls: list[list[str]] = []
+    seen_in_progress: list[bool] = []
+
+    def fake_call(argv, **kw):
+        # while "running", the ticket must already read in-progress
+        conn = _adb(root)
+        seen_in_progress.append(
+            conn.execute("SELECT status FROM tickets WHERE id='internal:abc'").fetchone()[0]
+        )
+        conn.close()
+        _session_for_argv(root, argv, "success")
+        calls.append(argv)
+        return 0
+
+    monkeypatch.setattr(flow.subprocess, "call", fake_call)
+    assert flow.implement(Path.cwd(), "internal:abc", None, no_sandbox=True) == 0
+    assert seen_in_progress == ["in-progress"]
+    conn = _adb(root)
+    row = conn.execute("SELECT status, adw_id FROM tickets WHERE id='internal:abc'").fetchone()
+    runs = conn.execute(
+        "SELECT adw_id FROM ticket_runs WHERE ticket_id='internal:abc'"
+    ).fetchall()
+    conn.close()
+    # success → the run settles the machine to ready-for-signoff
+    assert row == ("ready-for-signoff", calls[0][calls[0].index("--adw-id") + 1])
+    assert [r[0] for r in runs] == [row[1]]  # the run history carries the attempt
+
+
+def test_flow_implement_no_sandbox_failure_requeues_with_feedback(tmp_path, monkeypatch):
+    """A failed no-sandbox run returns the ticket to ready-for-agent with the
+    reviewer's feedback attached (fix-forward)."""
+    root = _setup_project(tmp_path, monkeypatch, sandbox_key=True)
+    _seed_ticket(root, "internal:abc")
+    calls: list[list[str]] = []
+
+    def fake_call(argv, **kw):
+        adw_id = argv[argv.index("--adw-id") + 1]
+        conn = _adb(root)
+        conn.execute(
+            "INSERT INTO sessions (adw_id, adw_name, status, started_at, ended_at)"
+            " VALUES (?,?,?, '2026-09-01T00:00:00+00:00', '2026-09-01T01:00:00+00:00')",
+            (adw_id, "adw_implement", "fail"),
+        )
+        conn.execute(
+            "INSERT INTO envelopes (envelope_id, adw_id, agent, output_type, payload_json,"
+            " valid, attempt, created_at) VALUES (?,?, 'reviewer', 'ReviewOutput',"
+            " '{\"approved\": false, \"blocking\": [\"move the button above the fold\"]}',"
+            " 1, 1, '2026-09-01T01:00:00+00:00')",
+            ("env1", adw_id),
+        )
+        conn.commit()
+        conn.close()
+        calls.append(argv)
+        return 1
+
+    monkeypatch.setattr(flow.subprocess, "call", fake_call)
+    assert flow.implement(Path.cwd(), "internal:abc", None, no_sandbox=True) == 1
+    conn = _adb(root)
+    row = conn.execute(
+        "SELECT status, rejection_feedback FROM tickets WHERE id='internal:abc'"
+    ).fetchone()
+    conn.close()
+    assert row[0] == "ready-for-agent"
+    assert "move the button above the fold" in row[1]
+
+
+def test_flow_implement_sandbox_spawn_failure_requeues(tmp_path, monkeypatch):
+    """A sandbox spawn that fails before the ADW starts must not leave the
+    ticket stuck in in-progress — the claim is requeued fix-forward."""
+    root = _setup_project(tmp_path, monkeypatch)  # sandbox enabled by default
+    _seed_ticket(root, "internal:abc")
+    monkeypatch.setattr(flow, "_dispatch_chain", lambda *a, **k: 1)  # spawn failed
+    assert flow.implement(Path.cwd(), "internal:abc", None, no_sandbox=False) == 1
+    conn = _adb(root)
+    row = conn.execute(
+        "SELECT status, rejection_feedback FROM tickets WHERE id='internal:abc'"
+    ).fetchone()
+    conn.close()
+    assert row[0] == "ready-for-agent"
+    assert "sandbox spawn failed" in row[1]
+
+
+def test_flow_implement_forwards_adw_id_in_no_sandbox_dispatch(tmp_path, monkeypatch):
+    """The no-sandbox dispatch must pin the run's adw-id (--adw-id) so the
+    ticket link points at the run that actually executes — today the ADW would
+    mint its own and the link would dangle."""
+    root = _setup_project(tmp_path, monkeypatch, sandbox_key=True)
+    _seed_ticket(root, "internal:abc")
+    calls = _capture_call(monkeypatch)
+    assert flow.implement(Path.cwd(), "internal:abc", None, no_sandbox=True) == 0
+    assert "--adw-id" in calls[0]
+    conn = _adb(root)
+    linked = conn.execute(
+        "SELECT adw_id FROM tickets WHERE id='internal:abc'"
+    ).fetchone()[0]
+    conn.close()
+    assert linked == calls[0][calls[0].index("--adw-id") + 1]
+
+
 def test_flow_implement_missing_ticket_is_loud(tmp_path, monkeypatch, capsys):
     _root = _setup_project(tmp_path, monkeypatch)
     assert flow.implement(Path.cwd(), "internal:nope", None, no_sandbox=True) == 1

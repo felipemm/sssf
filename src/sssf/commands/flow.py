@@ -4,9 +4,14 @@ Flows are the ONLY entry point for starting work (#89): ad-hoc `sssf run <adw>
 "<prompt>"` is removed. Already-stamped projects' legacy ADWs stay runnable
 through the legacy ticket-run path (`sssf ticket run`). The flow command is a
 thin orchestration layer over the existing chain runner — it builds the prompt
-from the ticket, then dispatches the flow chain (sandboxed by default). The
-ticket-machine transitions per flow step land with #91/#92 — this layer only
-validates read-only that a run may start.
+from the ticket, then dispatches the flow chain (sandboxed by default).
+
+The implement flow drives the ticket machine (#92): it claims the ticket
+(ready-for-agent → in-progress) before the run spawns, records every run in
+ticket_runs, and settles the outcome — success moves the ticket to
+ready-for-signoff, failure requeues it fix-forward with the run's feedback.
+Sandboxed runs settle in the monitor (the host process that sees the run
+end); --no-sandbox runs settle here from the ADW's exit code.
 """
 
 from __future__ import annotations
@@ -99,9 +104,15 @@ def _dispatch_chain(
     prompt: str,
     extra_args: list[str],
     no_sandbox: bool,
+    adw_id: str | None = None,
 ) -> int:
     """Run a flow chain through the existing chain runner. The prompt is passed
-    inline (a file path resolves via the ADW's resolve_prompt when given)."""
+    inline (a file path resolves via the ADW's resolve_prompt when given).
+
+    `adw_id` pins the run (forwarded as `--adw-id` in both modes) — the
+    implement flow needs the ticket link to point at the run that actually
+    executes. None mints a fresh id inside the sandbox/ADW.
+    """
     from sssf.adw_modules import paths
 
     paths.warn_if_legacy(root, command="flow")
@@ -114,8 +125,11 @@ def _dispatch_chain(
         return 1
     registry.update_last_run(root)
     if no_sandbox or not _sandbox_enabled(root):
-        return subprocess.call([sys.executable, str(adw_file), prompt, *extra_args], cwd=root)
-    return _run_sandboxed(root, adw_file, [prompt, *extra_args])
+        argv = [sys.executable, str(adw_file), prompt, *extra_args]
+        if adw_id:
+            argv += ["--adw-id", adw_id]
+        return subprocess.call(argv, cwd=root)
+    return _run_sandboxed(root, adw_file, [prompt, *extra_args], adw_id=adw_id)
 
 
 def _ticket_prompt(root: Path, ticket_id: str) -> tuple[str, str, str] | None:
@@ -187,9 +201,26 @@ def implement(
     no_sandbox: bool = False,
 ) -> int:
     """`sssf flow implement <ticket-id>` — one ready-for-agent ticket end to
-    end (triage → build → review). Read-only guard: the ticket must exist, be
-    ready-for-agent, and have no live run. The machine transitions
-    (in-progress → ready-for-signoff) land with #92."""
+    end (triage → build → review) unattended, with the ticket machine (issue
+    #92):
+
+    - start: claims the ticket `ready-for-agent → in-progress` and records the
+      run (ticket_runs + tickets.adw_id) BEFORE the run spawns, so a mid-run
+      read sees in-progress and the sandbox monitor can settle it later;
+    - success: the run settles `in-progress → ready-for-signoff` (sandboxed:
+      the monitor, after the run ends; --no-sandbox: here, from the ADW's
+      exit code);
+    - rejection/failure: the ticket returns to `ready-for-agent` with the
+      run's feedback attached (fix-forward) — the reviewer's blocking findings
+      when the review rejected the build;
+    - a sandbox spawn that dies before the ADW starts requeues the claim
+      instead of leaving the ticket stuck in in-progress.
+    """
+    import sqlite3
+
+    from sssf import ticketing
+    from sssf.adw_modules import paths
+
     root = _root(cwd, explicit_project)
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
@@ -199,7 +230,6 @@ def implement(
         print(f"sssf flow: no ticket {ticket_id}", file=sys.stderr)
         return 1
     prompt, status, _title = row
-    from sssf import ticketing
 
     if status != ticketing.STATUS_READY:
         print(
@@ -211,7 +241,45 @@ def implement(
     if _has_live_run(root, ticket_id):
         print(f"sssf flow: ticket {ticket_id} has a live run — wait for it to finish", file=sys.stderr)
         return 1
-    return _dispatch_chain(root, "adw_implement", prompt, [], no_sandbox)
+
+    # Claim the ticket + record the run BEFORE the run spawns (machine write,
+    # audited). tickets is project-owned, so the claim happens here on the
+    # host — never inside the sandbox.
+    adw_id = uuid.uuid4().hex[:8]
+    sandboxed = not no_sandbox and _sandbox_enabled(root)
+    conn = sqlite3.connect(str(paths.data_dir(root) / "sssf.db"))
+    ticketing.ensure_schema(conn)
+    ticketing.transition_ticket(conn, ticket_id, ticketing.STATUS_IN_PROGRESS, actor=_actor())
+    conn.execute(
+        "INSERT OR IGNORE INTO ticket_runs (ticket_id, adw_id, created_at) VALUES (?,?,?)",
+        (ticket_id, adw_id, _now()),
+    )
+    conn.execute(
+        "UPDATE tickets SET adw_id=?, updated_at=? WHERE id=?",
+        (adw_id, _now(), ticket_id),
+    )
+    conn.commit()
+
+    code = _dispatch_chain(root, "adw_implement", prompt, [], no_sandbox, adw_id=adw_id)
+    if code != 0 and sandboxed:
+        # A sandboxed spawn failure: nothing will ever run (no monitor is
+        # watching), so requeue the claim fix-forward — never leave the
+        # ticket stuck in in-progress.
+        ticketing.transition_ticket(
+            conn,
+            ticket_id,
+            ticketing.STATUS_READY,
+            actor=_actor(),
+            feedback="sandbox spawn failed — no run started",
+        )
+    elif not sandboxed:
+        # The ADW ran on the host with direct db access — its session row is
+        # already in the project db, so settle the machine now that the
+        # outcome is known (sandboxed runs settle in the monitor).
+        ticketing.finish_implement_run(conn, adw_id, actor=_actor())
+    conn.commit()
+    conn.close()
+    return code
 
 
 def deploy(
@@ -249,3 +317,20 @@ def _has_live_run(root: Path, ticket_id: str) -> bool:
         return bool(row and row[0] == "running")
     except sqlite3.Error:
         return False
+
+
+def _actor() -> str:
+    """The operator behind a machine mutation — the audit trail's actor."""
+    try:
+        import getpass
+
+        return getpass.getuser()
+    except Exception:
+        return "system"
+
+
+def _now() -> str:
+    """ISO-8601 UTC timestamp for the run-history rows (mirrors ticket.py)."""
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).isoformat(timespec="milliseconds")

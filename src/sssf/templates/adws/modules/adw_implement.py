@@ -10,9 +10,12 @@ Phases: engineer(request) -> scout(triage) -> builder(build) ->
 
 The builder self-reviews its own diff (code-review pass) before the reviewer
 gate, so obvious defects are caught before the reviewer's time. Code lands only
-on a green suite and an approved review. Machine transitions
-(ready-for-agent → in-progress → ready-for-signoff) and rejection feedback
-land with #92 — this chain runs the work end-to-end.
+on a green suite and an approved review. The ticket machine is driven from the
+HOST (the tickets table is project-owned): `sssf flow implement` claims the
+ticket (ready-for-agent → in-progress) before the run spawns, and the run's
+outcome settles it — success → ready-for-signoff, failure → back to
+ready-for-agent with the run's feedback attached (fix-forward) — in the
+monitor (sandboxed) or in the flow command (--no-sandbox) per #92.
 """
 
 import argparse

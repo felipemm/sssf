@@ -222,6 +222,124 @@ def label_ticket(
     )
 
 
+# The implement flow's run kind — the only flow that claims tickets through
+# the machine (the legacy ticket.run path uses adw_simple_sdlc and settles by
+# hand; plan/deploy never transition tickets).
+IMPLEMENT_ADW = "adw_implement"
+
+
+def _run_failure_feedback(conn: sqlite3.Connection, adw_id: str) -> str:
+    """The feedback a failed implement run attaches to its ticket (fix-forward).
+
+    The reviewer's blocking findings are the primary feedback — a rejected
+    review is the human gate's answer, and the ticket must carry it back to
+    the builder. Failing that, the run's last error event (quality/env reason,
+    phase error, not_accepted) is the next best answer; a generic line is the
+    floor.
+    """
+    row = conn.execute(
+        "SELECT payload_json FROM envelopes WHERE adw_id=?"
+        " AND output_type='ReviewOutput' ORDER BY rowid DESC LIMIT 1",
+        (adw_id,),
+    ).fetchone()
+    if row:
+        try:
+            payload = json.loads(row[0] or "{}")
+        except ValueError:
+            payload = {}
+        if not payload.get("approved"):
+            blocking = payload.get("blocking") or []
+            if blocking:
+                return "Reviewer feedback: " + "; ".join(str(b) for b in blocking[:5])
+            unmet = [
+                f.get("requirement") for f in payload.get("findings") or [] if not f.get("met")
+            ]
+            if unmet:
+                return "Reviewer feedback: unmet requirements: " + "; ".join(
+                    str(u) for u in unmet[:5]
+                )
+            return "Reviewer feedback: the review was not approved"
+    row = conn.execute(
+        "SELECT name, payload_json FROM events WHERE adw_id=? AND type='error'"
+        " ORDER BY rowid DESC LIMIT 1",
+        (adw_id,),
+    ).fetchone()
+    if row:
+        try:
+            payload = json.loads(row[1] or "{}")
+        except ValueError:
+            payload = {}
+        text = payload.get("reason") or payload.get("error") or ""
+        if text:
+            return str(text)[:500]
+        return f"the run failed ({row[0]})"
+    return "the implement flow run failed"
+
+
+def finish_implement_run(
+    conn: sqlite3.Connection, adw_id: str, *, actor: str = "system"
+) -> str | None:
+    """The implement flow's terminal machine step (issue #92), host-side.
+
+    After an implement run ends, settle its ticket: success moves it
+    `in-progress -> ready-for-signoff`; failure returns it `in-progress ->
+    ready-for-agent` with the run's failure feedback attached (fix-forward).
+    Both edges are legal machine transitions and are audited like every write.
+
+    Host-side by design: the `tickets` table is project-owned — the sandbox's
+    per-run db never contains tickets and `sync_run_db` never merges them, so
+    only a host process (the sandbox monitor, or `flow implement --no-sandbox`
+    after its blocking call) can move a ticket.
+
+    Guards (a ticket is never yanked from under its operator):
+    - only implement-flow runs settle (session `adw_name` other than
+      `adw_implement` is left alone — legacy `adw_simple_sdlc` runs requeue by
+      hand); a missing session row counts as a failed run (the ADW never
+      wrote one — same rule as `record_never_started`);
+    - only a ticket whose `adw_id` links THIS run and whose machine status is
+      `in-progress` is moved — a ticket already requeued, signed off, or
+      handed to another run is untouched.
+
+    Returns the outcome (`"signoff"` | `"requeued"`) or None when there is
+    nothing to settle.
+    """
+    session = conn.execute(
+        "SELECT status, adw_name FROM sessions WHERE adw_id=?", (adw_id,)
+    ).fetchone()
+    if session is None:
+        session_status, adw_name = None, None
+    else:
+        session_status, adw_name = session
+    if adw_name not in (None, "", IMPLEMENT_ADW):
+        return None  # a legacy ticket run or another flow — settles by hand
+    ticket = conn.execute(
+        "SELECT id FROM tickets WHERE adw_id=? AND status=?",
+        (adw_id, STATUS_IN_PROGRESS),
+    ).fetchone()
+    if ticket is None:
+        return None  # nothing we own in-flight
+    ticket_id = ticket[0]
+    if session_status == "success":
+        transition_ticket(
+            conn,
+            ticket_id,
+            STATUS_SIGNOFF,
+            actor=actor,
+            comment="implement flow run succeeded — ready for signoff",
+        )
+        return "signoff"
+    feedback = _run_failure_feedback(conn, adw_id)
+    transition_ticket(
+        conn,
+        ticket_id,
+        STATUS_READY,
+        actor=actor,
+        feedback=feedback,
+        comment="implement flow run failed — requeued fix-forward",
+    )
+    return "requeued"
+
+
 def create_idea_ticket(conn: sqlite3.Connection, title: str, *, actor: str = "system") -> str:
     """A title-only idea shell: blank spec, born `needs-triage`, tracked,
     internal origin. The plan flow turns it into a spec plus implementation

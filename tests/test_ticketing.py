@@ -539,3 +539,125 @@ def test_upsert_sync_rows_untracked_needs_triage_and_permanent(tmp_path):
     conn.close()
     assert row[0] == "New title"  # content updated
     assert row[1:] == ("needs-triage", "idea", 0, "jira")  # machine fields permanent
+
+
+# ── finish_implement_run (#92): the implement flow's terminal machine step ──
+
+
+def _impl_db(tmp_path, *, adw_name="adw_implement", session_status="success",
+             ticket_status="in-progress"):
+    """A db shaped like a finished implement run: one ticket claimed by the
+    flow (adw_id linked, in-progress) and its session row."""
+    conn = _machine_conn(tmp_path / "m.db")
+    _insert_ticket(conn, "t1", status=ticket_status, adw_id="run1")
+    conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, status, started_at, ended_at)"
+        " VALUES ('run1', ?, ?, '2026-09-01T00:00:00+00:00', '2026-09-01T01:00:00+00:00')",
+        (adw_name, session_status),
+    )
+    conn.commit()
+    return conn
+
+
+def test_finish_implement_success_moves_to_signoff(tmp_path):
+    conn = _impl_db(tmp_path, session_status="success")
+    outcome = ticketing.finish_implement_run(conn, "run1")
+    assert outcome == "signoff"
+    row = conn.execute("SELECT status, adw_id FROM tickets WHERE id='t1'").fetchone()
+    assert row == ("ready-for-signoff", "run1")  # link preserved for the trace
+    # the transition is audited like any machine write
+    events = ticketing.ticket_events(conn, "t1")
+    assert events[-1]["event_type"] == "transition"
+    assert events[-1]["payload"]["from"] == "in-progress"
+    assert events[-1]["payload"]["to"] == "ready-for-signoff"
+    conn.close()
+
+
+def test_finish_implement_failure_requeues_with_reviewer_feedback(tmp_path):
+    conn = _impl_db(tmp_path, session_status="fail")
+    conn.execute(
+        "INSERT INTO envelopes (envelope_id, adw_id, agent, output_type, payload_json,"
+        " valid, attempt, created_at) VALUES"
+        " ('env1', 'run1', 'reviewer', 'ReviewOutput',"
+        " '{\"approved\": false, \"blocking\": [\"fix the login redirect\", \"drop the debug print\"]}',"
+        " 1, 1, '2026-09-01T01:00:00+00:00')"
+    )
+    conn.commit()
+    outcome = ticketing.finish_implement_run(conn, "run1")
+    assert outcome == "requeued"
+    row = conn.execute("SELECT status, rejection_feedback FROM tickets WHERE id='t1'").fetchone()
+    assert row[0] == "ready-for-agent"
+    assert "fix the login redirect" in row[1]
+    assert "drop the debug print" in row[1]
+    # the requeue is audited with the feedback in the payload
+    events = ticketing.ticket_events(conn, "t1")
+    assert events[-1]["payload"]["to"] == "ready-for-agent"
+    assert "fix the login redirect" in events[-1]["payload"]["feedback"]
+    conn.close()
+
+
+def test_finish_implement_failure_feedback_falls_back_to_error_event(tmp_path):
+    conn = _impl_db(tmp_path, session_status="fail")
+    conn.execute(
+        "INSERT INTO events (event_id, adw_id, type, name, payload_json, started_at)"
+        " VALUES ('e1', 'run1', 'error', 'not_accepted',"
+        " '{\"reason\": \"quality gates never came back clean after 3 fix attempt(s)\"}',"
+        " '2026-09-01T01:00:00+00:00')"
+    )
+    conn.commit()
+    assert ticketing.finish_implement_run(conn, "run1") == "requeued"
+    row = conn.execute("SELECT rejection_feedback FROM tickets WHERE id='t1'").fetchone()
+    assert "quality gates never came back clean" in row[0]
+    conn.close()
+
+
+def test_finish_implement_missing_session_counts_as_failure(tmp_path):
+    """A run that never wrote a session row is a failed run — same rule as
+    record_never_started — so its ticket requeues instead of rotting in
+    in-progress."""
+    conn = _impl_db(tmp_path, session_status="success")
+    conn.execute("DELETE FROM sessions WHERE adw_id='run1'")
+    conn.commit()
+    assert ticketing.finish_implement_run(conn, "run1") == "requeued"
+    row = conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone()
+    assert row == ("ready-for-agent",)
+    conn.close()
+
+
+def test_finish_implement_never_touches_legacy_runs(tmp_path):
+    """Legacy adw_simple_sdlc runs settle by hand (`sssf ticket backlog`) —
+    the flow finish must leave them alone."""
+    conn = _impl_db(tmp_path, adw_name="adw_simple_sdlc", session_status="success")
+    assert ticketing.finish_implement_run(conn, "run1") is None
+    row = conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone()
+    assert row == ("in-progress",)  # untouched
+    conn.close()
+
+
+def test_finish_implement_never_yanks_a_ticket_it_does_not_own(tmp_path):
+    """Only a ticket whose adw_id links THIS run and whose machine status is
+    in-progress may be settled — a ticket the operator already requeued or
+    signed off is never yanked."""
+    # operator requeued it while the run was still finishing
+    conn = _impl_db(tmp_path, session_status="success")
+    conn.execute("UPDATE tickets SET status='ready-for-agent' WHERE id='t1'")
+    conn.commit()
+    assert ticketing.finish_implement_run(conn, "run1") is None
+    # a different ticket's run must not move this ticket
+    other = tmp_path / "other"
+    other.mkdir()
+    conn2 = _impl_db(other, session_status="success")
+    conn2.execute("UPDATE tickets SET adw_id='other-run' WHERE id='t1'")
+    conn2.commit()
+    assert ticketing.finish_implement_run(conn2, "run1") is None
+    assert conn2.execute(
+        "SELECT status FROM tickets WHERE id='t1'"
+    ).fetchone() == ("in-progress",)
+    conn.close()
+    conn2.close()
+
+
+def test_finish_implement_unknown_run_is_a_noop(tmp_path):
+    conn = _machine_conn(tmp_path / "m.db")
+    assert ticketing.finish_implement_run(conn, "no-such-run") is None
+    conn.close()

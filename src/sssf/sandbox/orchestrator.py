@@ -261,6 +261,24 @@ def monitor_run(project_root: Path, adw_id: str) -> int:
         except Exception as error:  # evidence is best-effort
             print(f"sssf: could not record spawn failure ({error})", file=sys.stderr)
         sync_run_db(tracer.conn, per_run_db, adw_id)  # final merge
+        # Ticket machine (#92): the monitor is the host process that sees a
+        # SANDBOXED implement run's end, so it settles the flow's ticket —
+        # success → ready-for-signoff, failure → back to ready-for-agent with
+        # the run's feedback (fix-forward). Best-effort: a ticket-write hiccup
+        # must never crash the monitor (the run's own outcome is already
+        # merged and true).
+        try:
+            from sssf import ticketing
+
+            ticketing.ensure_schema(tracer.conn)
+            settled = ticketing.finish_implement_run(tracer.conn, adw_id)
+            if settled:
+                print(
+                    f"sssf: implement run {adw_id} settled ticket -> {settled}",
+                    file=sys.stderr,
+                )
+        except Exception as error:
+            print(f"sssf: could not settle implement ticket ({error})", file=sys.stderr)
         # Post-success integration: a successful run merges back into the
         # integration branch (config integration.branch) instead of leaving the
         # operator to merge by hand. Best-effort: the monitor must never crash

@@ -335,6 +335,100 @@ def test_monitor_exits_when_run_ends_but_container_alive(tmp_path, monkeypatch):
 
 
 
+def test_monitor_settles_implement_ticket_after_run_ends(tmp_path, monkeypatch):
+    """The monitor is the host process that observes a sandboxed run's end, so
+    it settles the implement flow's ticket (#92): success → ready-for-signoff.
+    Best-effort: a ticket-write hiccup must never crash the monitor."""
+    from sssf import ticketing
+    from sssf.sandbox.orchestrator import monitor_run
+    from sssf.sandbox.worktree_git import sandbox_dir
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    data = root / "adws" / "data"
+    data.mkdir(parents=True)
+    db = data / "sssf.db"
+    conn = sqlite3.connect(str(db))
+    ticketing.ensure_schema(conn)
+    # the implement run's ticket, claimed by the flow (in-progress + linked)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, title, status, adw_id) VALUES (?,?,?,?,?)",
+        ("internal:imp", "internal", "dark mode", "in-progress", "r9"),
+    )
+    # the per-run session, already merged into the project db by a sync
+    conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, status, started_at, ended_at)"
+        " VALUES ('r9', 'adw_implement', 'success',"
+        " '2026-09-01T00:00:00+00:00', '2026-09-01T01:00:00+00:00')"
+    )
+    conn.commit()
+    conn.close()
+    wt_data = sandbox_dir(root, "r9") / "adws" / "data"
+    (wt_data / "sessions").mkdir(parents=True)
+    (wt_data / "sessions" / "r9.supervisor-exit").write_text("0")
+
+    monkeypatch.setattr("sssf.sandbox.orchestrator._container_gone", lambda fn, name: False)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.time.sleep", lambda s: None)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.sync_run_db", lambda *a, **k: None)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.record_never_started", lambda *a, **k: None)
+
+    assert monitor_run(root, "r9") == 0
+    conn = sqlite3.connect(str(db))
+    status = conn.execute("SELECT status FROM tickets WHERE id='internal:imp'").fetchone()[0]
+    conn.close()
+    assert status == "ready-for-signoff"
+
+
+def test_monitor_failed_implement_run_requeues_ticket(tmp_path, monkeypatch):
+    """A failed implement run is requeued fix-forward by the monitor with the
+    run's failure feedback attached."""
+    from sssf import ticketing
+    from sssf.sandbox.orchestrator import monitor_run
+    from sssf.sandbox.worktree_git import sandbox_dir
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    data = root / "adws" / "data"
+    data.mkdir(parents=True)
+    db = data / "sssf.db"
+    conn = sqlite3.connect(str(db))
+    ticketing.ensure_schema(conn)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, title, status, adw_id) VALUES (?,?,?,?,?)",
+        ("internal:imp2", "internal", "dark mode", "in-progress", "r10"),
+    )
+    conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, status, started_at, ended_at)"
+        " VALUES ('r10', 'adw_implement', 'fail',"
+        " '2026-09-01T00:00:00+00:00', '2026-09-01T01:00:00+00:00')"
+    )
+    conn.execute(
+        "INSERT INTO events (event_id, adw_id, type, name, payload_json, started_at)"
+        " VALUES ('e10', 'r10', 'error', 'not_accepted',"
+        " '{\"reason\": \"review was not approved after 2 attempt(s)\"}',"
+        " '2026-09-01T01:00:00+00:00')"
+    )
+    conn.commit()
+    conn.close()
+    wt_data = sandbox_dir(root, "r10") / "adws" / "data"
+    (wt_data / "sessions").mkdir(parents=True)
+    (wt_data / "sessions" / "r10.supervisor-exit").write_text("1")
+
+    monkeypatch.setattr("sssf.sandbox.orchestrator._container_gone", lambda fn, name: False)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.time.sleep", lambda s: None)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.sync_run_db", lambda *a, **k: None)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.record_never_started", lambda *a, **k: None)
+
+    assert monitor_run(root, "r10") == 0
+    conn = sqlite3.connect(str(db))
+    row = conn.execute(
+        "SELECT status, rejection_feedback FROM tickets WHERE id='internal:imp2'"
+    ).fetchone()
+    conn.close()
+    assert row[0] == "ready-for-agent"
+    assert "review was not approved" in row[1]
+
+
 def test_stop_run_stops_container_keeps_worktree_and_marks_stopped(tmp_path, monkeypatch):
     """stop_run must NOT delete: docker stop (container kept for logs/review)
     and the worktree kept (the restart's artifact base — session 9701903a's
