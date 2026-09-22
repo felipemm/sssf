@@ -13,8 +13,8 @@ published port) is the deploy flow's own, brought up and torn down by
 `sssf flow deploy` / `--down`. The flow runs THIS chain in a release worktree
 checked out at `dev`, so the bump lands on dev, the MR dev→main carries the
 clean snapshot, and the per-run db is merged back into the project db. The
-canary/promote/close-by-commits release mechanics land with #97 — this chain
-computes the release candidate only.
+canary/promote gates and the close-by-commits ticket closure are host-side
+(#97): this chain computes the release candidate only.
 """
 
 import argparse
@@ -166,8 +166,11 @@ def _deploy_mr(run, ph, previous):
 
 def _deploy_release(run, ph, previous):
     """Parse the release candidate: commits since the last tag, the ticket ids
-    they reference, and the next version anchor. The tag creation, canary
-    step, promote, and close-by-commits ticket closure land with #97."""
+    they reference, and the next version anchor. The canary/promote gates and
+    the close-by-commits ticket closure are HOST-side (#97): the operator
+    confirms each gate at the terminal and the flow closes the tickets by the
+    commit set — the chain stays deterministic and only computes/records the
+    candidate."""
     root = Path(run.repo_root)
     last_tag = _git(root, "describe", "--tags", "--abbrev=0") or ""
     since = f"{last_tag}..HEAD" if last_tag else "HEAD"
@@ -177,7 +180,7 @@ def _deploy_release(run, ph, previous):
         anchor=last_tag or "(first release — no prior tag)",
         commits=len(commits),
         tickets=", ".join(f"#{t}" for t in tickets) or "—",
-        note="close-by-commits, canary, and promote land with #97",
+        note="close-by-commits, canary, and promote are host-side (#97)",
     )
     return None
 

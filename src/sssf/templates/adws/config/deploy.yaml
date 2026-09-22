@@ -22,3 +22,31 @@ version_files:
 workbench:
   command: ["npm", "run", "dev", "--workspace=web"]
   container_port: 3000
+
+# release (#97): the canary/promote release gates. Both commands run only
+# after the operator confirms them at the terminal (`--yes` is the explicit
+# automation escape). A canary/promote failure parks the batch's tickets in
+# `blocked` — visible and actionable, never silently retried. The release
+# closes every ready-to-deploy ticket parsed from the MR's commit set
+# (commits since the last tag) regardless of this block.
+#
+# - canary.command: the per-project canary deployment command (argv list).
+# - promote.command: the per-project canary-promote command (argv list), e.g.
+#   the tompero canary-promote invocation.
+# - promote.status_command: the command whose output is polled for full
+#   promotion (e.g. `tompero deployment get`).
+# - promote.promoted_match: substring in the status output meaning fully
+#   promoted (default "promoted").
+# - promote.poll_interval_s / poll_timeout_s: poll cadence and deadline.
+#
+# A project without a deployment pipeline simply omits this block — the
+# release train + close-by-commits still run.
+# release:
+#   canary:
+#     command: ["tompero", "deployment", "canary", "start", "--service", "demo"]
+#   promote:
+#     command: ["tompero", "deployment", "canary", "promote", "--service", "demo"]
+#     status_command: ["tompero", "deployment", "get", "--service", "demo", "-O", "json"]
+#     promoted_match: "promoted"
+#     poll_interval_s: 15
+#     poll_timeout_s: 1800

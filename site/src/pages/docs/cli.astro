@@ -106,9 +106,15 @@ const description =
           signs the batch off at the terminal (one workbench, one verdict —
           <span class="cmd">--yes</span> is the explicit automation escape), then
           runs the deterministic release train (bump → MR dev→main → e2e →
-          release) in a worktree at dev. Rejection re-queues the failing
-          tickets fix-forward; approval moves them to
-          <span class="cmd">ready-to-deploy</span> once the MR exists.
+          release) in a worktree at dev. After approval the release gates run,
+          each only after the operator confirms at the terminal: the per-project
+          canary step (failure parks the batch in
+          <span class="cmd">blocked</span> — visible, never silently retried),
+          then the per-project tompero canary-promote step (polled until fully
+          promoted), then close-by-commits: every ticket parsed from the MR's
+          commit set (commits since the last tag) closes with the release.
+          Rejection re-queues the failing tickets fix-forward; approval moves
+          them to <span class="cmd">ready-to-deploy</span> once the MR exists.
           <span class="cmd">--down</span> tears the workbench down (the human's
           teardown); <span class="cmd">--revert</span> removes a genuinely
           unwanted ticket from dev by its own commits before the MR.
