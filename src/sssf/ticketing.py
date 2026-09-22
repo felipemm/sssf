@@ -90,6 +90,7 @@ class ProviderSyncResult:
     provider: str
     tickets: int = 0
     error: str | None = None
+    warning: str | None = None
 
 
 def load_config(root: Path) -> TicketingConfig | None:
@@ -1088,6 +1089,7 @@ def fetch_gitlab(cfg: TicketingConfig, repo: str) -> list[TicketRecord]:
 
 
 def upsert_tickets(db_path: Path, records: list[TicketRecord]) -> int:
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     try:
         ensure_schema(conn)
@@ -1127,8 +1129,17 @@ def upsert_tickets(db_path: Path, records: list[TicketRecord]) -> int:
         conn.close()
 
 
-def sync_tickets(root: Path, cfg: TicketingConfig) -> list[ProviderSyncResult]:
-    """Load .env, fetch every enabled provider, upsert; one result per provider."""
+def sync_tickets(
+    root: Path, cfg: TicketingConfig, providers: list[str] | None = None
+) -> list[ProviderSyncResult]:
+    """Load .env, fetch every enabled provider (or the `providers` subset),
+    upsert; one result per provider.
+
+    Hosted-git providers (github/gitlab) resolve their repo from the git
+    remote origin first — a host mismatch or a missing origin SKIPS the
+    provider with a warning (never an error, never a fetch against the
+    wrong forge). `internal` is a no-op: its tickets already live in the db.
+    """
     try:
         from dotenv import load_dotenv
 
@@ -1138,17 +1149,39 @@ def sync_tickets(root: Path, cfg: TicketingConfig) -> list[ProviderSyncResult]:
     from sssf.adw_modules import paths
 
     db_path = paths.data_dir(root) / "sssf.db"
+    origin = detect_origin(root)
     results: list[ProviderSyncResult] = []
-    for provider in cfg.providers:
+    requested = set(providers) if providers is not None else None
+    enabled = [p for p in cfg.providers if requested is None or p in requested]
+    if requested is not None:
+        for p in sorted(requested - set(cfg.providers)):
+            results.append(
+                ProviderSyncResult(p, error=f"{p!r} is not enabled in ticketing.yaml")
+            )
+    for provider in enabled:
         try:
             if provider == "jira":
                 records = fetch_jira(cfg)
             elif provider == "linear":
                 records = fetch_linear(cfg)
+            elif provider == "github":
+                repo, warning = github_repo(cfg, origin)
+                if repo is None:
+                    results.append(ProviderSyncResult(provider, warning=warning))
+                    continue
+                records = fetch_github(cfg, repo)
+            elif provider == "gitlab":
+                repo, warning = gitlab_repo(cfg, origin)
+                if repo is None:
+                    results.append(ProviderSyncResult(provider, warning=warning))
+                    continue
+                records = fetch_gitlab(cfg, repo)
             elif provider == "internal":
                 continue  # internal tickets already live in the db
             else:
-                results.append(ProviderSyncResult(provider, error=f"unknown provider {provider!r}"))
+                results.append(
+                    ProviderSyncResult(provider, error=f"unknown provider {provider!r}")
+                )
                 continue
             results.append(ProviderSyncResult(provider, tickets=upsert_tickets(db_path, records)))
         except (RuntimeError, OSError, sqlite3.Error) as error:
