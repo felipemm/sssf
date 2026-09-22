@@ -725,3 +725,25 @@ def test_run_lifecycle_spawn_monitor_teardown(tmp_path, monkeypatch, fake_docker
     assert teardown_sandbox(root, "abc1") == 0
     assert not marker.exists()  # the monitor consumed the exit marker
     assert wt.exists()
+
+
+def test_sandbox_build_reads_v2_config(tmp_path, monkeypatch, fake_docker):
+    """sandbox build must load the config from adws/config (v2) — the v1 path
+    crash (audit B1, PR #28)."""
+    root = tmp_path / "proj"
+    (root / "adws" / "config").mkdir(parents=True)
+    (root / "adws" / "config" / "sssf.config.yaml").write_text("sandbox:\n  image: sssf-runner\n")
+    monkeypatch.chdir(root)
+    from sssf.commands import sandbox_cmd
+
+    assert sandbox_cmd.build(None) == 0
+    # a v1-only project fails loudly (legacy banner + readable message),
+    # never with a raw traceback (audit B1)
+    (root / "adws" / "config").rename(root / "adws" / "adw_sssf_config")
+    monkeypatch.chdir(root)
+    assert sandbox_cmd.build(None) == 1
+
+
+# ── run control: sandbox stop / restart (moved from `sssf run`, #89) ────────
+
+
