@@ -87,7 +87,7 @@ class EnvelopesRow(Row):
 
 
 class GateResultsRow(Row):
-    id: int = Field(json_schema_extra={"pk": True, "autoincrement": True})
+    id: int | None = Field(default=None, json_schema_extra={"pk": True, "autoincrement": True})
     adw_id: str | None = Field(default=None, json_schema_extra={"ref": "sessions"})
     phase_id: str | None = Field(default=None, json_schema_extra={"ref": "phases"})
     attempt: int | None = None
@@ -99,7 +99,7 @@ class GateResultsRow(Row):
 
 
 class ProcessesRow(Row):
-    id: int = Field(json_schema_extra={"pk": True, "autoincrement": True})
+    id: int | None = Field(default=None, json_schema_extra={"pk": True, "autoincrement": True})
     adw_id: str | None = Field(default=None, json_schema_extra={"ref": "sessions"})
     kind: str | None = None
     name: str | None = None
@@ -144,7 +144,7 @@ class TicketsRow(Row):
 
 
 class TicketEventsRow(Row):
-    id: int = Field(json_schema_extra={"pk": True, "autoincrement": True})
+    id: int | None = Field(default=None, json_schema_extra={"pk": True, "autoincrement": True})
     ticket_id: str = Field(json_schema_extra={"not_null": True})
     event_type: str = Field(json_schema_extra={"not_null": True})
     actor: str = Field(default="system", json_schema_extra={"not_null": True})
@@ -174,7 +174,7 @@ class NotifyThreadsRow(Row):
 
 
 class NotifyEventsRow(Row):
-    id: int = Field(json_schema_extra={"pk": True, "autoincrement": True})
+    id: int | None = Field(default=None, json_schema_extra={"pk": True, "autoincrement": True})
     ticket_id: str = Field(json_schema_extra={"not_null": True})
     ts: str = Field(json_schema_extra={"not_null": True})
     ok: int = Field(json_schema_extra={"not_null": True})

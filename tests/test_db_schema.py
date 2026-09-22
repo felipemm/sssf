@@ -8,7 +8,6 @@ import sqlite3
 import pytest
 
 from sssf import db_schema, notify, ticketing
-from sssf.adw_modules import tracer
 
 
 def _table_shape(conn: sqlite3.Connection) -> dict[str, list]:
@@ -54,15 +53,118 @@ def _fk_shape(conn: sqlite3.Connection) -> dict[str, list]:
     return fks
 
 
+# The pre-refactor tracer SCHEMA, frozen as the golden shape: db_schema must
+# reproduce it exactly. (tracer.py no longer ships it — the models are the
+# source of truth — so the snapshot lives here as the regression pin.)
+_LEGACY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS sessions (
+  adw_id        TEXT PRIMARY KEY,
+  adw_name      TEXT,
+  request       TEXT,
+  status        TEXT,
+  engineer      TEXT,
+  started_at    TEXT, ended_at TEXT,
+  total_tokens  INTEGER DEFAULT 0, total_cost REAL DEFAULT 0,
+  archived      INTEGER DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS phases (
+  phase_id      TEXT PRIMARY KEY,
+  adw_id        TEXT REFERENCES sessions,
+  seq           INTEGER,
+  name TEXT, kind TEXT, owner TEXT, description TEXT,
+  status        TEXT DEFAULT 'fail',
+  attempt       INTEGER DEFAULT 0, retries INTEGER DEFAULT 0,
+  error         TEXT,
+  started_at    TEXT, ended_at TEXT
+);
+CREATE TABLE IF NOT EXISTS events (
+  event_id      TEXT PRIMARY KEY,
+  adw_id        TEXT REFERENCES sessions,
+  phase_id      TEXT REFERENCES phases,
+  parent_id     TEXT,
+  type          TEXT,
+  name          TEXT,
+  payload_json  TEXT,
+  tokens        INTEGER,
+  started_at    TEXT, ended_at TEXT
+);
+CREATE TABLE IF NOT EXISTS envelopes (
+  envelope_id   TEXT PRIMARY KEY,
+  adw_id        TEXT REFERENCES sessions,
+  phase_id      TEXT REFERENCES phases,
+  agent         TEXT,
+  output_type   TEXT,
+  payload_json  TEXT,
+  valid         INTEGER,
+  attempt       INTEGER,
+  created_at    TEXT
+);
+CREATE TABLE IF NOT EXISTS gate_results (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  adw_id        TEXT REFERENCES sessions,
+  phase_id      TEXT REFERENCES phases,
+  attempt       INTEGER,
+  gate          TEXT,
+  passed        INTEGER,
+  violations_json TEXT,
+  checks_json   TEXT,
+  created_at    TEXT
+);
+CREATE TABLE IF NOT EXISTS processes (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  adw_id        TEXT REFERENCES sessions,
+  kind          TEXT,
+  name          TEXT,
+  pid           INTEGER,
+  command       TEXT,
+  started_at    TEXT, ended_at TEXT
+);
+CREATE TABLE IF NOT EXISTS agent_sessions (
+  adw_id        TEXT REFERENCES sessions,
+  agent         TEXT,
+  coding_agent  TEXT, model TEXT, color TEXT,
+  session_id    TEXT,
+  context_tokens INTEGER,
+  context_window INTEGER,
+  created_at    TEXT, last_used_at TEXT,
+  PRIMARY KEY (adw_id, agent)
+);
+CREATE TABLE IF NOT EXISTS tickets (
+  id          TEXT PRIMARY KEY,
+  provider    TEXT NOT NULL,
+  external_id TEXT,
+  title       TEXT NOT NULL,
+  description TEXT,
+  status      TEXT NOT NULL DEFAULT 'backlog',
+  prompt_file TEXT,
+  adw_id      TEXT,
+  source_url  TEXT,
+  created_at  TEXT, updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS sandbox_run (
+  adw_id          TEXT PRIMARY KEY,
+  container       TEXT NOT NULL,
+  container_port  INTEGER,
+  host_port       INTEGER,
+  review_url      TEXT,
+  review_command  TEXT,
+  instructions    TEXT DEFAULT '',
+  status          TEXT,
+  updated_at      TEXT
+);
+"""
+
+
 @pytest.fixture
 def status_quo(tmp_path):
-    """The union of today's writers on a project db: ticketing + notify DDLs
-    first (ticket-first flows run before any tracer), then the trace SCHEMA
-    (its legacy `tickets` DDL no-ops — ticketing already created the table)."""
+    """The historical union of writers on a project db: ticketing + notify
+    DDLs first (ticket-first flows run before any tracer), then the frozen
+    trace SCHEMA (its legacy `tickets` DDL no-ops — ticketing already created
+    the table)."""
     conn = sqlite3.connect(tmp_path / "statusquo.db")
     ticketing.ensure_schema(conn)
     notify.ensure_schema(conn)
-    conn.executescript(tracer.SCHEMA)
+    conn.executescript(_LEGACY_SCHEMA)
     return conn
 
 
