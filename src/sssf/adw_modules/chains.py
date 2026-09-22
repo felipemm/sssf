@@ -60,6 +60,7 @@ class AgentPhase:
     previous: str | None = None  # phase name whose envelope feeds this call
     when: Callable[[object], bool] | None = None  # run-only condition
     user_directive: str = ""  # appended to the agent's user prompt this phase
+    fresh_session: bool = False  # mint a new agent session for this step (#91)
 
 
 @dataclass
@@ -200,6 +201,7 @@ def _run_phases(cfg, run, prompt: str, chain: Chain) -> int:
                         previous=prev,
                         gates=spec.gates,
                         user_directive=spec.user_directive,
+                        fresh_session=spec.fresh_session,
                     )
                 )
             outputs[spec.name] = previous

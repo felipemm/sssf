@@ -79,11 +79,16 @@ const description =
     </thead>
     <tbody>
       <tr>
-        <td><code class="hl">sssf flow plan [&lt;ticket-id&gt;] [--skip-exploration] [--project P] [--no-sandbox]</code></td>
+        <td><code class="hl">sssf flow plan [&lt;ticket-id&gt;] [--skip-exploration] [--revise] [--project P] [--no-sandbox]</code></td>
         <td>
           Plan a feature: exploration (skippable) → grill-with-docs → spec →
-          implementation tickets. With a ticket-id the plan chain runs on that
-          ticket's prompt; without one it runs exploration-first on the project.
+          implementation tickets — each step in its own fresh agent session. With
+          a ticket-id the plan chain runs on that idea ticket and the flow turns
+          it into a spec reference plus <span class="cmd">ready-for-agent</span>
+          implementation children; without one it runs exploration-first and
+          creates the idea ticket from the landed spec. Plan-once: only idea
+          tickets are plan inputs (implementation tickets are terminal), and an
+          already-planned idea needs <span class="cmd">--revise</span>.
         </td>
       </tr>
       <tr>

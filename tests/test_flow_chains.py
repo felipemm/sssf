@@ -56,9 +56,43 @@ def test_plan_chain_phase_list_and_ordering():
     assert chain.name == "plan"
     assert chain.required_agents == ["planner", "scout"]
     assert _phase_names(chain) == ["explore", "grill", "spec", "tickets", "commit"]
-    # every step is its own agent phase (fresh session per step is #91's
-    # mechanism — the chain structure keeps the steps distinct)
-    assert len(_agents_phases(chain)) == 4
+    # every step is its own agent phase, and each runs in a FRESH agent
+    # session (issue #91 AC3) — no context bleed between explore / grill /
+    # spec / tickets; only the envelope hands off.
+    agent_phases = _agents_phases(chain)
+    assert len(agent_phases) == 4
+    assert all(p.fresh_session for p in agent_phases)
+
+
+def test_fresh_session_flag_reaches_the_agent_call():
+    """AgentPhase.fresh_session flows into the AgentCall the executor builds,
+    so the runner mints a new pi session for the step instead of rejoining the
+    agent's existing context window."""
+    mod = _load("adw_plan")
+    spec_phase = next(p for p in mod.CHAIN.phases if p.name == "spec")
+    assert isinstance(spec_phase, AgentPhase)
+    assert spec_phase.fresh_session is True  # the declared intent
+
+
+def test_agent_session_id_fresh_mints_a_new_session():
+    """agents._agent_session_id rejoins the mapped session unless fresh=True,
+    which always mints a new id — the seam behind 'each plan step runs in its
+    own fresh agent session' (#91)."""
+    from types import SimpleNamespace
+
+    from sssf.adw_modules import agents
+
+    run = SimpleNamespace(
+        adw_id="abc12345",
+        agent_map={"planner": {"session_id": "sssf-existing", "model": "m"}},
+    )
+    agent = SimpleNamespace(name="planner", model="m")
+    assert agents._agent_session_id(run, agent) == "sssf-existing"  # rejoin
+    fresh = agents._agent_session_id(run, agent, fresh=True)
+    assert fresh != "sssf-existing"
+    assert fresh.startswith("sssf-abc12345-planner-")
+    # a second fresh step mints a NEW id again — steps never share context
+    assert agents._agent_session_id(run, agent, fresh=True) != fresh
 
 
 def test_plan_exploration_is_skippable():

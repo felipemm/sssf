@@ -841,3 +841,121 @@ def test_sandbox_build_reads_v2_config(tmp_path, monkeypatch, fake_docker):
 # ── run control: sandbox stop / restart (moved from `sssf run`, #89) ────────
 
 
+
+
+# ── monitor lands plan-flow tickets (issue #91) ─────────────────────────────
+
+
+def test_monitor_lands_plan_tickets_after_successful_run(tmp_path, monkeypatch):
+    """The monitor is the host process that observes a sandboxed plan run's
+    end, so it lands the plan flow's db transform (#91): the linked idea
+    ticket gets its spec reference + ready-for-agent children. Best-effort:
+    a ticket-write hiccup must never crash the monitor."""
+    from sssf import ticketing
+    from sssf.sandbox.orchestrator import monitor_run
+    from sssf.sandbox.worktree_git import sandbox_dir
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    data = root / "adws" / "data"
+    data.mkdir(parents=True)
+    db = data / "sssf.db"
+    conn = sqlite3.connect(str(db))
+    ticketing.ensure_schema(conn)
+    # the plan run's idea ticket, linked by the flow at dispatch time
+    conn.execute(
+        "INSERT INTO tickets (id, provider, title, status, kind, adw_id)"
+        " VALUES (?,?,?,?,?,?)",
+        ("internal:idea", "internal", "dark mode", "needs-triage", "idea", "r9"),
+    )
+    # the sandboxed run: its session (merged) + its sandbox_run record
+    conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, status, started_at, ended_at)"
+        " VALUES ('r9', 'adw_plan', 'success',"
+        " '2026-09-01T00:00:00+00:00', '2026-09-01T01:00:00+00:00')"
+    )
+    conn.execute("INSERT INTO sandbox_run (adw_id, container) VALUES ('r9', 'sssf-r9')")
+    conn.commit()
+    conn.close()
+    # the run's artifacts live in the per-run worktree, where the ADW wrote them
+    wt = sandbox_dir(root, "r9")
+    specs = wt / "adws" / "specs"
+    specs.mkdir(parents=True)
+    (specs / "r9_spec-dark-mode.md").write_text("# Dark mode\n\nSpec body.\n")
+    (specs / "r9_tickets-dark-mode.md").write_text(
+        "# Slices\n\n## Toggle\n\nA toggle.\n\n## Persist\n\nPersist it.\n"
+    )
+    wt_data = wt / "adws" / "data"
+    (wt_data / "sessions").mkdir(parents=True)
+    (wt_data / "sessions" / "r9.supervisor-exit").write_text("0")
+
+    monkeypatch.setattr("sssf.sandbox.orchestrator._container_gone", lambda fn, name: False)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.time.sleep", lambda s: None)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.sync_run_db", lambda *a, **k: None)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.record_never_started", lambda *a, **k: None)
+
+    assert monitor_run(root, "r9") == 0
+    conn = sqlite3.connect(str(db))
+    spec = conn.execute(
+        "SELECT spec FROM tickets WHERE id='internal:idea'"
+    ).fetchone()[0]
+    children = conn.execute(
+        "SELECT title FROM tickets WHERE parent_id='internal:idea'"
+    ).fetchall()
+    conn.close()
+    assert spec == "adws/specs/r9_spec-dark-mode.md"
+    assert [c[0] for c in children] == ["Toggle", "Persist"]
+
+
+def test_monitor_skips_plan_transform_for_failed_runs(tmp_path, monkeypatch):
+    """A failed plan run lands nothing — the parent stays needs-triage with a
+    blank spec; the failure is visible in the trace."""
+    from sssf import ticketing
+    from sssf.sandbox.orchestrator import monitor_run
+    from sssf.sandbox.worktree_git import sandbox_dir
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    data = root / "adws" / "data"
+    data.mkdir(parents=True)
+    db = data / "sssf.db"
+    conn = sqlite3.connect(str(db))
+    ticketing.ensure_schema(conn)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, title, status, kind, adw_id)"
+        " VALUES (?,?,?,?,?,?)",
+        ("internal:idea2", "internal", "dark mode", "needs-triage", "idea", "r10"),
+    )
+    conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, status, started_at, ended_at)"
+        " VALUES ('r10', 'adw_plan', 'fail',"
+        " '2026-09-01T00:00:00+00:00', '2026-09-01T01:00:00+00:00')"
+    )
+    conn.execute("INSERT INTO sandbox_run (adw_id, container) VALUES ('r10', 'sssf-r10')")
+    conn.commit()
+    conn.close()
+    wt = sandbox_dir(root, "r10")
+    specs = wt / "adws" / "specs"
+    specs.mkdir(parents=True)
+    (specs / "r10_spec-dark-mode.md").write_text("# Dark mode\n\nSpec body.\n")
+    (specs / "r10_tickets-dark-mode.md").write_text("# Slices\n\n## Toggle\n\nA toggle.\n")
+    wt_data = wt / "adws" / "data"
+    (wt_data / "sessions").mkdir(parents=True)
+    (wt_data / "sessions" / "r10.supervisor-exit").write_text("0")
+
+    monkeypatch.setattr("sssf.sandbox.orchestrator._container_gone", lambda fn, name: False)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.time.sleep", lambda s: None)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.sync_run_db", lambda *a, **k: None)
+    monkeypatch.setattr("sssf.sandbox.orchestrator.record_never_started", lambda *a, **k: None)
+
+    assert monitor_run(root, "r10") == 0
+    conn = sqlite3.connect(str(db))
+    row = conn.execute(
+        "SELECT spec FROM tickets WHERE id='internal:idea2'"
+    ).fetchone()
+    children = conn.execute(
+        "SELECT COUNT(*) FROM tickets WHERE parent_id='internal:idea2'"
+    ).fetchone()[0]
+    conn.close()
+    assert row == ("",)
+    assert children == 0

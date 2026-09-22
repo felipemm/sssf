@@ -10,12 +10,14 @@ The implement flow drives the ticket machine (#92): it claims the ticket
 (ready-for-agent → in-progress) before the run spawns, records every run in
 ticket_runs, and settles the outcome — success moves the ticket to
 ready-for-signoff, failure requeues it fix-forward with the run's feedback.
-Sandboxed runs settle in the monitor (the host process that sees the run
-end); --no-sandbox runs settle here from the ADW's exit code.
+The plan flow lands its db transform (#91) host-side: the sandbox monitor
+settles a sandboxed run's end, `--no-sandbox` runs settle here from the ADW's
+exit code.
 """
 
 from __future__ import annotations
 
+import sqlite3
 import subprocess
 import sys
 import uuid
@@ -110,8 +112,8 @@ def _dispatch_chain(
     inline (a file path resolves via the ADW's resolve_prompt when given).
 
     `adw_id` pins the run (forwarded as `--adw-id` in both modes) — the
-    implement flow needs the ticket link to point at the run that actually
-    executes. None mints a fresh id inside the sandbox/ADW.
+    implement and plan flows need the ticket link to point at the run that
+    actually executes. None mints a fresh id inside the sandbox/ADW.
     """
     from sssf.adw_modules import paths
 
@@ -158,40 +160,126 @@ def _ticket_prompt(root: Path, ticket_id: str) -> tuple[str, str, str] | None:
     return prompt, status, title
 
 
+_PLAN_NO_ARGS_PROMPT = (
+    "Plan this feature request: explore the problem space against the "
+    "codebase, grill the proposal against the project's ADRs and "
+    "CONTEXT.md, write the spec, and slice it into implementation tickets."
+)
+
+
+def _land_plan_run(root: Path, conn: sqlite3.Connection, adw_id: str) -> int:
+    """The plan flow's host-side settle (#91): run the db transform and report
+    the landed lineage. Returns 0 when it landed (or had nothing to land); a
+    successful run whose artifacts cannot be parsed is surfaced as an error.
+    The caller owns conn (commit/close)."""
+    from sssf import ticketing
+
+    try:
+        landed = ticketing.finish_plan_run(root, conn, adw_id, actor=_actor())
+    except ValueError as error:
+        print(
+            f"sssf flow: plan run {adw_id} succeeded but the transform failed: {error}",
+            file=sys.stderr,
+        )
+        return 1
+    if landed:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM tickets WHERE parent_id=?", (landed,)
+        ).fetchone()[0]
+        title_row = conn.execute(
+            "SELECT title FROM tickets WHERE id=?", (landed,)
+        ).fetchone()
+        title = title_row[0] if title_row else ""
+        print(
+            f"sssf flow: plan landed — {landed} ({title}) now has"
+            f" {count} implementation ticket(s)"
+        )
+    return 0
+
+
 def plan(
     cwd: Path,
     ticket_id: str | None,
     explicit_project: str | None = None,
     skip_exploration: bool = False,
     no_sandbox: bool = False,
+    revise: bool = False,
 ) -> int:
-    """`sssf flow plan [<ticket-id>]` — plan a feature. With a ticket, the plan
-    chain runs on the ticket's prompt; with no arguments, the chain runs in
-    exploration mode on a generic prompt (the no-args brief → idea-ticket
-    wiring lands with #91)."""
+    """`sssf flow plan [<ticket-id>]` — turn an idea into a spec plus
+    implementation tickets (issue #91).
+
+    With a ticket, the plan chain runs on the ticket's prompt; the dispatch
+    guards plan-once (implementation tickets are terminal plan inputs; an
+    already-planned idea ticket needs `--revise` — the only re-plan escape),
+    links the run (tickets.adw_id + ticket_runs) before the spawn, and the
+    settle transforms the idea ticket into a spec reference + ready-for-agent
+    children (sandboxed: the monitor; --no-sandbox: here from the exit code).
+
+    With no arguments, exploration runs first and the settle creates the idea
+    ticket from the landed spec — exploration → brief → idea ticket → spec →
+    slices in one pass. Exploration is skippable (`--skip-exploration`).
+    """
+    import sqlite3
+
+    from sssf import ticketing
+    from sssf.adw_modules import paths
+
     root = _root(cwd, explicit_project)
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
         return 1
+    extra = ["--skip-exploration"] if skip_exploration else []
     if ticket_id is None:
-        prompt = (
-            "Plan this feature request: explore the problem space against the "
-            "codebase, grill the proposal against the project's ADRs and "
-            "CONTEXT.md, write the spec, and slice it into implementation tickets."
+        adw_id = uuid.uuid4().hex[:8]
+        code = _dispatch_chain(
+            root, "adw_plan", _PLAN_NO_ARGS_PROMPT, extra, no_sandbox, adw_id=adw_id
         )
-        return _dispatch_chain(
-            root, "adw_plan", prompt,
-            ["--skip-exploration"] if skip_exploration else [], no_sandbox,
-        )
+        if code == 0 and (no_sandbox or not _sandbox_enabled(root)):
+            conn = sqlite3.connect(str(paths.data_dir(root) / "sssf.db"))
+            ticketing.ensure_schema(conn)
+            code = _land_plan_run(root, conn, adw_id)
+            conn.commit()
+            conn.close()
+        return code
     row = _ticket_prompt(root, ticket_id)
     if row is None:
         print(f"sssf flow: no ticket {ticket_id}", file=sys.stderr)
         return 1
     prompt, _status, _title = row
-    return _dispatch_chain(
-        root, "adw_plan", prompt,
-        ["--skip-exploration"] if skip_exploration else [], no_sandbox,
+
+    conn = sqlite3.connect(str(paths.data_dir(root) / "sssf.db"))
+    ticketing.ensure_schema(conn)
+    guard = ticketing.plan_guard(conn, ticket_id, revise=revise)
+    if guard:
+        print(f"sssf flow: {guard}", file=sys.stderr)
+        conn.close()
+        return 1
+    if _has_live_run(root, ticket_id):
+        print(f"sssf flow: ticket {ticket_id} has a live run — wait for it to finish", file=sys.stderr)
+        conn.close()
+        return 1
+
+    # Link the run BEFORE the spawn (the live-run guard and the settle both
+    # read the link). The parent stays needs-triage — the machine has no
+    # plan-claim edge, so the transform is the settle, not a transition.
+    adw_id = uuid.uuid4().hex[:8]
+    conn.execute(
+        "INSERT OR IGNORE INTO ticket_runs (ticket_id, adw_id, created_at) VALUES (?,?,?)",
+        (ticket_id, adw_id, _now()),
     )
+    conn.execute(
+        "UPDATE tickets SET adw_id=?, updated_at=? WHERE id=?",
+        (adw_id, _now(), ticket_id),
+    )
+    conn.commit()
+
+    sandboxed = not no_sandbox and _sandbox_enabled(root)
+    code = _dispatch_chain(root, "adw_plan", prompt, extra, no_sandbox, adw_id=adw_id)
+    if code == 0 and not sandboxed:
+        code = _land_plan_run(root, conn, adw_id)
+    conn.commit()
+    conn.close()
+    return code
 
 
 def implement(

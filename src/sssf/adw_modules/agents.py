@@ -118,7 +118,7 @@ def execute(run, phase: Phase, call: AgentCall) -> EnvelopeBase:
     prompts.save(agent_dir / "prompts", "system.md", system_text)
     prompts.save(agent_dir / "prompts", "user.md", user_text)
 
-    session_id = _agent_session_id(run, agent)
+    session_id = _agent_session_id(run, agent, fresh=call.fresh_session)
     run.tracer.event(
         EventRecord(
             adw_id=run.adw_id,
@@ -315,10 +315,16 @@ def _as_report(result) -> GateReport:
     return GateReport(checks=[GateCheck(item=str(v), ok=False) for v in (result or [])])
 
 
-def _agent_session_id(run, agent: AgentConfig) -> str:
-    entry = run.agent_map.get(agent.name)
-    if entry and entry.get("model") == agent.model:
-        return entry["session_id"]  # rejoin the existing context window
+def _agent_session_id(run, agent: AgentConfig, *, fresh: bool = False) -> str:
+    """The pi session for one agent call. By default the agent REJOINS its
+    existing context window (the map holds the latest session per agent);
+    `fresh` always mints a new session — the plan flow's per-step isolation
+    (#91): grill / spec / tickets each start clean, and only the envelope
+    hands off."""
+    if not fresh:
+        entry = run.agent_map.get(agent.name)
+        if entry and entry.get("model") == agent.model:
+            return entry["session_id"]  # rejoin the existing context window
     return f"sssf-{run.adw_id}-{agent.name}-{new_id(4)}"
 
 

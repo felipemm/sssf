@@ -30,6 +30,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now forwards `--adw-id` so the ticket link points at the run that actually
   executes.
 
+- **Plan flow lands its db transform (#91)** — `sssf flow plan` turns an idea
+  ticket into a spec reference plus `ready-for-agent` implementation children
+  (parent_id lineage recorded, `planned` audit event). No-args mode runs
+  exploration → brief → idea ticket → spec → slices in one pass (the idea
+  ticket is created from the landed spec's `# ` title). Each plan step runs in
+  its own fresh agent session (`--revise` is the plan-once escape: only idea
+  tickets are plan inputs, implementation tickets are terminal, an
+  already-planned idea needs `--revise`, stale unclaimed children of a re-plan
+  are commented as superseded). Host-side settle mirrors the implement flow:
+  the sandbox monitor lands a sandboxed run's transform, `--no-sandbox` lands
+  it from the ADW's exit code.
+
 ### Changed
 
 - **Sandbox lifecycle split into a package (#109, architecture review)** —
