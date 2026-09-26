@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch, watchEffect } from 'vue'
 import type {
   AgentSession,
   AgentStartPayload,
@@ -41,12 +41,13 @@ const session = ref<Session | null>(null)
 const ticket = ref<TicketInfo | null>(null)
 const ticketChecked = ref(false)
 const activeTicket = ref<TicketInfo | null>(null)
-const phases = ref<Phase[]>([])
-const agents = ref<AgentSession[]>([])
+// shallowRef is used for large API payloads that are completely replaced to avoid deep reactivity overhead
+const phases = shallowRef<Phase[]>([])
+const agents = shallowRef<AgentSession[]>([])
 const usage = ref<SessionUsage>({ read: 0, written: 0 })
-const events = ref<EventRow[]>([])
-const envelopes = ref<Envelope[]>([])
-const gates = ref<GateResult[]>([])
+const events = shallowRef<EventRow[]>([])
+const envelopes = shallowRef<Envelope[]>([])
+const gates = shallowRef<GateResult[]>([])
 const apiError = ref<string | null>(null)
 const flash = ref('') // transient control feedback (restart/stop failures)
 const loaded = ref(false)
@@ -524,7 +525,7 @@ async function restart() {
 
 // ── run actions: prompt / logs / review ─────────────────────────────────────
 const panel = ref<'prompt' | 'logs' | 'review' | null>(null)
-const logLines = ref<string[]>([])
+const logLines = shallowRef<string[]>([])
 const logError = ref('')
 const reviewInfo = ref<ReviewInfo | null>(null)
 
