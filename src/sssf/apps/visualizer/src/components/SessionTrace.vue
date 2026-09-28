@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch, watchEffect } from 'vue'
 import type {
   AgentSession,
   AgentStartPayload,
@@ -37,16 +37,17 @@ async function toggleArchive() {
   }
 }
 
-const session = ref<Session | null>(null)
-const ticket = ref<TicketInfo | null>(null)
+// OPTIMIZATION: use shallowRef instead of ref for large API responses (session, phases, events, envelopes, gates, agents) to prevent severe Vue deep reactivity overhead on replacing the whole array/object
+const session = shallowRef<Session | null>(null)
+const ticket = shallowRef<TicketInfo | null>(null)
 const ticketChecked = ref(false)
-const activeTicket = ref<TicketInfo | null>(null)
-const phases = ref<Phase[]>([])
-const agents = ref<AgentSession[]>([])
-const usage = ref<SessionUsage>({ read: 0, written: 0 })
-const events = ref<EventRow[]>([])
-const envelopes = ref<Envelope[]>([])
-const gates = ref<GateResult[]>([])
+const activeTicket = shallowRef<TicketInfo | null>(null)
+const phases = shallowRef<Phase[]>([])
+const agents = shallowRef<AgentSession[]>([])
+const usage = shallowRef<SessionUsage>({ read: 0, written: 0 })
+const events = shallowRef<EventRow[]>([])
+const envelopes = shallowRef<Envelope[]>([])
+const gates = shallowRef<GateResult[]>([])
 const apiError = ref<string | null>(null)
 const flash = ref('') // transient control feedback (restart/stop failures)
 const loaded = ref(false)

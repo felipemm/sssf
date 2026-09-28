@@ -6,7 +6,7 @@
  * column; untracked tickets (synced, born needs-triage) sit in Needs triage
  * until marked ready-for-agent from the page.
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { ChevronDown, ChevronRight, RefreshCw, EyeOff, GitBranch } from 'lucide-vue-next'
 import { backlogTicket, fetchTickets, syncTickets, useProjects, type Ticket, type TicketsResponse } from '../lib/api'
 import { notify } from '../lib/toast'
@@ -26,10 +26,11 @@ const COLUMNS = [
   { key: 'blocked', label: 'Blocked', accent: 'var(--red)' },
 ] as const
 
-const tickets = ref<TicketsResponse>({ enabled: false, tickets: [] })
+// OPTIMIZATION: use shallowRef instead of ref for tickets payload to prevent deep reactivity overhead on large lists completely replaced on fetch
+const tickets = shallowRef<TicketsResponse>({ enabled: false, tickets: [] })
 const apiError = ref<string | null>(null)
 const loaded = ref(false)
-const activeTicket = ref<Ticket | null>(null)
+const activeTicket = shallowRef<Ticket | null>(null)
 const syncing = ref(false)
 const untrackedOnly = ref(false)
 
