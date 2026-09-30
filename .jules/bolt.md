@@ -1,0 +1,3 @@
+## 2024-09-30 - Vue shallowRef for Event Traces
+**Learning:** Large arrays populated by bulk assignment (like event traces) suffer severe performance degradation in Vue 3 due to the deep reactivity overhead of `ref()`.
+**Action:** Use `shallowRef()` instead of `ref()` for large API payloads that are completely replaced (`array.value = newArray`) rather than deeply mutated, bypassing the proxy overhead while maintaining UI responsiveness.
