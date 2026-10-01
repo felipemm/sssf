@@ -212,7 +212,7 @@ onBeforeUnmount(() => clearInterval(timer))
             class="tk"
             :class="{ untracked: !t.tracked }"
           >
-            <button class="tk-open" type="button" @click="open(t)">
+            <button class="tk-open" type="button" :aria-label="`Open ticket: ${t.title}`" @click="open(t)">
               <span class="badge">{{ ORIGIN_BADGE[t.origin] ?? '?' }}</span>
               <span class="tk-title">{{ t.title }}</span>
               <span class="tk-meta dim">

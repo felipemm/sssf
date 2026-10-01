@@ -1,0 +1,13 @@
+
+> sssf-visualizer@0.1.0 dev:all /app/src/sssf/apps/visualizer
+> bun run server/index.ts & vite
+
+[sssf] visualizer api  http://localhost:4600
+[sssf] registry        /home/jules/.sssf/projects.json  (0 project(s))
+[sssf] no ./dist — use "bun run dev" for the Vite dev server on :4601
+
+  VITE v7.3.6  ready in 379 ms
+
+  ➜  Local:   http://localhost:4601/
+  ➜  Network: use --host to expose
+ ELIFECYCLE  Command failed.

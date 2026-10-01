@@ -1,0 +1,3 @@
+## 2024-05-24 - Dynamic ARIA Labels Avoid Context Loss
+**Learning:** When adding `aria-label` to buttons that contain dynamically bound text (e.g., ticket titles or phase names), hardcoding a static label like `"Open ticket details"` overrides the child elements for screen readers. Visually impaired users lose critical context (the actual ticket or phase name).
+**Action:** Use dynamic bounds for aria labels (`:aria-label="\`Open ticket: ${ticket.title}\`"`) when the element relies on child spans or icons + text to convey its full specific purpose, preserving context without introducing accessibility regressions.

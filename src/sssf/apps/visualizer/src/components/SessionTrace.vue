@@ -731,6 +731,7 @@ function selectPhase(p: Phase) {
               :class="[p.status, { selected: p.phase_id === phaseId }]"
               :style="blockStyle(p, lane)"
               :title="`${p.name} — ${p.status}${p.description ? `\n${p.description}` : ''}`"
+              :aria-label="`Select phase: ${p.name}`"
               @click="selectPhase(p)"
             >
               <span class="b-top">
@@ -763,6 +764,7 @@ function selectPhase(p: Phase) {
             :class="{ selected: p.phase_id === phaseId }"
             :style="{ right: `${10 + i * 5}px`, width: '170px' }"
             :title="`${p.name} — queued`"
+            :aria-label="`Select phase: ${p.name}`"
             @click="selectPhase(p)"
           >
             <span class="b-top">
