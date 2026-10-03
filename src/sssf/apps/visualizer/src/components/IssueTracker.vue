@@ -213,6 +213,7 @@ onBeforeUnmount(() => clearInterval(timer))
             :class="{ untracked: !t.tracked }"
           >
             <button class="tk-open" type="button" @click="open(t)">
+              <span class="sr-only">Open ticket: </span>
               <span class="badge">{{ ORIGIN_BADGE[t.origin] ?? '?' }}</span>
               <span class="tk-title">{{ t.title }}</span>
               <span class="tk-meta dim">
