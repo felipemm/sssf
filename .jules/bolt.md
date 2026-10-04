@@ -1,0 +1,3 @@
+## 2025-05-18 - Prevent severe deep reactivity overhead for large arrays in Vue
+**Learning:** In the Vue visualizer app, large API response payloads (such as event traces like `events`, `envelopes`, `gates`, and `logLines`) can cause significant performance degradation when initialized with `ref()`. This happens because `ref()` deeply converts the objects inside the payload into reactive objects.
+**Action:** Use `shallowRef()` instead of `ref()` for large API payloads that are completely replaced instead of deeply mutated. This avoids the cost of deep reactive proxies and allows components like `SessionTrace.vue` to run much faster without sacrificing functionality.

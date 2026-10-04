@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch, watchEffect } from 'vue'
 import type {
   AgentSession,
   AgentStartPayload,
@@ -44,9 +44,12 @@ const activeTicket = ref<TicketInfo | null>(null)
 const phases = ref<Phase[]>([])
 const agents = ref<AgentSession[]>([])
 const usage = ref<SessionUsage>({ read: 0, written: 0 })
-const events = ref<EventRow[]>([])
-const envelopes = ref<Envelope[]>([])
-const gates = ref<GateResult[]>([])
+// ⚡ Bolt: Using shallowRef for large trace payloads avoids severe Vue deep reactivity
+// overhead. These arrays are completely replaced via assignment (not deeply mutated),
+// making deep reactivity unnecessary and costly.
+const events = shallowRef<EventRow[]>([])
+const envelopes = shallowRef<Envelope[]>([])
+const gates = shallowRef<GateResult[]>([])
 const apiError = ref<string | null>(null)
 const flash = ref('') // transient control feedback (restart/stop failures)
 const loaded = ref(false)
@@ -524,7 +527,8 @@ async function restart() {
 
 // ── run actions: prompt / logs / review ─────────────────────────────────────
 const panel = ref<'prompt' | 'logs' | 'review' | null>(null)
-const logLines = ref<string[]>([])
+// ⚡ Bolt: shallowRef avoids deep reactivity overhead on potentially large log payloads.
+const logLines = shallowRef<string[]>([])
 const logError = ref('')
 const reviewInfo = ref<ReviewInfo | null>(null)
 
