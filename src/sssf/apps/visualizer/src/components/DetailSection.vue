@@ -18,7 +18,8 @@ const bodyId = useId()
 
 <template>
   <section class="dsec">
-    <button class="dsec-head" @click="$emit('toggle')" :aria-expanded="open" :aria-controls="open ? bodyId : undefined" :aria-label="`Toggle ${title}`">
+    <button class="dsec-head" @click="$emit('toggle')" :aria-expanded="open" :aria-controls="open ? bodyId : undefined">
+      <span class="sr-only">Toggle section: </span>
       <span class="chev" aria-hidden="true">{{ open ? '▾' : '▸' }}</span>
       <component :is="icon" v-if="icon" class="dsec-icon" :size="19" :stroke-width="2" aria-hidden="true" />
       <span class="dsec-title">{{ title }}</span>
