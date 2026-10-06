@@ -1,0 +1,3 @@
+## 2024-10-06 - Vue deep reactivity overhead with large arrays
+**Learning:** In Vue, using `ref()` for large arrays (like trace events, envelopes, or logs) that are populated from API responses causes severe performance overhead due to Vue traversing and making every property deeply reactive. If the data is only ever entirely replaced, this deep reactivity is unnecessary and blocks the main thread during hydration.
+**Action:** Use `shallowRef()` instead of `ref()` for large API payloads that are completely replaced instead of being deeply mutated. This applies specifically to arrays like event traces in the visualizer.
