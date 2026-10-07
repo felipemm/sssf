@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch, watchEffect } from 'vue'
 import type {
   AgentSession,
   AgentStartPayload,
@@ -41,12 +41,17 @@ const session = ref<Session | null>(null)
 const ticket = ref<TicketInfo | null>(null)
 const ticketChecked = ref(false)
 const activeTicket = ref<TicketInfo | null>(null)
-const phases = ref<Phase[]>([])
-const agents = ref<AgentSession[]>([])
+
+// Performance optimization: use shallowRef instead of ref for large trace collections
+// that are entirely replaced on every tick (fetchSession/fetchEvents) rather than deeply mutated.
+// This prevents Vue's costly deep reactivity proxy overhead for thousands of events.
+const phases = shallowRef<Phase[]>([])
+const agents = shallowRef<AgentSession[]>([])
 const usage = ref<SessionUsage>({ read: 0, written: 0 })
-const events = ref<EventRow[]>([])
-const envelopes = ref<Envelope[]>([])
-const gates = ref<GateResult[]>([])
+const events = shallowRef<EventRow[]>([])
+const envelopes = shallowRef<Envelope[]>([])
+const gates = shallowRef<GateResult[]>([])
+
 const apiError = ref<string | null>(null)
 const flash = ref('') // transient control feedback (restart/stop failures)
 const loaded = ref(false)
