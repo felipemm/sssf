@@ -469,7 +469,7 @@ function fmtRel(iso: string | null): string {
       <h3>Add project</h3>
       <form class="add-form" @submit.prevent="onAdd">
         <input v-model="newRoot" class="root-input hint" data-hint="Filesystem path to a project (must contain adws/). Registered in ~/.sssf/projects.json — the project's runs become visible to the cockpit." placeholder="/path/to/project (with adws/)" aria-label="Project path" spellcheck="false" />
-        <button class="primary" aria-label="Add project" type="submit" :disabled="adding || !newRoot.trim()">
+        <button class="primary" aria-label="Add project" type="submit" :disabled="adding || !newRoot.trim()" :aria-busy="adding">
           <LoaderCircle v-if="adding" :size="15" class="spin" style="vertical-align: -2px; margin-right: 5px" />
           <Plus v-else :size="15" style="vertical-align: -2px; margin-right: 5px" />
           {{ adding ? 'Adding…' : 'Add' }}
