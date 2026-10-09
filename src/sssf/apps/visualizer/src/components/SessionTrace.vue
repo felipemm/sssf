@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch, watchEffect } from 'vue'
 import type {
   AgentSession,
   AgentStartPayload,
@@ -41,12 +41,17 @@ const session = ref<Session | null>(null)
 const ticket = ref<TicketInfo | null>(null)
 const ticketChecked = ref(false)
 const activeTicket = ref<TicketInfo | null>(null)
-const phases = ref<Phase[]>([])
-const agents = ref<AgentSession[]>([])
+// ⚡ Bolt: Performance Optimization
+// Using shallowRef instead of ref for large API response payloads (phases, agents, events, envelopes, gates)
+// eliminates severe Vue deep reactivity overhead (proxying every nested object property).
+// This is safe because these lists are completely replaced during fetch (e.g., `events.value = [...]`),
+// naturally triggering shallow reactivity updates without needing deep mutations.
+const phases = shallowRef<Phase[]>([])
+const agents = shallowRef<AgentSession[]>([])
 const usage = ref<SessionUsage>({ read: 0, written: 0 })
-const events = ref<EventRow[]>([])
-const envelopes = ref<Envelope[]>([])
-const gates = ref<GateResult[]>([])
+const events = shallowRef<EventRow[]>([])
+const envelopes = shallowRef<Envelope[]>([])
+const gates = shallowRef<GateResult[]>([])
 const apiError = ref<string | null>(null)
 const flash = ref('') // transient control feedback (restart/stop failures)
 const loaded = ref(false)
