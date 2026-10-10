@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, watchEffect, shallowRef} from 'vue'
 import type {
   AgentSession,
   AgentStartPayload,
@@ -41,12 +41,12 @@ const session = ref<Session | null>(null)
 const ticket = ref<TicketInfo | null>(null)
 const ticketChecked = ref(false)
 const activeTicket = ref<TicketInfo | null>(null)
-const phases = ref<Phase[]>([])
-const agents = ref<AgentSession[]>([])
+const phases = shallowRef<Phase[]>([]) // Arrays are entirely replaced, safe for shallowRef
+const agents = shallowRef<AgentSession[]>([]) // Arrays are entirely replaced, safe for shallowRef
 const usage = ref<SessionUsage>({ read: 0, written: 0 })
-const events = ref<EventRow[]>([])
-const envelopes = ref<Envelope[]>([])
-const gates = ref<GateResult[]>([])
+const events = shallowRef<EventRow[]>([]) // Arrays are entirely replaced, safe for shallowRef
+const envelopes = shallowRef<Envelope[]>([]) // Arrays are entirely replaced, safe for shallowRef
+const gates = shallowRef<GateResult[]>([]) // Arrays are entirely replaced, safe for shallowRef
 const apiError = ref<string | null>(null)
 const flash = ref('') // transient control feedback (restart/stop failures)
 const loaded = ref(false)
@@ -524,7 +524,7 @@ async function restart() {
 
 // ── run actions: prompt / logs / review ─────────────────────────────────────
 const panel = ref<'prompt' | 'logs' | 'review' | null>(null)
-const logLines = ref<string[]>([])
+const logLines = shallowRef<string[]>([]) // Arrays are entirely replaced, safe for shallowRef
 const logError = ref('')
 const reviewInfo = ref<ReviewInfo | null>(null)
 
