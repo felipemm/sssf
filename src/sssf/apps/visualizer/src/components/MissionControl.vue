@@ -318,7 +318,7 @@ function fmtRel(iso: string | null): string {
             <td class="hint hint-line" data-hint="All-time session cost.">{{ fmtUsd(p.costTotalUsd) }}</td>
             <td class="hint hint-line" data-hint="Latest event time in the project db.">{{ fmtRel(p.lastActivity) }}</td>
             <td class="actions">
-              <button class="icon" title="Refresh — sssf init --refresh --auto: accept all template updates, non-interactive" aria-label="Refresh project" :disabled="pending.has(`refresh:${p.name}`)" @click="onRefresh(p.name)">
+              <button class="icon" title="Refresh — sssf init --refresh --auto: accept all template updates, non-interactive" aria-label="Refresh project" :disabled="pending.has(`refresh:${p.name}`)" :aria-busy="pending.has(`refresh:${p.name}`)" @click="onRefresh(p.name)">
                 <RefreshCw :size="14" :class="{ spin: pending.has(`refresh:${p.name}`) }" />
               </button>
               <button class="icon" title="Remove from the registry (confirm dialog). Does not delete the project's files." aria-label="Remove project" @click="onRemove(p.name)">
@@ -415,7 +415,7 @@ function fmtRel(iso: string | null): string {
                 <select v-model.number="logTail" class="tail-select" aria-label="Number of log lines to tail" @change="onLogTailChange">
                   <option :value="50">50</option><option :value="100">100</option><option :value="250">250</option>
                 </select>
-                <button type="button" class="mini" aria-label="Refresh container logs" :disabled="logLoading" @click="fetchLogs">
+                <button type="button" class="mini" aria-label="Refresh container logs" :disabled="logLoading" :aria-busy="logLoading" @click="fetchLogs">
                   <RefreshCw :size="12" :class="{ spin: logLoading }" style="vertical-align: -1px; margin-right: 4px" />refresh
                 </button>
                 <span class="log-hint">auto-tails every 5s</span>
@@ -469,7 +469,7 @@ function fmtRel(iso: string | null): string {
       <h3>Add project</h3>
       <form class="add-form" @submit.prevent="onAdd">
         <input v-model="newRoot" class="root-input hint" data-hint="Filesystem path to a project (must contain adws/). Registered in ~/.sssf/projects.json — the project's runs become visible to the cockpit." placeholder="/path/to/project (with adws/)" aria-label="Project path" spellcheck="false" />
-        <button class="primary" aria-label="Add project" type="submit" :disabled="adding || !newRoot.trim()">
+        <button class="primary" aria-label="Add project" type="submit" :disabled="adding || !newRoot.trim()" :aria-busy="adding">
           <LoaderCircle v-if="adding" :size="15" class="spin" style="vertical-align: -2px; margin-right: 5px" />
           <Plus v-else :size="15" style="vertical-align: -2px; margin-right: 5px" />
           {{ adding ? 'Adding…' : 'Add' }}
