@@ -285,10 +285,10 @@ function toggleCollapsed(key: string) {
             type="button"
             class="col-toggle"
             :aria-expanded="!collapsed[col.key]"
-            :aria-label="`Toggle ${col.label} column`"
             :title="collapsed[col.key] ? 'Expand stage' : 'Collapse stage'"
             @click="toggleCollapsed(col.key)"
           >
+            <span class="sr-only">Toggle {{ col.label }} column. </span>
             <ChevronRight v-if="collapsed[col.key]" :size="15" :stroke-width="2" class="chev" aria-hidden="true" />
             <ChevronDown v-else :size="15" :stroke-width="2" class="chev" aria-hidden="true" />
             <span class="dot" :style="{ background: col.accent }" />
