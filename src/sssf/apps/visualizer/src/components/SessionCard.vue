@@ -198,6 +198,7 @@ const tlHeight = computed(() => TL_AXIS_H + Math.max(1, rows.value.length) * TL_
 
 <template>
   <a class="card" :class="session.status" :href="hrefFor({ adwId: session.adw_id })">
+    <span class="sr-only">View session: </span>
     <div class="card-head">
       <span class="adw-icon" :title="session.adw_name ?? ''">
         <component :is="adwIcon" :size="15" :stroke-width="2" />
