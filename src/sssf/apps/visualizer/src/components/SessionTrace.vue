@@ -525,7 +525,7 @@ async function restart() {
 
 // ── run actions: prompt / logs / review ─────────────────────────────────────
 const panel = ref<'prompt' | 'logs' | 'review' | null>(null)
-const logLines = ref<string[]>([])
+const logLines = shallowRef<string[]>([]) // Arrays are entirely replaced, safe for shallowRef
 const logError = ref('')
 const reviewInfo = ref<ReviewInfo | null>(null)
 

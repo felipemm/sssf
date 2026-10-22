@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import {
   Activity,
   HeartPulse,
@@ -28,7 +28,7 @@ import ContributionsHeatmap from './ContributionsHeatmap.vue'
 import CompletedChart from './CompletedChart.vue'
 
 const data = ref<CockpitData | null>(null)
-const contribDays = ref<ContributionDay[]>([])
+const contribDays = shallowRef<ContributionDay[]>([])
 const loading = ref(false)
 const error = ref('')
 const note = ref('') // transient control feedback, like the sweep toast
@@ -147,7 +147,7 @@ function onHeal(action: 'start' | 'stop') {
 // ── container log tailing ──────────────────────────────────────────────────
 
 const logName = ref<string | null>(null)
-const logLines = ref<string[]>([])
+const logLines = shallowRef<string[]>([])
 const logError = ref('')
 const logTail = ref(100)
 const logLoading = ref(false)
