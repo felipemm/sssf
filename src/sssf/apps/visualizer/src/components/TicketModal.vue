@@ -135,6 +135,7 @@ function runStatus(run: TicketRun): { label: string; cls: string } {
           class="btn primary"
           type="button"
           :disabled="running"
+          :aria-busy="running"
           @click="run"
         >
           <LoaderCircle v-if="running" class="spin" :size="15" />

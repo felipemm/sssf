@@ -620,7 +620,7 @@ function togglePanel(id: string) {
         <h3><Activity class="h3-icon" :size="19" :stroke-width="2" /> events ({{ phaseEvents.length }})</h3>
         <div v-if="!phaseEvents.length" class="faint">no events</div>
         <div v-for="e in phaseEvents" :key="e.event_id" class="event">
-          <button class="event-row" :class="{ open: expanded.has(e.event_id) }" @click="toggle(e)" :aria-expanded="expanded.has(e.event_id)" :aria-controls="expanded.has(e.event_id) ? `event-payload-${e.event_id}` : undefined" aria-label="Toggle event details">
+          <button class="event-row" :class="{ open: expanded.has(e.event_id) }" @click="toggle(e)" :aria-expanded="expanded.has(e.event_id)" :aria-controls="expanded.has(e.event_id) ? `event-payload-${e.event_id}` : undefined" :aria-label="`Toggle event details for ${e.type}`">
             <span class="e-time dim">{{ fmtClock(e.started_at) }}</span>
             <span class="e-type" :class="typeClass[e.type ?? '']">{{ e.type }}</span>
             <span

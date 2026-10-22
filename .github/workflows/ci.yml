@@ -6,6 +6,25 @@ on:
   pull_request:
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      site: ${{ steps.filter.outputs.site }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            site:
+              - 'site/**'
+
   python:
     name: python (pytest)
     runs-on: ubuntu-latest
@@ -42,6 +61,8 @@ jobs:
 
   site:
     name: site (astro build + impeccable)
+    needs: changes
+    if: needs.changes.outputs.site == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -113,14 +134,23 @@ jobs:
   # Branch protection requires a status check named "CI" — GitHub names check
   # runs after the WORKFLOW when there is one job, but after each JOB when
   # there are several. This aggregate job (name = the required check) reports
-  # "CI" and gates on both suites, so merges stop being blocked by a check
-  # that never appears.
+  # "CI" and gates on the required jobs. The site job is allowed to skip when
+  # no site files changed.
   aggregate:
     name: CI
+    if: always()
     runs-on: ubuntu-latest
     # security is token-gated (SNYK_TOKEN secret) and skips until the secret
-    # exists — a skipped needs-job would skip the aggregate and the required
-    # CI check would never report. security runs standalone until then.
-    needs: [python, visualizer, site, lint, typecheck]
+    # exists — security runs standalone until then.
+    needs: [changes, python, visualizer, site, lint, typecheck]
     steps:
-      - run: 'echo "python + visualizer + site + lint + typecheck green (security: standalone job)"'
+      - name: Verify required jobs
+        if: >-
+          needs.changes.result != 'success' ||
+          needs.python.result != 'success' ||
+          needs.visualizer.result != 'success' ||
+          (needs.site.result != 'success' && needs.site.result != 'skipped') ||
+          needs.lint.result != 'success' ||
+          needs.typecheck.result != 'success'
+        run: exit 1
+      - run: 'echo "python + visualizer + lint + typecheck green; site built if site files changed (security: standalone job)"'

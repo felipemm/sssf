@@ -26,7 +26,7 @@ const COLUMNS = [
   { key: 'blocked', label: 'Blocked', accent: 'var(--red)' },
 ] as const
 
-// OPTIMIZATION: use shallowRef instead of ref for tickets payload to prevent deep reactivity overhead on large lists completely replaced on fetch
+// The fetched ticket payload is replaced as a whole, so deep reactivity is unnecessary.
 const tickets = shallowRef<TicketsResponse>({ enabled: false, tickets: [] })
 const apiError = ref<string | null>(null)
 const loaded = ref(false)
@@ -177,7 +177,7 @@ onBeforeUnmount(() => clearInterval(timer))
           <input v-model="untrackedOnly" type="checkbox" />
           <EyeOff :size="13" /> untracked only
         </label>
-        <button class="sync-link" type="button" :disabled="syncing" aria-label="Fetch external tickets" @click="onSync">
+        <button class="sync-link" type="button" :disabled="syncing" :aria-busy="syncing" :aria-label="syncing ? 'Syncing external tickets' : 'Fetch external tickets'" @click="onSync">
           <RefreshCw :size="13" :class="{ spin: syncing }" /> {{ syncing ? 'syncing…' : 'sync' }}
         </button>
       </div>
@@ -214,6 +214,7 @@ onBeforeUnmount(() => clearInterval(timer))
             :class="{ untracked: !t.tracked }"
           >
             <button class="tk-open" type="button" @click="open(t)">
+              <span class="sr-only">Open ticket: </span>
               <span class="badge">{{ ORIGIN_BADGE[t.origin] ?? '?' }}</span>
               <span class="tk-title">{{ t.title }}</span>
               <span class="tk-meta dim">

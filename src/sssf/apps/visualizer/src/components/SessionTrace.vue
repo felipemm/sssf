@@ -37,7 +37,7 @@ async function toggleArchive() {
   }
 }
 
-// OPTIMIZATION: use shallowRef instead of ref for large API responses (session, phases, events, envelopes, gates, agents) to prevent severe Vue deep reactivity overhead on replacing the whole array/object
+// These API payloads are replaced as a whole, so deep reactivity is unnecessary.
 const session = shallowRef<Session | null>(null)
 const ticket = shallowRef<TicketInfo | null>(null)
 const ticketChecked = ref(false)
@@ -732,6 +732,8 @@ function selectPhase(p: Phase) {
               :class="[p.status, { selected: p.phase_id === phaseId }]"
               :style="blockStyle(p, lane)"
               :title="`${p.name} — ${p.status}${p.description ? `\n${p.description}` : ''}`"
+              :aria-label="`Phase ${p.name}, status ${p.status}`"
+              :aria-current="p.phase_id === phaseId ? 'step' : false"
               @click="selectPhase(p)"
             >
               <span class="b-top">
@@ -764,6 +766,8 @@ function selectPhase(p: Phase) {
             :class="{ selected: p.phase_id === phaseId }"
             :style="{ right: `${10 + i * 5}px`, width: '170px' }"
             :title="`${p.name} — queued`"
+            :aria-label="`Phase ${p.name}, status queued`"
+            :aria-current="p.phase_id === phaseId ? 'step' : false"
             @click="selectPhase(p)"
           >
             <span class="b-top">
