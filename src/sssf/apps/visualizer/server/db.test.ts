@@ -11,7 +11,7 @@ function fakeDb() {
   const path = join(root, ".adws", "data", "sssf.db");
   const db = new Database(path);
   db.exec("PRAGMA journal_mode = WAL");
-  db.run("PRAGMA user_version = 7");  // a current contract db
+  db.run("PRAGMA user_version = 8");  // a current contract db
   db.run(`CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, adw_name TEXT, request TEXT,
           status TEXT, engineer TEXT, started_at TEXT, ended_at TEXT,
           total_tokens INTEGER, total_cost REAL, archived INTEGER DEFAULT 0)`);
@@ -60,7 +60,7 @@ describe("SssfDb.sessions", () => {
 
 describe("schema-version contract", () => {
   test("reader MIN matches the writer SCHEMA_VERSION (db_schema.py)", () => {
-    expect(MIN_SCHEMA_VERSION).toBe(7);
+    expect(MIN_SCHEMA_VERSION).toBe(8);
   });
 
   test("reads migration-added columns on a current db", () => {

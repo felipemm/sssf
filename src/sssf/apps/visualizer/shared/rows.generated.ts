@@ -159,6 +159,13 @@ export interface TicketEventsRow {
   created_at: string;
 }
 
+/** `ticket_mirror_operations` table — generated from db_schema.TicketMirrorOperationsRow. */
+export interface TicketMirrorOperationsRow {
+  ticket_id: string;
+  operation_key: string;
+  completed_at: string;
+}
+
 /** `ticket_runs` table — generated from db_schema.TicketRunsRow. */
 export interface TicketRunsRow {
   ticket_id: string;

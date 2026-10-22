@@ -28,7 +28,7 @@ per PR, then base the next on updated `main`.
 
 1. **[#120 — board/modal machine states](https://github.com/felipemm/sssf/issues/120).** Do first: #121 explicitly depends on replacing the UI's `ticket run` route with `flow implement`. Verify board/modal behavior for every machine state and ensure `needs-triage` is never runnable.
 2. **[#122 — stale-ticket reconciliation](https://github.com/felipemm/sssf/issues/122).** Add the idempotent settle at `flow implement` entry and visualizer boot, then normalize legacy statuses. On current schema v5, this owns migration 6 for status normalization only.
-3. **[#123 — bidirectional sync](https://github.com/felipemm/sssf/issues/123).** Add the Jira writer, controlled-label mirroring, close/comment behavior, and `mirrored_at` idempotence. This owns migration 7 and the removal of `ticket writeback`; land it before #121's breaking cutover so the replacement sync path is already complete.
+3. **[#123 — bidirectional sync](https://github.com/felipemm/sssf/issues/123).** Add the Jira writer, controlled-label mirroring, close/comment behavior, and `mirrored_at` idempotence. This owns migrations 7 and 8, including successful per-operation checkpoints to make partial writes idempotent, and the removal of `ticket writeback`; land it before #121's breaking cutover so the replacement sync path is already complete.
 4. **[#124 — visualizer card/history UX](https://github.com/felipemm/sssf/issues/124).** After #120 because both touch board/tracker components; finish the card constraints, unified sessions filter, and sweep-only archive behavior.
 5. **[#121 — 2.0 footprint and verb cutover](https://github.com/felipemm/sssf/issues/121).** Integrate only after #120, #122, and #123 (and preferably #124): move to `.adws`, preserve/migrate the DB on init, gate legacy projects, remove obsolete verbs, and release as 2.0.0. Do not reimplement #122/#123 here.
 6. **[#125 — deploy-flow notifications](https://github.com/felipemm/sssf/issues/125).** Finish after #121 so the notifier uses the final `.adws/config/notify.yaml` path; wire the four alerts without moving human decisions out of the terminal.
@@ -119,6 +119,12 @@ aligned with the split GitHub issues:
 - **Migration 7 — #123:** add `mirrored_at` to `tickets` for idempotent
   push-on-sync. Do not fold this column into #122; that issue explicitly
   leaves it to the sync issue.
+- **Migration 8 — #123:** add `ticket_mirror_operations` to checkpoint each
+  successfully completed tracker operation independently, so a partial write
+  can retry only unfinished operations. Backfill checkpoints from existing
+  `mirrored_at` watermarks: `done` tickets get `done:close` and
+  `done:comment`; `ready-for-agent` tickets get `feedback:comment`. Each
+  backfilled checkpoint retains the ticket's `mirrored_at` timestamp.
 
 ### 7. Viz UI (Q3/Q4/Q9/Q10)
 
