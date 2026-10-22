@@ -62,7 +62,12 @@ def test_payload_plain_without_urls():
 def test_payload_carries_action_urls():
     payload = notify._payload(
         "test now",
-        {"workbench": "http://wb", "mr": "http://mr", "release": "http://rel", "tompero": "http://tp"},
+        {
+            "workbench": "http://wb",
+            "mr": "http://mr",
+            "release": "http://rel",
+            "tompero": "http://tp",
+        },
     )
     assert "test now" in payload
     assert "http://wb" in payload
@@ -121,9 +126,7 @@ def test_slack_reply_passes_thread_ts(monkeypatch):
 
 def test_slack_retries_on_ok_false_then_succeeds(monkeypatch):
     sleeps = []
-    _FakeHTTP(
-        [{"ok": False, "error": "rate_limited"}, {"ok": True, "ts": "9.9"}], monkeypatch
-    )
+    _FakeHTTP([{"ok": False, "error": "rate_limited"}, {"ok": True, "ts": "9.9"}], monkeypatch)
     tx = notify.SlackTransport("t", sleep=sleeps.append)
     result = tx.post(channel="#c", text="hi")
     assert result.ok and result.attempts == 2
@@ -203,6 +206,18 @@ def test_notify_requires_token(tmp_path, monkeypatch):
     monkeypatch.delenv("SLACK_BOT_TOKEN", raising=False)
     with pytest.raises(notify.NotifyError, match="SLACK_BOT_TOKEN"):
         notify.send(root, "t1", "hi", transport=FakeTransport())
+    conn = _db(root)
+    event = conn.execute(
+        "SELECT ticket_id, ok, error, attempts, channel FROM notify_events"
+    ).fetchone()
+    conn.close()
+    assert tuple(event) == (
+        "t1",
+        0,
+        "SLACK_BOT_TOKEN is not set (add it to the project .env)",
+        0,
+        "#sssf-alerts",
+    )
 
 
 def test_notify_creates_thread_on_first_post(tmp_path, monkeypatch):
@@ -215,7 +230,9 @@ def test_notify_creates_thread_on_first_post(tmp_path, monkeypatch):
     assert tx.calls[0]["thread_ts"] is None
     assert "hello" in tx.calls[0]["text"] and "http://mr" in tx.calls[0]["text"]
     conn = _db(root)
-    row = conn.execute("SELECT thread_ts, channel FROM notify_threads WHERE ticket_id='t1'").fetchone()
+    row = conn.execute(
+        "SELECT thread_ts, channel FROM notify_threads WHERE ticket_id='t1'"
+    ).fetchone()
     assert row["thread_ts"] == "777.777"
     event = conn.execute("SELECT ok, attempts FROM notify_events WHERE ticket_id='t1'").fetchone()
     assert event["ok"] == 1 and event["attempts"] == 1
@@ -238,6 +255,24 @@ def test_notify_reuses_thread_on_later_posts(tmp_path, monkeypatch):
     assert tx.calls[0]["thread_ts"] == "111.222"
 
 
+def test_notify_records_transport_exception(tmp_path, monkeypatch):
+    root = _project(tmp_path, CONFIG)
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
+
+    class RaisingTransport:
+        def post(self, *, channel, text, thread_ts=None):
+            raise OSError("connection reset")
+
+    result = notify.send(root, "t1", "hi", transport=RaisingTransport())
+
+    assert not result.ok and "connection reset" in result.error
+    conn = _db(root)
+    event = conn.execute("SELECT ok, error, attempts FROM notify_events").fetchone()
+    conn.close()
+    assert tuple(event) == (0, "transport error: connection reset", 0)
+
+
 def test_notify_records_failure(tmp_path, monkeypatch):
     root = _project(tmp_path, CONFIG)
     monkeypatch.chdir(root)
@@ -249,7 +284,9 @@ def test_notify_records_failure(tmp_path, monkeypatch):
     conn = _db(root)
     event = conn.execute("SELECT ok, error FROM notify_events WHERE ticket_id='t1'").fetchone()
     assert event["ok"] == 0 and event["error"] == "rate_limited"
-    assert conn.execute("SELECT count(*) FROM notify_threads WHERE ticket_id='t1'").fetchone()[0] == 0
+    assert (
+        conn.execute("SELECT count(*) FROM notify_threads WHERE ticket_id='t1'").fetchone()[0] == 0
+    )
     conn.close()
 
 

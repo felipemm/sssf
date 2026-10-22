@@ -35,7 +35,6 @@ NOTIFY_FILE = ".adws/config/notify.yaml"
 SLACK_API = "https://slack.com/api/chat.postMessage"
 
 
-
 class NotifyError(RuntimeError):
     """Configuration or transport problem that could not be retried away."""
 
@@ -87,6 +86,7 @@ def load_config(root: Path) -> NotifyConfig | None:
 def ensure_schema(conn: sqlite3.Connection) -> None:
     """The schema contract: notify tables come from the db_schema models."""
     db_schema.apply_schema(conn)
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
@@ -181,6 +181,21 @@ def _payload(text: str, urls: dict[str, str] | None = None) -> str:
     return "\n".join(lines)
 
 
+def _record_preflight_failure(root: Path, ticket_id: str, channel: str, error: str) -> None:
+    """Keep configuration/token failures visible even when no post can start."""
+    conn = _db(root)
+    try:
+        ensure_schema(conn)
+        conn.execute(
+            "INSERT INTO notify_events (ticket_id, ts, ok, error, attempts, thread_ts, channel)"
+            " VALUES (?, ?, 0, ?, 0, NULL, ?)",
+            (ticket_id, _now(), error, channel),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def send(
     root: Path,
     ticket_id: str,
@@ -204,7 +219,9 @@ def send(
     load_dotenv(root / ".env")
     token = os.environ.get(cfg.token_env, "")
     if not token:
-        raise NotifyError(f"{cfg.token_env} is not set (add it to the project .env)")
+        message = f"{cfg.token_env} is not set (add it to the project .env)"
+        _record_preflight_failure(root, ticket_id, cfg.channel, message)
+        raise NotifyError(message)
 
     conn = _db(root)
     try:
@@ -219,7 +236,10 @@ def send(
         tx = transport or SlackTransport(
             token, retries=cfg.retries, backoff_base=cfg.backoff_base, timeout=cfg.timeout
         )
-        result = tx.post(channel=cfg.channel, text=_payload(text, urls), thread_ts=thread_ts)
+        try:
+            result = tx.post(channel=cfg.channel, text=_payload(text, urls), thread_ts=thread_ts)
+        except Exception as error:
+            result = PostResult(ok=False, error=f"transport error: {error}", attempts=0)
 
         now = _now()
         if result.ok and thread_ts is None and result.ts:
@@ -231,7 +251,15 @@ def send(
         conn.execute(
             "INSERT INTO notify_events (ticket_id, ts, ok, error, attempts, thread_ts, channel)"
             " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (ticket_id, now, 1 if result.ok else 0, result.error, result.attempts, thread_ts, cfg.channel),
+            (
+                ticket_id,
+                now,
+                1 if result.ok else 0,
+                result.error,
+                result.attempts,
+                thread_ts,
+                cfg.channel,
+            ),
         )
         conn.commit()
         return result

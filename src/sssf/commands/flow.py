@@ -27,6 +27,10 @@ import sys
 import time
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sssf.notify import Transport
 
 from sssf import registry
 from sssf.project import find_project
@@ -545,8 +549,7 @@ def _run_release_train(
     adw_file = _adw_file(root, "adw_deploy")
     if adw_file is None:
         print(
-            "sssf flow: no deploy chain 'adw_deploy' (looked for"
-            " .adws/modules/adw_deploy.py)",
+            "sssf flow: no deploy chain 'adw_deploy' (looked for .adws/modules/adw_deploy.py)",
             file=sys.stderr,
         )
         return 1
@@ -647,7 +650,12 @@ def _park_batch_blocked(
 
 
 def _run_canary_gate(
-    root: Path, conn: sqlite3.Connection, batch: list[str], rel: dict, yes: bool
+    root: Path,
+    conn: sqlite3.Connection,
+    batch: list[str],
+    rel: dict,
+    yes: bool,
+    notify_transport: Transport | None = None,
 ) -> int:
     """The canary step (issue #97 AC1/AC2): runs only after the operator's
     terminal confirmation. A non-zero exit parks the batch's tickets in
@@ -670,15 +678,26 @@ def _run_canary_gate(
     r = subprocess.run(command, cwd=root, capture_output=True, text=True)
     if r.returncode != 0:
         detail = (r.stderr or r.stdout).strip()[-300:] or "canary command failed"
-        return _park_batch_blocked(
-            conn, batch, f"canary failed: {detail}", "canary failed"
+        code = _park_batch_blocked(conn, batch, f"canary failed: {detail}", "canary failed")
+        _notify_deploy_tickets(
+            root,
+            batch,
+            f"Canary failed; tickets are blocked. {detail}",
+            urls={"tompero": str(rel.get("tompero_url") or "")},
+            transport=notify_transport,
         )
+        return code
     print("sssf flow: canary passed")
     return 0
 
 
 def _run_promote_gate(
-    root: Path, conn: sqlite3.Connection, batch: list[str], rel: dict, yes: bool
+    root: Path,
+    conn: sqlite3.Connection,
+    batch: list[str],
+    rel: dict,
+    yes: bool,
+    notify_transport: Transport | None = None,
 ) -> int:
     """The promote step (issue #97 AC3): the per-project tompero
     canary-promote command runs only after the operator's terminal
@@ -693,6 +712,14 @@ def _run_promote_gate(
     if not command:
         print("sssf flow: no promote command configured — skipping the promote step")
         return 0
+    if not yes:
+        _notify_deploy_tickets(
+            root,
+            batch,
+            "The canary passed; waiting for terminal confirmation to promote the deployment.",
+            urls={"tompero": str(rel.get("tompero_url") or "")},
+            transport=notify_transport,
+        )
     if not _confirm_release_step(yes, "promote the canary to full deployment?"):
         print(
             "sssf flow: promote declined — release paused; tickets stay"
@@ -702,9 +729,7 @@ def _run_promote_gate(
     r = subprocess.run(command, cwd=root, capture_output=True, text=True)
     if r.returncode != 0:
         detail = (r.stderr or r.stdout).strip()[-300:] or "promote command failed"
-        return _park_batch_blocked(
-            conn, batch, f"promote failed: {detail}", "promote failed"
-        )
+        return _park_batch_blocked(conn, batch, f"promote failed: {detail}", "promote failed")
     status_command = promote.get("status_command")
     if not status_command:
         print("sssf flow: promote ran — no status_command configured, nothing to poll")
@@ -720,9 +745,7 @@ def _run_promote_gate(
             print("sssf flow: deployment fully promoted")
             return 0
         time.sleep(interval)
-    return _park_batch_blocked(
-        conn, batch, f"promote timed out: {detail}", "promote timed out"
-    )
+    return _park_batch_blocked(conn, batch, f"promote timed out: {detail}", "promote timed out")
 
 
 def _close_by_commits(root: Path, conn: sqlite3.Connection, batch: list[str]) -> list[str]:
@@ -744,6 +767,8 @@ def _close_by_commits(root: Path, conn: sqlite3.Connection, batch: list[str]) ->
         commit_text = "\n".join(_batch_commits(root, "dev"))
     candidates = ticketing.release_ticket_ids(conn, commit_text)
     return ticketing.close_release_tickets(conn, candidates, actor=_actor())
+
+
 def implement_afk(
     cwd: Path,
     explicit_project: str | None = None,
@@ -818,8 +843,7 @@ def implement_afk(
     return 0
 
 
-def _wait_for_run_settle(root: Path, ticket_id: str, timeout_s: int,
-                         poll_s: int = 15) -> bool:
+def _wait_for_run_settle(root: Path, ticket_id: str, timeout_s: int, poll_s: int = 15) -> bool:
     """Block until the ticket's current run has fully settled: its linked
     session is no longer 'running' (the run ended) AND the ticket has left
     in-progress (the monitor's machine settle landed — it runs right after
@@ -841,19 +865,76 @@ def _ticket_is(root: Path, ticket_id: str, status: str) -> bool:
 
     try:
         conn = sqlite3.connect(str(paths.data_dir(root) / "sssf.db"))
-        row = conn.execute(
-            "SELECT status FROM tickets WHERE id=?", (ticket_id,)
-        ).fetchone()
+        row = conn.execute("SELECT status FROM tickets WHERE id=?", (ticket_id,)).fetchone()
         conn.close()
         return bool(row and row[0] == status)
     except sqlite3.Error:
         return False
 
 
+def _registered_mr_url(conn: sqlite3.Connection, ticket_ids: list[str]) -> str:
+    """Return the first registered MR URL for a ticket in the release batch."""
+    if not ticket_ids:
+        return ""
+    marks = ",".join("?" for _ in ticket_ids)
+    row = conn.execute(
+        f"SELECT url FROM ticket_mrs WHERE ticket_id IN ({marks}) AND url != ''"
+        " ORDER BY created_at ASC LIMIT 1",
+        ticket_ids,
+    ).fetchone()
+    return str(row[0]) if row else ""
+
+
+def _notify_deploy_tickets(
+    root: Path,
+    ticket_ids: list[str],
+    message: str,
+    *,
+    urls: dict[str, str] | None = None,
+    transport: Transport | None = None,
+) -> None:
+    """Send one best-effort alert per relevant ticket without changing flow control."""
+    if not ticket_ids:
+        return
+    from sssf import notify
+
+    try:
+        config = notify.load_config(root)
+    except Exception as error:
+        print(f"sssf flow: deploy notification setup failed: {error}", file=sys.stderr)
+        return
+    if config is None:
+        return  # notifications are optional until a channel is configured
+
+    for ticket_id in ticket_ids:
+        try:
+            result = notify.send(
+                root,
+                ticket_id,
+                f"Ticket {ticket_id}: {message}",
+                urls=urls,
+                transport=transport,
+                config=config,
+            )
+        except Exception as error:
+            print(
+                f"sssf flow: deploy notification failed for {ticket_id}: {error}",
+                file=sys.stderr,
+            )
+            continue
+        if not result.ok:
+            print(
+                f"sssf flow: deploy notification failed for {ticket_id} after"
+                f" {result.attempts} attempt(s): {result.error}",
+                file=sys.stderr,
+            )
+
+
 def deploy(
     cwd: Path,
     explicit_project: str | None = None,
     yes: bool = False,
+    notify_transport: Transport | None = None,
 ) -> int:
     """`sssf flow deploy` — batch-level release train dev → main, with the
     workbench signoff (issue #96). No ticket: the batch is the dev snapshot.
@@ -929,6 +1010,14 @@ def deploy(
         f" (container {wb['container']}; tear down with `sssf flow deploy --down`)"
     )
 
+    if not yes:
+        _notify_deploy_tickets(
+            root,
+            batch,
+            "The workbench is ready; waiting for terminal signoff.",
+            urls={"workbench": wb.get("url", "")},
+            transport=notify_transport,
+        )
     if yes:
         verdict = "y"
     else:
@@ -974,12 +1063,12 @@ def deploy(
         if code != 0:
             return code
         rel = _release_config(root)
-        code = _run_canary_gate(root, conn, batch, rel, yes)
+        code = _run_canary_gate(root, conn, batch, rel, yes, notify_transport)
         if code == _RELEASE_DECLINED:
             return 0
         if code != 0:
             return code
-        code = _run_promote_gate(root, conn, batch, rel, yes)
+        code = _run_promote_gate(root, conn, batch, rel, yes, notify_transport)
         if code == _RELEASE_DECLINED:
             return 0
         if code != 0:
@@ -987,6 +1076,17 @@ def deploy(
         closed = _close_by_commits(root, conn, batch)
         conn.commit()
         if closed:
+            release_urls = {"release": str(rel.get("release_url") or "")}
+            mr_url = _registered_mr_url(conn, closed)
+            if mr_url:
+                release_urls["mr"] = mr_url
+            _notify_deploy_tickets(
+                root,
+                closed,
+                "Release completed.",
+                urls=release_urls,
+                transport=notify_transport,
+            )
             print(
                 f"sssf flow: release closed {len(closed)} ticket(s) by the MR's"
                 f" commit set ({', '.join(closed)})"

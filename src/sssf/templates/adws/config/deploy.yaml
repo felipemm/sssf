@@ -38,6 +38,10 @@ workbench:
 # - promote.promoted_match: substring in the status output meaning fully
 #   promoted (default "promoted").
 # - promote.poll_interval_s / poll_timeout_s: poll cadence and deadline.
+# - tompero_url: optional dashboard URL linked from promote-waiting and
+#   canary-failure alerts.
+# - release_url: optional release page linked from the release-complete alert;
+#   the registered MR URL is linked separately when available.
 #
 # A project without a deployment pipeline simply omits this block — the
 # release train + close-by-commits still run.
@@ -50,3 +54,5 @@ workbench:
 #     promoted_match: "promoted"
 #     poll_interval_s: 15
 #     poll_timeout_s: 1800
+#   tompero_url: https://tompero.example/deployments/demo
+#   release_url: https://tompero.example/releases/latest
