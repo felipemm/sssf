@@ -71,7 +71,7 @@ watch(selectedProject, () => {
     <template v-if="status">
       <!-- main info strip -->
       <div class="strip">
-        <div class="tile"><span class="k">db</span><span class="v code">adws/adw_data/sssf.db</span></div>
+        <div class="tile"><span class="k">db</span><span class="v code">.adws/data/sssf.db</span></div>
         <div class="tile"><span class="k">ticketing</span><span class="v">{{ status.project.ticketing_enabled ? 'on' : 'off' }}</span></div>
         <div class="tile">
           <span class="k">active runs</span>

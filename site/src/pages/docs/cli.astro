@@ -2,7 +2,7 @@
 import DocsLayout from '../../layouts/DocsLayout.astro';
 
 const description =
-  'Every command and flag, written from the CLI source: init, run, trace, projects, viz, sweep, ticket, sandbox, heal, doctor, upgrade.';
+  'The SSSF 2.0 CLI: project initialization, flows, ticket machine, sandbox operations, and visualizer.';
 ---
 <DocsLayout
   title="CLI reference"
@@ -12,266 +12,65 @@ const description =
   next={{ href: '/docs/core-concepts', label: 'Core concepts' }}
 >
   <p>
-    <span class="cmd">sssf</span> is a single global binary. The entry point is dispatch only:
-    parsing lives in <code class="hl">src/sssf/cli.py</code>, and the logic lives in one module
-    per command group. Run <span class="cmd">sssf --help</span> or
-    <span class="cmd">sssf --version</span> anytime.
+    <span class="cmd">sssf</span> is a global CLI. Version 2.0 uses a hidden
+    <code class="hl">.adws/</code> footprint and makes flows the only work-entry surface.
+    Legacy projects must run <span class="cmd">sssf init</span> before using a flow.
   </p>
 
-  <h2>Global</h2>
+  <h2>Setup and projects</h2>
   <table>
-    <thead>
-      <tr><th>Command</th><th>What it does</th></tr>
-    </thead>
+    <thead><tr><th>Command</th><th>What it does</th></tr></thead>
     <tbody>
-      <tr>
-        <td><code class="hl">sssf --version</code></td>
-        <td>Print the installed version and exit.</td>
-      </tr>
-      <tr>
-        <td><code class="hl">sssf --help</code></td>
-        <td>Print the command list.</td>
-      </tr>
+      <tr><td><code class="hl">sssf --version</code></td><td>Print the installed version (2.0.0).</td></tr>
+      <tr><td><code class="hl">sssf init [--project P] [--refresh] [--force] [--auto]</code></td><td>
+        Stamp the hidden <code class="hl">.adws/</code> footprint and register the project.
+        On a legacy <code class="hl">adws/</code> project, back up the old tree to
+        <code class="hl">sssf-&lt;timestamp&gt;/</code>, preserve and migrate only its database,
+        then stamp a fresh footprint and warn about customizations that need to be reapplied.
+      </td></tr>
+      <tr><td><code class="hl">sssf projects [list | remove &lt;name&gt;]</code></td><td>List or remove registered projects.</td></tr>
+      <tr><td><code class="hl">sssf doctor</code></td><td>Check global prerequisites.</td></tr>
+      <tr><td><code class="hl">sssf upgrade [--check]</code></td><td>Upgrade the CLI or check whether an update is available.</td></tr>
     </tbody>
   </table>
 
-  <h2>Setup</h2>
+  <h2>Flows</h2>
+  <p>Flows are the only way to start project work. All flow commands require the new <code class="hl">.adws/</code> layout.</p>
   <table>
-    <thead>
-      <tr><th>Command</th><th>What it does</th></tr>
-    </thead>
+    <thead><tr><th>Command</th><th>What it does</th></tr></thead>
     <tbody>
-      <tr>
-        <td><code class="hl">sssf init [--project P] [--refresh] [--force] [--auto]</code></td>
-        <td>
-          Stamp the factory into a project and register it. Copies the starter chains
-          (<code class="hl">adws/modules/adw_*.py</code>), the roster
-          (<code class="hl">sssf.config.yaml</code>), prompts, and harness engineering; appends the
-          <code class="hl">AGENTS.md</code> block; gitignores runtime state.
-          <ul style="margin: 8px 0 0;">
-            <li><code class="hl">--project</code>: project root (default: cwd)</li>
-            <li><code class="hl">--refresh</code>: copy only missing files; asks before
-              overwriting an edited chain (y/N/a)</li>
-            <li><code class="hl">--force</code>: overwrite existing files, config included:
-              commit first</li>
-            <li><code class="hl">--auto</code>: <code class="hl">--refresh</code> without prompts
-              (accept all: the scripting mode the cockpit refresh button uses)</li>
-          </ul>
-        </td>
-      </tr>
-      <tr>
-        <td><code class="hl">sssf doctor</code></td>
-        <td>Check global prerequisites: <code class="hl">uv</code>, <code class="hl">pi</code>,
-          <code class="hl">bun</code>, <code class="hl">sqlite3</code>, and
-          <code class="hl">~/.local/bin</code> on PATH. Exits non-zero when something is missing.</td>
-      </tr>
-      <tr>
-        <td><code class="hl">sssf upgrade</code></td>
-        <td>Run <code class="hl">uv tool upgrade sssf</code>.</td>
-      </tr>
+      <tr><td><code class="hl">sssf flow plan [&lt;ticket-id&gt;] [--skip-exploration] [--revise]</code></td><td>Explore and plan an idea into a spec and ready-for-agent implementation tickets.</td></tr>
+      <tr><td><code class="hl">sssf flow implement &lt;ticket-id&gt;</code></td><td>Implement one ready-for-agent ticket through triage, build, and review.</td></tr>
+      <tr><td><code class="hl">sssf flow implement afk [--cap N] [--wait-seconds S]</code></td><td>Work the ready-for-agent queue one ticket per run.</td></tr>
+      <tr><td><code class="hl">sssf flow deploy [--yes] [--down] [--revert &lt;ticket-id&gt;]</code></td><td>Sign off the dev snapshot and run the release train; optionally tear down the workbench or revert a ticket before the MR.</td></tr>
     </tbody>
   </table>
 
-  <h2>Running workflows</h2>
+  <h2>Ticket machine</h2>
+  <p>Ticketing is configured per project in <code class="hl">.adws/config/ticketing.yaml</code>.</p>
   <table>
-    <thead>
-      <tr><th>Command</th><th>What it does</th></tr>
-    </thead>
+    <thead><tr><th>Command</th><th>What it does</th></tr></thead>
     <tbody>
-      <tr>
-        <td><code class="hl">sssf flow plan [&lt;ticket-id&gt;] [--skip-exploration] [--revise] [--project P] [--no-sandbox]</code></td>
-        <td>
-          Plan a feature: exploration (skippable) → grill-with-docs → spec →
-          implementation tickets — each step in its own fresh agent session. With
-          a ticket-id the plan chain runs on that idea ticket and the flow turns
-          it into a spec reference plus <span class="cmd">ready-for-agent</span>
-          implementation children; without one it runs exploration-first and
-          creates the idea ticket from the landed spec. Plan-once: only idea
-          tickets are plan inputs (implementation tickets are terminal), and an
-          already-planned idea needs <span class="cmd">--revise</span>.
-        </td>
-      </tr>
-      <tr>
-        <td><code class="hl">sssf flow implement &lt;ticket-id&gt;|afk [--cap N] [--wait-seconds S] [--project P] [--no-sandbox]</code></td>
-        <td>
-          Implement one <span class="cmd">ready-for-agent</span> ticket end to end
-          (triage → build → review) with no operator in the loop — the flow claims
-          the ticket, runs it, and settles the outcome (ready-for-signoff on
-          success, back to <span class="cmd">ready-for-agent</span> with the run's
-          feedback on rejection). With <span class="cmd">afk</span>, a whole queue is
-          worked unattended: one ticket per round (each round a fresh run/context
-          window) until the queue is empty or <span class="cmd">--cap</span> rounds
-          are hit (default 30). Sandboxed rounds wait for the machine settle before
-          the next dispatch — <span class="cmd">--wait-seconds</span> bounds one
-          round's wait (default 7200).
-        </td>
-      </tr>
-      <tr>
-        <td><code class="hl">sssf flow deploy [--yes] [--project P] [--down] [--revert &lt;ticket-id&gt;]</code></td>
-        <td>
-          Batch-level release train dev → main. Brings up the QA workbench
-          from the <span class="cmd">dev</span> branch (mocks + published port),
-          signs the batch off at the terminal (one workbench, one verdict —
-          <span class="cmd">--yes</span> is the explicit automation escape), then
-          runs the deterministic release train (bump → MR dev→main → e2e →
-          release) in a worktree at dev. After approval the release gates run,
-          each only after the operator confirms at the terminal: the per-project
-          canary step (failure parks the batch in
-          <span class="cmd">blocked</span> — visible, never silently retried),
-          then the per-project tompero canary-promote step (polled until fully
-          promoted), then close-by-commits: every ticket parsed from the MR's
-          commit set (commits since the last tag) closes with the release.
-          Rejection re-queues the failing tickets fix-forward; approval moves
-          them to <span class="cmd">ready-to-deploy</span> once the MR exists.
-          <span class="cmd">--down</span> tears the workbench down (the human's
-          teardown); <span class="cmd">--revert</span> removes a genuinely
-          unwanted ticket from dev by its own commits before the MR.
-        </td>
-      </tr>
-      <tr>
-        <td><code class="hl">sssf ticket run &lt;ticket-id&gt;</code></td>
-        <td>
-          The legacy ticket-run path — runs the project's own
-          <span class="cmd">adw_simple_sdlc.py</span> for already-stamped projects
-          (the flow chains replaced the 13 one-off ADWs; legacy copies stay
-          runnable until the operator re-inits). Fresh projects use
-          <span class="cmd">sssf flow implement</span>.
-        </td>
-      </tr>
+      <tr><td><code class="hl">sssf ticket new "&lt;title&gt;"</code></td><td>Create a title-only idea ticket in needs-triage.</td></tr>
+      <tr><td><code class="hl">sssf ticket sync [--provider jira|linear|github|gitlab]</code></td><td>Pull external tickets, then mirror machine labels, completion, and rejection comments. This is the only tracker writer.</td></tr>
+      <tr><td><code class="hl">sssf ticket list [--backlog]</code></td><td>List tickets or only ready-for-agent tickets.</td></tr>
+      <tr><td><code class="hl">sssf ticket context &lt;ticket-id&gt; [--set TEXT]</code></td><td>Read or save context for a ticket.</td></tr>
+      <tr><td><code class="hl">sssf ticket backlog &lt;ticket-id&gt; [--feedback TEXT]</code></td><td>Requeue an eligible ticket to ready-for-agent.</td></tr>
     </tbody>
   </table>
 
-  <h2>Run control</h2>
+  <h2>Operations</h2>
   <table>
+    <thead><tr><th>Command</th><th>What it does</th></tr></thead>
     <tbody>
-      <tr>
-        <td><code class="hl">sssf sandbox stop &lt;adw_id&gt;</code></td>
-        <td>Kill a live run: any processes left in flight are terminated (pid verified against the
-          recorded command first), the sandbox is torn down, the run is marked failed.</td>
-      </tr>
-      <tr>
-        <td><code class="hl">sssf sandbox restart &lt;adw_id&gt;</code></td>
-        <td>Re-run a session on its existing branch with the original request as the prompt. The
-          ADW joins and reaps the old state.</td>
-      </tr>
+      <tr><td><code class="hl">sssf sandbox build</code></td><td>Build or refresh the runner image.</td></tr>
+      <tr><td><code class="hl">sssf sandbox list</code></td><td>Show active sandboxes.</td></tr>
+      <tr><td><code class="hl">sssf sandbox stop &lt;adw-id&gt;</code></td><td>Stop a live run; its worktree remains available for review.</td></tr>
+      <tr><td><code class="hl">sssf sandbox restart &lt;adw-id&gt;</code></td><td>Restart a run on its existing sandbox branch.</td></tr>
+      <tr><td><code class="hl">sssf sweep [--project P] [--days N]</code></td><td>Archive old sessions and clean up their sandbox resources.</td></tr>
+      <tr><td><code class="hl">sssf heal [start|stop|status]</code></td><td>Manage the self-healing monitor.</td></tr>
+      <tr><td><code class="hl">sssf notify &lt;ticket-id&gt; "&lt;text&gt;"</code></td><td>Post an alert to the ticket's Slack thread.</td></tr>
+      <tr><td><code class="hl">sssf viz [start|stop] [--port N] [--db PATH]</code></td><td>Run the global visualizer; the browser is the trace-reading surface.</td></tr>
     </tbody>
   </table>
-
-  <h2>Trace queries</h2>
-  <p>
-    All four resolve the project db (or take <code class="hl">--project</code>), open it WAL, and
-    render a rich table.
-  </p>
-  <table>
-    <thead>
-      <tr><th>Command</th><th>What it shows</th></tr>
-    </thead>
-    <tbody>
-      <tr><td><code class="hl">sssf sessions [--project P]</code></td><td>Recent runs: adw_id · name · status · request (first 50 chars) · tokens · cost.</td></tr>
-      <tr><td><code class="hl">sssf phases &lt;adw_id&gt; [--project P]</code></td><td>The phase waterfall of one run: seq · name · kind · owner · status · attempt.</td></tr>
-      <tr><td><code class="hl">sssf tail &lt;adw_id&gt; [--project P]</code></td><td>The last 25 events of one run, newest first.</td></tr>
-      <tr><td><code class="hl">sssf procs &lt;adw_id&gt; [--project P]</code></td><td>Live processes of one run: kind · name · pid · command · started_at.</td></tr>
-    </tbody>
-  </table>
-
-  <h2>Projects &amp; the visualizer</h2>
-  <table>
-    <thead>
-      <tr><th>Command</th><th>What it does</th></tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td><code class="hl">sssf projects [list | remove &lt;name&gt;]</code></td>
-        <td>Manage the registry (<code class="hl">~/.sssf/projects.json</code>): list registered
-          projects with root + last run, or remove one by name.</td>
-      </tr>
-      <tr>
-        <td><code class="hl">sssf viz [start | stop] [--port N] [--db PATH] [--project P]</code></td>
-        <td>
-          Run the global trace visualizer as a background service (default port
-          <code class="hl">4600</code>; <code class="hl">start</code> is the default action and
-          opens the browser).
-          <ul style="margin: 8px 0 0;">
-            <li><code class="hl">--port</code>: port for the server (default 4600)</li>
-            <li><code class="hl">--db</code>: adhoc single-db mode: point at any trace db</li>
-            <li><code class="hl">--project</code>: use a specific project&rsquo;s registry</li>
-          </ul>
-          State: <code class="hl">~/.sssf/viz.pid</code> + <code class="hl">viz.log</code>. The
-          healer rides along when it is not already running.
-        </td>
-      </tr>
-      <tr>
-        <td><code class="hl">sssf sweep [--project P] [--days N]</code></td>
-        <td>Archive finished sessions older than N days (default 30) across the registry, or one
-          project with <code class="hl">--project</code>.</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <h2>Ticketing</h2>
-  <table>
-    <thead>
-      <tr><th>Command</th><th>What it does</th></tr>
-    </thead>
-    <tbody>
-      <tr><td><code class="hl">sssf ticket add "&lt;title&gt;" [--project P]</code></td><td>Create an internal backlog ticket (needs the internal provider enabled in <code class="hl">ticketing.yaml</code>).</td></tr>
-      <tr><td><code class="hl">sssf ticket sync [--project P] [--provider jira|linear|github|gitlab]</code></td><td>Pull external tickets, then ensure machine control labels and mirror done/rejection comments to the origin; unrelated labels are preserved. <code class="hl">--provider</code> syncs only that one. Reports per-provider results, warnings, errors, and best-effort tracker write failures.</td></tr>
-      <tr><td><code class="hl">sssf ticket list [--project P]</code></td><td>List tickets: id · provider · title · status · adw_id.</td></tr>
-      <tr><td><code class="hl">sssf ticket run &lt;ticket_id&gt; [--project P] [--no-sandbox]</code></td><td>Spawn <code class="hl">simple_sdlc</code> for a ticket: title + description become a prompt file, the ticket moves to <code class="hl">starting</code>, and follows the run through the kanban. Refuses to double-run a ticket already <code class="hl">running</code>.</td></tr>
-    </tbody>
-  </table>
-
-  <h2>Sandbox lifecycle</h2>
-  <table>
-    <thead>
-      <tr><th>Command</th><th>What it does</th></tr>
-    </thead>
-    <tbody>
-      <tr><td><code class="hl">sssf sandbox build [--project P]</code></td><td>Build/refresh the <code class="hl">sssf-runner</code> image (docker required).</td></tr>
-      <tr><td><code class="hl">sssf sandbox list [--project P]</code></td><td>Show sandboxes: adw_id · status · branch · container · worktree.</td></tr>
-      <tr><td><code class="hl">sssf sweep [--days N]</code></td><td>The <strong>only</strong> deleter of run artifacts: archive old runs and remove their container, worktree and review record (plus orphan containers). <code class="hl">sssf sandbox prune</code> is deprecated.</td></tr>
-    </tbody>
-  </table>
-
-  <h2>Self-healing monitor</h2>
-  <table>
-    <thead>
-      <tr><th>Command</th><th>What it does</th></tr>
-    </thead>
-    <tbody>
-      <tr><td><code class="hl">sssf heal start</code></td><td>Run the daemon: scans every registered project every 30s, logs to the heal log.</td></tr>
-      <tr><td><code class="hl">sssf heal status</code></td><td>Running? pid? recent heal actions? (default action)</td></tr>
-      <tr><td><code class="hl">sssf heal stop</code></td><td>Stop the daemon.</td></tr>
-    </tbody>
-  </table>
-
-  <h2>The starter chains</h2>
-  <p>
-    The ADWs stamped by <span class="cmd">sssf init</span>: all take the same shape
-    (<code class="hl">sssf run &lt;name&gt; "&lt;prompt&gt;"</code>):
-  </p>
-  <table>
-    <thead>
-      <tr><th>ADW</th><th>Chain</th><th>Reach for it when</th></tr>
-    </thead>
-    <tbody>
-      <tr><td><code class="hl">prompt</code></td><td>engineer → any agent</td><td>one agent, one prompt; <code class="hl">--agent NAME</code> picks who</td></tr>
-      <tr><td><code class="hl">scout</code></td><td>engineer → scout</td><td>read-only recon, nothing changes</td></tr>
-      <tr><td><code class="hl">plan</code></td><td>engineer → planner</td><td>you want the spec before any code</td></tr>
-      <tr><td><code class="hl">build</code></td><td>engineer → builder</td><td>the plan already exists</td></tr>
-      <tr><td><code class="hl">quality</code></td><td>engineer → code(quality)</td><td>lint, typecheck, build: no agents at all</td></tr>
-      <tr><td><code class="hl">plan_build</code></td><td>planner, builder, git(commit)</td><td>small, well-understood work</td></tr>
-      <tr><td><code class="hl">build_test</code></td><td>builder, code(test), bounded fix loop</td><td>there is a suite to satisfy</td></tr>
-      <tr><td><code class="hl">build_review</code></td><td>builder, reviewer, bounded revise loop</td><td>&ldquo;is this what was asked for&rdquo; matters more than &ldquo;does it run&rdquo;</td></tr>
-      <tr><td><code class="hl">plan_build_test</code></td><td>plan, build, code(test), git(commit)</td><td>the standard chain</td></tr>
-      <tr><td><code class="hl">plan_build_test_quality</code></td><td>same, plus lint/typecheck/build gates</td><td>the repo has quality commands worth enforcing</td></tr>
-      <tr><td><code class="hl">document</code></td><td>code(git diff), documenter</td><td>write up what just shipped</td></tr>
-      <tr><td><code class="hl">simple_sdlc</code></td><td>plan, build, test, review, document</td><td>the work is real and its shape is not obvious</td></tr>
-    </tbody>
-  </table>
-  <p>
-    <code class="hl">simple_sdlc</code> lands three commits from three authors: the plan, the
-    code, and the write-up each get their own, and each message is the words of the agent that
-    produced it.
-  </p>
 </DocsLayout>

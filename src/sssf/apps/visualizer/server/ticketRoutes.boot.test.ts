@@ -72,20 +72,20 @@ beforeAll(async () => {
   root = join(tmp, "proj");
   cliLog = join(tmp, "sssf.calls");
   const fakeBin = join(tmp, "bin");
-  mkdirSync(join(root, "adws", "config"), { recursive: true });
-  mkdirSync(join(root, "adws", "data"), { recursive: true });
+  mkdirSync(join(root, ".adws", "config"), { recursive: true });
+  mkdirSync(join(root, ".adws", "data"), { recursive: true });
   mkdirSync(fakeBin);
 
   // Ticketing enabled for the scratch project (v2 layout).
   writeFileSync(
-    join(root, "adws", "config", "ticketing.yaml"),
+    join(root, ".adws", "config", "ticketing.yaml"),
     "providers:\n  - internal\n",
   );
 
   // A real, openable trace db — left schema-less so readTickets' own
   // CREATE TABLE IF NOT EXISTS ddl is the one that runs (a partial tickets
   // table would make its SELECT fail on the missing columns).
-  const db = new Database(join(root, "adws", "data", "sssf.db"));
+  const db = new Database(join(root, ".adws", "data", "sssf.db"));
   db.close();
 
   // Registry pointing at the scratch project.
@@ -93,7 +93,7 @@ beforeAll(async () => {
     join(tmp, "registry.json"),
     JSON.stringify({
       version: 1,
-      projects: [{ name: PROJECT, root, db: join(root, "adws", "data", "sssf.db") }],
+      projects: [{ name: PROJECT, root, db: join(root, ".adws", "data", "sssf.db") }],
     }),
   );
 
@@ -176,7 +176,7 @@ describe("booted ticket routes (regression: ticketRoutes import in index.ts)", (
     // Seed the boot project's trace db the way a real project looks after the
     // machine + sync landed: an untracked github issue (needs-triage), an
     // idea (needs-triage) and its implementation child (ready-for-agent).
-    const db = new Database(join(root, "adws", "data", "sssf.db"));
+    const db = new Database(join(root, ".adws", "data", "sssf.db"));
     db.run(`CREATE TABLE IF NOT EXISTS tickets (
       id TEXT PRIMARY KEY, provider TEXT NOT NULL, external_id TEXT,
       title TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'backlog',
@@ -189,7 +189,7 @@ describe("booted ticket routes (regression: ticketRoutes import in index.ts)", (
     db.query("INSERT INTO tickets (id, provider, external_id, title, status, kind, tracked, origin) VALUES (?,?,?,?,?,?,?,?)")
       .run("internal:idea1", "internal", "", "the feature", "needs-triage", "idea", 1, "internal");
     db.query("INSERT INTO tickets (id, provider, external_id, title, status, kind, tracked, origin, parent_id, spec) VALUES (?,?,?,?,?,?,?,?,?,?)")
-      .run("internal:slice1", "internal", "", "build the feature", "ready-for-agent", "implementation", 1, "internal", "internal:idea1", "adws/specs/feat.md");
+      .run("internal:slice1", "internal", "", "build the feature", "ready-for-agent", "implementation", 1, "internal", "internal:idea1", ".adws/specs/feat.md");
     // a queued ticket keeping an old failed session must stay queued
     db.query("INSERT INTO tickets (id, provider, external_id, title, status, adw_id) VALUES (?,?,?,?,?,?)")
       .run("internal:queued", "internal", "", "keeps history", "ready-for-agent", "sess_old");
@@ -206,7 +206,7 @@ describe("booted ticket routes (regression: ticketRoutes import in index.ts)", (
     expect(untracked.status).toBe("needs-triage");
     expect(byId["internal:slice1"].parent_id).toBe("internal:idea1");   // lineage
     expect(byId["internal:slice1"].kind).toBe("implementation");
-    expect(byId["internal:slice1"].spec).toBe("adws/specs/feat.md");
+    expect(byId["internal:slice1"].spec).toBe(".adws/specs/feat.md");
     expect(byId["internal:queued"].status).toBe("ready-for-agent");     // machine state wins
   });
 

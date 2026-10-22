@@ -3,8 +3,9 @@ import pytest
 from sssf.cli import main
 
 
-def test_version_flag():
+def test_version_flag(capsys):
     assert main(["--version"]) == 0
+    assert capsys.readouterr().out.strip() == "sssf 2.0.0"
 
 
 def test_flow_deploy_default_dispatches_deploy(monkeypatch):
@@ -83,3 +84,37 @@ def test_ticket_sync_is_the_only_tracker_write_cli_verb(capsys):
     help_text = capsys.readouterr().out
     assert "sync" in help_text
     assert "writeback" not in help_text
+
+
+def test_removed_legacy_verbs_are_not_in_the_cli(capsys):
+    for argv in (
+        ["spec", "create"],
+        ["ticket", "add", "old path"],
+        ["ticket", "run", "internal:old"],
+        ["sessions"],
+        ["phases", "old"],
+        ["tail", "old"],
+        ["procs", "old"],
+        ["mr", "list"],
+    ):
+        with pytest.raises(SystemExit) as removed:
+            main(argv)
+        assert removed.value.code == 2
+        assert "invalid choice" in capsys.readouterr().err
+
+
+def test_flow_verbs_reject_legacy_project_layout(tmp_path, monkeypatch, capsys):
+    legacy = tmp_path / "legacy"
+    (legacy / "adws" / "modules").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+
+    for argv in (
+        ["flow", "plan", "--project", str(legacy)],
+        ["flow", "implement", "internal:old", "--project", str(legacy)],
+        ["flow", "implement", "afk", "--project", str(legacy)],
+        ["flow", "deploy", "--project", str(legacy)],
+        ["flow", "deploy", "--down", "--project", str(legacy)],
+        ["flow", "deploy", "--revert", "internal:old", "--project", str(legacy)],
+    ):
+        assert main(argv) == 1
+        assert "run `sssf init` to upgrade" in capsys.readouterr().err

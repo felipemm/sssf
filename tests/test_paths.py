@@ -3,14 +3,14 @@ import pytest
 from sssf.adw_modules import paths
 
 V2 = {
-    "modules_dir": "adws/modules",
-    "config_dir": "adws/config",
-    "config_file": "adws/config/sssf.config.yaml",
-    "ticketing_file": "adws/config/ticketing.yaml",
-    "data_dir": "adws/data",
-    "kb_dir": "adws/kb",
-    "prompts_dir": "adws/prompts",
-    "specs_dir": "adws/specs",
+    "modules_dir": ".adws/modules",
+    "config_dir": ".adws/config",
+    "config_file": ".adws/config/sssf.config.yaml",
+    "ticketing_file": ".adws/config/ticketing.yaml",
+    "data_dir": ".adws/data",
+    "kb_dir": ".adws/kb",
+    "prompts_dir": ".adws/prompts",
+    "specs_dir": ".adws/specs",
 }
 
 
@@ -36,18 +36,22 @@ def test_legacy_detected(tmp_path, marker):
 
 
 def test_v2_layout_not_legacy(tmp_path):
-    (tmp_path / "adws" / "modules").mkdir(parents=True)
+    (tmp_path / ".adws" / "modules").mkdir(parents=True)
+    (tmp_path / ".adws" / "config").mkdir()
+    (tmp_path / ".adws" / "config" / "sssf.config.yaml").write_text("defaults: {}\n")
     assert paths.is_legacy_layout(tmp_path) is False
 
 
 def test_warn_if_legacy_prints_and_returns(capsys, tmp_path):
     (tmp_path / "adws" / "adw_data").mkdir(parents=True)
-    assert paths.warn_if_legacy(tmp_path, command="run") is True
+    assert paths.warn_if_legacy(tmp_path, command="flow") is True
     captured = capsys.readouterr()
-    assert "legacy adws layout" in captured.err and "sssf init --refresh" in captured.err
+    assert "legacy adws layout" in captured.err and "sssf init" in captured.err
 
 
 def test_warn_if_legacy_silent_on_v2(capsys, tmp_path):
-    (tmp_path / "adws" / "modules").mkdir(parents=True)
-    assert paths.warn_if_legacy(tmp_path, command="run") is False
+    (tmp_path / ".adws" / "modules").mkdir(parents=True)
+    (tmp_path / ".adws" / "config").mkdir()
+    (tmp_path / ".adws" / "config" / "sssf.config.yaml").write_text("defaults: {}\n")
+    assert paths.warn_if_legacy(tmp_path, command="flow") is False
     assert capsys.readouterr().out == ""

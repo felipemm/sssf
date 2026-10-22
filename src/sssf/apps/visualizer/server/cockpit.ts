@@ -445,8 +445,8 @@ export async function handleControl(
   if (kind === "add") {
     if (!params.root) return fail("root is required");
     const root = resolve(params.root);
-    if (!existsSync(root) || !existsSync(join(root, "adws"))) {
-      return fail("not a project: no adws/ directory at the given path");
+    if (!existsSync(root) || !existsSync(join(root, ".adws"))) {
+      return fail("not a project: no .adws/ directory at the given path");
     }
     const r = await spawn(["projects", "add", root]);
     return r.code === 0 ? { ok: true, output: r.out } : fail(r.out || `sssf projects add exited ${r.code}`);

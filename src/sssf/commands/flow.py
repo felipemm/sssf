@@ -1,8 +1,7 @@
 """`sssf flow` — the three human-invoked flows: plan / implement / deploy.
 
 Flows are the ONLY entry point for starting work (#89): ad-hoc `sssf run <adw>
-"<prompt>"` is removed. Already-stamped projects' legacy ADWs stay runnable
-through the legacy ticket-run path (`sssf ticket run`).
+"<prompt>"` and the legacy ticket-run path have been removed.
 
 The implement flow drives the ticket machine (#92): it claims the ticket
 (ready-for-agent → in-progress) before the run spawns, records every run in
@@ -32,11 +31,17 @@ from pathlib import Path
 from sssf import registry
 from sssf.project import find_project
 
-DEPLOY_CONFIG = "adws/config/deploy.yaml"
+DEPLOY_CONFIG = ".adws/config/deploy.yaml"
 
 
 def _root(cwd: Path, explicit: str | None) -> Path | None:
     return find_project(cwd, explicit)
+
+
+def _require_flow_layout(root: Path) -> bool:
+    from sssf.adw_modules import paths
+
+    return paths.require_current_layout(root)
 
 
 def _adw_file(root: Path, name: str) -> Path | None:
@@ -89,7 +94,7 @@ def _run_sandboxed(
         spawn_sandbox(
             root,
             adw_id,
-            cmd=["python", f"adws/modules/{adw_file.name}", *args, "--adw-id", adw_id],
+            cmd=["python", f".adws/modules/{adw_file.name}", *args, "--adw-id", adw_id],
             image=cfg.sandbox.image,
             data_dir=data_dir,
             pi_home=pi_home,
@@ -124,11 +129,12 @@ def _dispatch_chain(
     """
     from sssf.adw_modules import paths
 
-    paths.warn_if_legacy(root, command="flow")
+    if not paths.require_current_layout(root):
+        return 1
     adw_file = _adw_file(root, adw_name)
     if adw_file is None:
         print(
-            f"sssf: no flow chain '{adw_name}' (looked for adws/modules/{adw_name}.py)",
+            f"sssf: no flow chain '{adw_name}' (looked for .adws/modules/{adw_name}.py)",
             file=sys.stderr,
         )
         return 1
@@ -231,7 +237,9 @@ def plan(
 
     root = _root(cwd, explicit_project)
     if root is None:
-        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        print("sssf: no project here (no .adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    if not _require_flow_layout(root):
         return 1
     extra = ["--skip-exploration"] if skip_exploration else []
     if ticket_id is None:
@@ -318,7 +326,9 @@ def implement(
 
     root = _root(cwd, explicit_project)
     if root is None:
-        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        print("sssf: no project here (no .adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    if not _require_flow_layout(root):
         return 1
     ticketing.reconcile_project_db(paths.data_dir(root) / "sssf.db", actor=_actor())
 
@@ -490,7 +500,7 @@ def _repo(root: Path) -> str:
 def _read_mr_record(wt: Path, adw_id: str) -> dict:
     """The MR the deploy chain opened (title/url/iid), or {} when none was
     recorded (no glab — the payload markdown is the operator's manual path)."""
-    path = wt / "adws" / "data" / "deploy" / f"{adw_id}-mr.json"
+    path = wt / ".adws" / "data" / "deploy" / f"{adw_id}-mr.json"
     try:
         return json.loads(path.read_text())
     except (OSError, ValueError):
@@ -536,14 +546,14 @@ def _run_release_train(
     if adw_file is None:
         print(
             "sssf flow: no deploy chain 'adw_deploy' (looked for"
-            " adws/modules/adw_deploy.py)",
+            " .adws/modules/adw_deploy.py)",
             file=sys.stderr,
         )
         return 1
     argv = [sys.executable, str(adw_file), _DEPLOY_PROMPT, "--adw-id", adw_id]
     code = subprocess.call(argv, cwd=wt)
-    try:  # the chain's per-run db (worktree adws/data) merges like any run
-        sync_run_db(conn, wt / "adws" / "data" / "sssf.db", adw_id)
+    try:  # the chain's per-run db (worktree .adws/data) merges like any run
+        sync_run_db(conn, wt / ".adws" / "data" / "sssf.db", adw_id)
     except Exception as error:  # the trace is best-effort — the exit code is the truth
         print(f"sssf flow: could not sync the deploy run trace ({error})", file=sys.stderr)
     if code != 0:
@@ -576,14 +586,14 @@ def _run_release_train(
     else:
         print(
             "sssf flow: no MR opened (glab absent) — the payload is under"
-            " adws/data/deploy/; open the dev→main MR, then `sssf mr add` to"
-            " register it for the monitor"
+            " .adws/data/deploy/; open the dev→main MR. Install `glab` and rerun"
+            " the deploy flow to let it register the MR for the monitor"
         )
     return 0
 
 
 def _release_config(root: Path) -> dict:
-    """The project's `release:` block from adws/config/deploy.yaml (issue
+    """The project's `release:` block from .adws/config/deploy.yaml (issue
     #97): the per-project canary command, the promote command, and the promote
     poll settings. {} when absent — the tompero commands are per-project, so
     a project without a deployment pipeline skips the gates but still gets
@@ -760,7 +770,9 @@ def implement_afk(
 
     root = _root(cwd, explicit_project)
     if root is None:
-        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        print("sssf: no project here (no .adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    if not _require_flow_layout(root):
         return 1
     sandboxed = not no_sandbox and _sandbox_enabled(root)
 
@@ -867,10 +879,11 @@ def deploy(
 
     root = _root(cwd, explicit_project)
     if root is None:
-        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        print("sssf: no project here (no .adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    if not _require_flow_layout(root):
         return 1
     registry.update_last_run(root)
-    paths.warn_if_legacy(root, command="flow")
 
     conn = sqlite3.connect(str(paths.data_dir(root) / "sssf.db"))
     ticketing.ensure_schema(conn)
@@ -995,7 +1008,9 @@ def deploy_down(
 
     root = _root(cwd, explicit_project)
     if root is None:
-        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        print("sssf: no project here (no .adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    if not _require_flow_layout(root):
         return 1
     if workbench.tear_down(root, adw_id):
         print(f"sssf flow: workbench torn down{(' (' + adw_id + ')') if adw_id else ''}")
@@ -1024,7 +1039,9 @@ def deploy_revert(
 
     root = _root(cwd, explicit_project)
     if root is None:
-        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        print("sssf: no project here (no .adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    if not _require_flow_layout(root):
         return 1
     conn = _sqlite3.connect(str(paths.data_dir(root) / "sssf.db"))
     ticketing.ensure_schema(conn)
@@ -1112,7 +1129,7 @@ def deploy_revert(
 
 def _has_live_run(root: Path, ticket_id: str) -> bool:
     """True when the ticket's latest run is still 'running' — a live session
-    must not be double-spawned (mirrors ticket.run's in-progress guard; read
+    must not be double-spawned (read
     only, no transitions here)."""
     import sqlite3
 

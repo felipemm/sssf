@@ -9,18 +9,14 @@ import {
   Layers,
   ListChecks,
   MessageSquareText,
-  Palette,
   Radar,
   ShieldCheck,
-  Workflow,
 } from 'lucide-vue-next'
 import type { Component } from 'vue'
 
 // One icon per ADW type; a chained run ('adw_plan + adw_build_test') takes its
 // first ADW's icon, anything unknown falls back to Bot.
 export const ADW_ICONS: Record<string, Component> = {
-  adw_simple_sdlc: Workflow,
-  adw_sdlc_full: Palette, // simple_sdlc + the impeccable design pass
   adw_plan: ClipboardList,
   adw_build: Hammer,
   adw_build_test: FlaskConical,

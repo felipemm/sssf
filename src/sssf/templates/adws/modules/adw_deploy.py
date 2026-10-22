@@ -2,7 +2,7 @@
 """ADW Deploy — the deterministic release train: bump → MR → e2e → release.
 
 Usage:
-    uv run adws/adw_deploy.py "<prompt or path/to/prompt.md>" [--config adws/config/sssf.config.yaml] [--adw-id a1b2c3d4]
+    uv run .adws/modules/adw_deploy.py "<prompt or path/to/prompt.md>" [--config .adws/config/sssf.config.yaml] [--adw-id a1b2c3d4]
 
 Phases: code(bump) -> code(mr) -> [e2e quality] -> code(release)
 
@@ -33,7 +33,7 @@ from sssf.adw_modules.chains import (
     run_chain,
 )
 
-DEPLOY_CONFIG = "adws/config/deploy.yaml"
+DEPLOY_CONFIG = ".adws/config/deploy.yaml"
 VERSION_PATTERNS = (
     (re.compile(r'version\s*=\s*"(\d+)\.(\d+)\.(\d+)"'), 'version = "{v}"'),
     (re.compile(r'"version"\s*:\s*"(\d+)\.(\d+)\.(\d+)"'), '"version": "{v}"'),
@@ -69,7 +69,7 @@ def _snapshot_summary(run) -> str:
 
 def _deploy_bump(run, ph, previous):
     """Advance the patch version in the version files listed in
-    adws/config/deploy.yaml (defaults: pyproject.toml, package.json)."""
+    .adws/config/deploy.yaml (defaults: pyproject.toml, package.json)."""
     root = Path(run.repo_root)
     files = ["pyproject.toml", "package.json"]
     cfg = root / DEPLOY_CONFIG
@@ -91,7 +91,7 @@ def _deploy_bump(run, ph, previous):
     if not bumped:
         raise ChainFailure(
             f"no version file to bump (looked at {', '.join(files)} in {root}) — "
-            "list your version files in adws/config/deploy.yaml"
+            "list your version files in .adws/config/deploy.yaml"
         )
     message = f"chore: bump version ({', '.join(bumped)})"
     git_helper.commit_all(message, allow_empty=False)
@@ -103,7 +103,7 @@ def _deploy_mr(run, ph, previous):
     """Open the dev→main MR carrying the clean snapshot. When the glab CLI is
     available the MR is opened and the mapping (title/url/iid) is recorded as
     `<adw_id>-mr.json` for the host flow's settle (#96); otherwise the payload
-    is recorded under adws/data/deploy/ for the operator (no MR to register)."""
+    is recorded under .adws/data/deploy/ for the operator (no MR to register)."""
     from shutil import which
 
     root = Path(run.repo_root)
@@ -147,7 +147,7 @@ def _deploy_mr(run, ph, previous):
         }
         ph.log(mr=url, commits=len(commits))
     else:
-        out = root / "adws" / "data" / "deploy" / "mr_payload.md"
+        out = root / ".adws" / "data" / "deploy" / "mr_payload.md"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(f"# {title}\n\n{body}\n")
         git_helper.commit_all(
@@ -158,7 +158,7 @@ def _deploy_mr(run, ph, previous):
             payload=str(out.relative_to(root)),
             commits=len(commits),
         )
-    rec = root / "adws" / "data" / "deploy" / f"{run.adw_id}-mr.json"
+    rec = root / ".adws" / "data" / "deploy" / f"{run.adw_id}-mr.json"
     rec.parent.mkdir(parents=True, exist_ok=True)
     rec.write_text(json.dumps(record))
     return None
@@ -226,7 +226,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config",
         default=None,
-        help="path to sssf.config.yaml (default: adws/config/sssf.config.yaml)",
+        help="path to sssf.config.yaml (default: .adws/config/sssf.config.yaml)",
     )
     parser.add_argument("--adw-id", default=None, help="join or pin an existing session")
     args = parser.parse_args()

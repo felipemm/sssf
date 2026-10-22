@@ -23,7 +23,7 @@ import yaml
 
 from sssf import db_schema
 
-TICKETING_FILE = "adws/config/ticketing.yaml"
+TICKETING_FILE = ".adws/config/ticketing.yaml"
 LINEAR_API = "https://api.linear.app/graphql"
 
 # Ticket machine statuses (issue #87). `backlog` is gone: the backlog is
@@ -232,8 +232,7 @@ def label_ticket(
 
 
 # The implement flow's run kind — the only flow that claims tickets through
-# the machine (the legacy ticket.run path uses adw_simple_sdlc and settles by
-# hand; plan/deploy never transition tickets).
+# the machine; plan and deploy never transition tickets.
 IMPLEMENT_ADW = "adw_implement"
 
 
@@ -301,10 +300,9 @@ def finish_implement_run(
     after its blocking call) can move a ticket.
 
     Guards (a ticket is never yanked from under its operator):
-    - only implement-flow runs settle (session `adw_name` other than
-      `adw_implement` is left alone — legacy `adw_simple_sdlc` runs requeue by
-      hand); a missing session row counts as a failed run (the ADW never
-      wrote one — same rule as `record_never_started`);
+    - only implement-flow runs settle (other run kinds are left alone); a
+      missing session row counts as a failed run (the ADW never wrote one —
+      same rule as `record_never_started`);
     - only a ticket whose `adw_id` links THIS run and whose machine status is
       `in-progress` is moved — a ticket already requeued, signed off, or
       handed to another run is untouched.
@@ -320,7 +318,7 @@ def finish_implement_run(
     else:
         session_status, adw_name = session
     if adw_name not in (None, "", IMPLEMENT_ADW):
-        return None  # a legacy ticket run or another flow — settles by hand
+        return None  # another run kind — it is not settled here
     ticket = conn.execute(
         "SELECT id FROM tickets WHERE adw_id=? AND status=?",
         (adw_id, STATUS_IN_PROGRESS),
@@ -560,7 +558,7 @@ def approve_deploy_batch(
     and the monitor (#98) starts watching those MRs. When the MR was actually
     opened (glab), register it against each ticket so the monitor's scan set
     includes them; with no MR (payload recorded for the operator) the tickets
-    still move — `sssf mr add` registers the hand-opened MR later.
+    still move; MR registration is owned by the deploy flow.
     """
     moved: list[str] = []
     for ticket_id in deploy_batch_tickets(conn, ticket_ids):
@@ -698,8 +696,7 @@ def release_ticket_ids(conn: sqlite3.Connection, commit_text: str) -> list[str]:
 
 
 # The plan flow's run kind — the only flow that turns idea tickets into
-# spec + implementation children (the legacy ticket.run path uses
-# adw_simple_sdlc and never plans).
+# spec + implementation children; implement and deploy have separate settles.
 PLAN_ADW = "adw_plan"
 
 
@@ -790,10 +787,10 @@ def _run_root(project_root: Path, conn: sqlite3.Connection, adw_id: str) -> Path
 
 
 def _plan_artifacts(run_root: Path, adw_id: str) -> tuple[Path | None, Path | None]:
-    """The plan run's spec and tickets files under adws/specs/, by the ADW's
+    """The plan run's spec and tickets files under .adws/specs/, by the ADW's
     mandated naming convention (`<adw_id>_spec-<slug>.md` /
     `<adw_id>_tickets-<slug>.md`). Oldest-last so a re-run picks the newest."""
-    specs = run_root / "adws" / "specs"
+    specs = run_root / ".adws" / "specs"
     if not specs.is_dir():
         return None, None
     spec_files = sorted(specs.glob(f"{adw_id}_spec-*.md"))
@@ -841,7 +838,7 @@ def finish_plan_run(
     spec_file, tickets_file = _plan_artifacts(root, adw_id)
     if spec_file is None or tickets_file is None:
         raise ValueError(
-            f"plan run {adw_id} produced no spec/tickets under {root / 'adws' / 'specs'}"
+            f"plan run {adw_id} produced no spec/tickets under {root / '.adws' / 'specs'}"
         )
     row = conn.execute(
         "SELECT id FROM tickets WHERE adw_id=? AND kind='idea'", (adw_id,)
@@ -1430,8 +1427,8 @@ def sync_tickets(
 
 
 def next_prompt_name(root: Path, slug: str) -> Path:
-    """The next enumerated prompt path: adws/prompts/NN-<slug>.md (collision suffix)."""
-    prompts = root / "adws" / "prompts"
+    """The next enumerated prompt path: .adws/prompts/NN-<slug>.md (collision suffix)."""
+    prompts = root / ".adws" / "prompts"
     prompts.mkdir(parents=True, exist_ok=True)
     numbers = [
         int(p.stem.split("-")[0]) for p in prompts.glob("*.md") if p.stem.split("-")[0].isdigit()

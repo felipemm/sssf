@@ -31,7 +31,7 @@ import yaml
 from sssf import db_schema
 from sssf.adw_modules import paths
 
-NOTIFY_FILE = "adws/config/notify.yaml"
+NOTIFY_FILE = ".adws/config/notify.yaml"
 SLACK_API = "https://slack.com/api/chat.postMessage"
 
 
@@ -198,7 +198,7 @@ def send(
     """
     cfg = config or load_config(root)
     if cfg is None:
-        raise NotifyError("notify is not configured (adws/config/notify.yaml)")
+        raise NotifyError("notify is not configured (.adws/config/notify.yaml)")
     from dotenv import load_dotenv
 
     load_dotenv(root / ".env")

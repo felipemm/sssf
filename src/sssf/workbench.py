@@ -29,7 +29,7 @@ from sssf import db_schema
 from sssf.sandbox.docker import _docker
 from sssf.sandbox.worktree_git import _exclude_worktrees, remove_worktree
 
-DEPLOY_CONFIG = "adws/config/deploy.yaml"
+DEPLOY_CONFIG = ".adws/config/deploy.yaml"
 
 
 class WorkbenchError(RuntimeError):
@@ -46,7 +46,7 @@ def _now() -> str:
 
 
 def workbench_config(root: Path) -> dict:
-    """The project's workbench block from adws/config/deploy.yaml:
+    """The project's workbench block from .adws/config/deploy.yaml:
     `{command: [...], container_port: N}`. Raises WorkbenchError when missing —
     the workbench is a required part of the deploy flow, never silently
     skipped."""

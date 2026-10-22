@@ -2,7 +2,7 @@
 import DocsLayout from '../../layouts/DocsLayout.astro';
 
 const description =
-  'From backlog to board: internal tickets, external sync, and spawning the SDLC chain for a ticket.';
+  'Capture idea tickets, plan and implement through the ticket machine, and mirror external trackers with an explicit sync.';
 ---
 <DocsLayout
   title="Ticketing"
@@ -12,76 +12,41 @@ const description =
   next={{ href: '/docs/visualizer', label: 'Visualizer' }}
 >
   <p>
-    Ticketing connects the factory to a queue of work: internal tickets you add with one command,
-    or external tickets synced from another provider. Tickets flow through the
-    <a href="/sssf/docs/visualizer">kanban board</a> (Backlog · Planning · Building · Reviewing ·
-    Done/Blocked), and a backlog ticket can be run through the full SDLC chain with one command.
-  </p>
-  <p>
-    Ticketing is optional and per-project: enable it in
-    <code class="hl">adws/config/ticketing.yaml</code>.
+    Tickets are the first-class unit of work. Configure ticket providers in
+    <code class="hl">.adws/config/ticketing.yaml</code>, capture ideas with
+    <span class="cmd">sssf ticket new</span>, and use the flows to plan and implement them.
+    The board and command line share the same ticket machine.
   </p>
 
   <h2>Commands</h2>
-  <pre><code>sssf ticket add "Add a /health endpoint"     # create an internal backlog ticket
-sssf ticket sync                              # pull tickets and mirror machine labels/comments
-sssf ticket list                              # list tickets (id · provider · title · status)
-sssf ticket run &lt;ticket_id&gt;                   # spawn simple_sdlc for a ticket</code></pre>
+  <pre><code>sssf ticket new "Explore dark mode"       # create an idea in needs-triage
+sssf flow plan &lt;ticket-id&gt;                # write a spec and implementation tickets
+sssf flow implement &lt;ticket-id&gt;           # implement one ready-for-agent ticket
+sssf flow implement afk                    # work the ready queue
+sssf ticket backlog &lt;ticket-id&gt; --feedback "Add regression coverage"
+sssf ticket list [--backlog]
+sssf ticket context &lt;ticket-id&gt; [--set "focus on OAuth"]</code></pre>
   <p>
-    All four take <code class="hl">--project</code> to target a specific project;
-    <span class="cmd">ticket run</span> also takes <code class="hl">--no-sandbox</code>.
+    There is no direct ticket-run command. Flows are the only work-entry point; a plan flow
+    creates implementation tickets, and implement claims only <code class="hl">ready-for-agent</code>
+    tickets. Requeueing preserves run history.
   </p>
 
-  <h2>How a ticket run works</h2>
-  <pre><code>1. the ticket is marked starting, an adw_id is minted
-2. the title + description are written to adws/prompts/&lt;slug&gt;.md
-3. simple_sdlc is spawned with that prompt (sandboxed by default)
-4. the ticket follows the run through the kanban stages
-5. on completion the run's trace, branch sssf/&lt;adw_id&gt;, and the board agree</code></pre>
+  <h2>Explicit tracker sync</h2>
+  <pre><code>sssf ticket sync
+sssf ticket sync --provider github</code></pre>
   <p>
-    In sandboxed mode the prompt lives in the per-run worktree (no name-collision races) and is
-    committed with the run. A ticket stuck in <code class="hl">starting</code> is returned to the
-    backlog by the <a href="/sssf/docs/healer">healer</a>.
-  </p>
-
-  <h2>Provider config</h2>
-  <p>
-    <code class="hl">ticketing.yaml</code> declares which providers are enabled. The
-    <code class="hl">internal</code> provider needs no external credentials:
-    <span class="cmd">sssf ticket add</span> works out of the box once enabled. External providers
-    plug into <code class="hl">ticketing.sync_tickets()</code> and return sync results per provider
-    (ticket counts, warnings, or errors).
-  </p>
-
-  <h2>Multi-source sync</h2>
-  <p>
-    A mixed project has one truth: the internal db. Sync adapters fetch tickets from
-    <code class="hl">jira</code> (via <code class="hl">acli</code>), <code class="hl">github</code>
-    (via <code class="hl">gh</code>) and <code class="hl">gitlab</code> (via
-    <code class="hl">glab</code>) into the db, recording <code class="hl">origin</code> +
-    <code class="hl">external_id</code>; <code class="hl">internal</code> tickets already live in the db.
-    Synced tickets are born <code class="hl">needs-triage</code> and
-    <code class="hl">untracked</code> (a permanent flag — later syncs refresh content only and
-    never rewrite kind/tracked/origin/status), and never appear in the backlog until marked
-    <code class="hl">ready-for-agent</code>.
+    Sync pulls tickets from configured providers. Newly discovered tickets are untracked and
+    start in <code class="hl">needs-triage</code>; they do not appear in the backlog until
+    explicitly marked <code class="hl">ready-for-agent</code>. Sync then mirrors the ticket's
+    machine control label, closes completed tickets, and appends completion or rejection
+    comments, preserving unrelated labels. This is the only tracker writer; nothing pushes
+    changes automatically.
   </p>
   <p>
-    The github/gitlab providers resolve their repo from the git remote origin: the yaml
-    <code class="hl">repo:</code> override wins outright; otherwise the origin host must match the
-    cloud standard URL, or <code class="hl">custom_url</code> when
-    <code class="hl">self_hosted: true</code>. A host mismatch skips the provider with a warning
-    (never an error, never a fetch against the wrong forge).
+    Provider configuration is per project. Jira uses its configured JQL; GitHub and GitLab use
+    their provider configuration and origin repository. The internal provider needs no external
+    credentials. Ticket records, runs, and history live in the project database at
+    <code class="hl">.adws/data/sssf.db</code>.
   </p>
-  <p>
-    <code class="hl">sssf ticket sync</code> is the only tracker writer. It ensures the ticket's
-    machine control label while preserving unrelated labels, closes tickets that reach
-    <code class="hl">done</code>, and appends closing or rejection-feedback comments. Tracker
-    write failures are recorded as <code class="hl">ticket_events</code> and never block local
-    ticket changes; a requeue is mirrored on the next sync.
-  </p>
-  <div class="note" data-impeccable-ignore="side-tab">
-    <strong>Ticket table.</strong> Tickets live in the project db
-    (<code class="hl">tickets</code> table) with provider, external id, title, description, status,
-    source url, and the run&rsquo;s adw_id when spawned.
-  </div>
 </DocsLayout>

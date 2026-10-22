@@ -4,7 +4,7 @@ impeccable design pass on the project's design surface and fix what it reports.
 Rules:
 - Read PRODUCT.md first when it exists — it is your design context (audience,
   product lane, voice). The design surface is the `design` quality check's
-  target in adws/config/sssf.config.yaml; the phase directive names the pass.
+  target in .adws/config/sssf.config.yaml; the phase directive names the pass.
 - Run the impeccable skill commands the directive names, in order, against the
   design surface.
 - Apply every actionable fix each command reports. Never skip a finding you

@@ -277,10 +277,10 @@ def test_deploy_chain_executes_all_phases_end_to_end(tmp_path, monkeypatch):
     assert "bump" in last
     # the MR payload was recorded (no glab), plus the machine-readable record
     # the host flow reads for the settle (#96)
-    assert (repo / "adws" / "data" / "deploy" / "mr_payload.md").exists()
+    assert (repo / ".adws" / "data" / "deploy" / "mr_payload.md").exists()
     import json
 
-    rec = json.loads((repo / "adws" / "data" / "deploy" / f"{run.adw_id}-mr.json").read_text())
+    rec = json.loads((repo / ".adws" / "data" / "deploy" / f"{run.adw_id}-mr.json").read_text())
     assert rec["url"] == ""
     assert rec["title"].startswith("release:")
     # release runs after the e2e quality loop

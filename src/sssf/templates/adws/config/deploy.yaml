@@ -1,4 +1,4 @@
-# adws/config/deploy.yaml — the deploy flow's deterministic steps (#89, #96)
+# .adws/config/deploy.yaml — the deploy flow's deterministic steps (#89, #96)
 #
 # version_files: the files whose patch version the deploy bump step advances.
 # Only files that exist are touched; add/remove per project.

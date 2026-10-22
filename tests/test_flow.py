@@ -18,15 +18,16 @@ from sssf.commands import flow
 
 def _setup_project(tmp_path, monkeypatch, *, sandbox_key: bool = False) -> Path:
     root = tmp_path / "proj"
-    (root / "adws" / "config").mkdir(parents=True)
-    (root / "adws" / "data").mkdir(parents=True)
-    (root / "adws" / "prompts").mkdir(parents=True)
+    (root / ".adws" / "config").mkdir(parents=True)
+    (root / ".adws" / "modules").mkdir()
+    (root / ".adws" / "data").mkdir(parents=True)
+    (root / ".adws" / "prompts").mkdir(parents=True)
     cfg = "defaults:\n  coding_agent: pi\n  model: openai/gpt-4o-mini\n"
     if sandbox_key:
         cfg += "sandbox:\n  enabled: false\n"
-    (root / "adws" / "config" / "sssf.config.yaml").write_text(cfg)
+    (root / ".adws" / "config" / "sssf.config.yaml").write_text(cfg)
     monkeypatch.setattr(registry, "registry_path", lambda: tmp_path / ".sssf" / "projects.json")
-    registry.register_project(root, root / "adws" / "data" / "sssf.db", "1.0.0")
+    registry.register_project(root, root / ".adws" / "data" / "sssf.db", "1.0.0")
     monkeypatch.chdir(root)
     return root
 
@@ -39,7 +40,7 @@ def _seed_ticket(
     description: str = "Make it dark",
     kind: str = "implementation",
 ) -> None:
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     ticketing.ensure_schema(conn)
     conn.execute(
         "INSERT INTO tickets (id, provider, external_id, title, description, status, kind)"
@@ -84,7 +85,7 @@ def test_flow_plan_skip_exploration_is_forwarded(tmp_path, monkeypatch):
 
 def _adb(root: Path) -> sqlite3.Connection:
     """The project db the flow writes (same as _db in commands/ticket)."""
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     ticketing.ensure_schema(conn)
     return conn
 
@@ -125,8 +126,8 @@ def test_flow_plan_plan_once_refuses_planned_idea_without_revise(tmp_path, monke
     the explicit --revise escape (#91 AC5)."""
     root = _setup_project(tmp_path, monkeypatch)
     _seed_ticket(root, "internal:idea", status="needs-triage", kind="idea", title="Dark mode")
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
-    conn.execute("UPDATE tickets SET spec='adws/specs/old.md' WHERE id='internal:idea'")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
+    conn.execute("UPDATE tickets SET spec='.adws/specs/old.md' WHERE id='internal:idea'")
     conn.commit()
     conn.close()
     calls = _capture_call(monkeypatch)
@@ -147,7 +148,7 @@ def test_flow_plan_links_the_run_before_the_spawn(tmp_path, monkeypatch):
     seen_link: list[str | None] = []
 
     def fake_call(argv, **kw):
-        conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+        conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
         seen_link.append(
             conn.execute("SELECT adw_id FROM tickets WHERE id='internal:idea'").fetchone()[0]
         )
@@ -159,7 +160,7 @@ def test_flow_plan_links_the_run_before_the_spawn(tmp_path, monkeypatch):
     assert flow.plan(Path.cwd(), "internal:idea", None, False, no_sandbox=True) == 0
     linked = calls[0][calls[0].index("--adw-id") + 1]
     assert seen_link == [linked]  # mid-run read sees the link
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     row = conn.execute("SELECT adw_id FROM tickets WHERE id='internal:idea'").fetchone()
     runs = conn.execute("SELECT adw_id FROM ticket_runs WHERE ticket_id='internal:idea'").fetchall()
     conn.close()
@@ -175,7 +176,7 @@ def test_flow_plan_no_sandbox_success_lands_the_transform(tmp_path, monkeypatch,
 
     def fake_call(argv, **kw):
         adw_id = argv[argv.index("--adw-id") + 1]
-        conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+        conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
         conn.execute(
             "INSERT INTO sessions (adw_id, adw_name, status, started_at, ended_at)"
             " VALUES (?,?,?, '2026-09-01T00:00:00+00:00', '2026-09-01T01:00:00+00:00')",
@@ -183,7 +184,7 @@ def test_flow_plan_no_sandbox_success_lands_the_transform(tmp_path, monkeypatch,
         )
         conn.commit()
         conn.close()
-        specs = root / "adws" / "specs"
+        specs = root / ".adws" / "specs"
         specs.mkdir(parents=True, exist_ok=True)
         (specs / f"{adw_id}_spec-dark-mode.md").write_text("# Dark mode\n\nSpec body.\n")
         (specs / f"{adw_id}_tickets-dark-mode.md").write_text(
@@ -193,7 +194,7 @@ def test_flow_plan_no_sandbox_success_lands_the_transform(tmp_path, monkeypatch,
 
     monkeypatch.setattr(flow.subprocess, "call", fake_call)
     assert flow.plan(Path.cwd(), "internal:idea", None, False, no_sandbox=True) == 0
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     row = conn.execute("SELECT spec FROM tickets WHERE id='internal:idea'").fetchone()
     children = conn.execute("SELECT title FROM tickets WHERE parent_id='internal:idea'").fetchall()
     conn.close()
@@ -210,7 +211,7 @@ def test_flow_plan_no_sandbox_failure_lands_nothing(tmp_path, monkeypatch):
 
     monkeypatch.setattr(flow.subprocess, "call", fake_call)
     assert flow.plan(Path.cwd(), "internal:idea", None, False, no_sandbox=True) == 1
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     row = conn.execute("SELECT spec, status FROM tickets WHERE id='internal:idea'").fetchone()
     conn.close()
     assert row == ("", "needs-triage")  # untouched
@@ -224,7 +225,7 @@ def test_flow_plan_sandbox_spawn_failure_leaves_the_ticket_planable(tmp_path, mo
     _seed_ticket(root, "internal:idea", status="needs-triage", kind="idea", title="Dark mode")
     monkeypatch.setattr(flow, "_dispatch_chain", lambda *a, **k: 1)
     assert flow.plan(Path.cwd(), "internal:idea", None, False, no_sandbox=False) == 1
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     status = conn.execute("SELECT status FROM tickets WHERE id='internal:idea'").fetchone()[0]
     conn.close()
     assert status == "needs-triage"
@@ -245,7 +246,7 @@ def test_flow_plan_no_args_success_creates_idea_ticket_and_children(tmp_path, mo
         )
         conn.commit()
         conn.close()
-        specs = root / "adws" / "specs"
+        specs = root / ".adws" / "specs"
         specs.mkdir(parents=True, exist_ok=True)
         (specs / f"{adw_id}_spec-dark-mode.md").write_text("# Dark mode\n\nSpec body.\n")
         (specs / f"{adw_id}_tickets-dark-mode.md").write_text(
@@ -255,7 +256,7 @@ def test_flow_plan_no_args_success_creates_idea_ticket_and_children(tmp_path, mo
 
     monkeypatch.setattr(flow.subprocess, "call", fake_call)
     assert flow.plan(Path.cwd(), None, None, False, no_sandbox=True) == 0
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     parents = conn.execute("SELECT id, title, kind FROM tickets WHERE kind='idea'").fetchall()
     conn.close()
     assert len(parents) == 1 and parents[0][1] == "Dark mode"
@@ -334,7 +335,7 @@ def test_flow_implement_requires_ready_for_agent(tmp_path, monkeypatch, capsys):
 def test_flow_implement_rejects_live_run(tmp_path, monkeypatch, capsys):
     root = _setup_project(tmp_path, monkeypatch)
     _seed_ticket(root, "internal:abc")
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     conn.execute("CREATE TABLE IF NOT EXISTS sessions (adw_id TEXT PRIMARY KEY, status TEXT)")
     conn.execute("UPDATE tickets SET adw_id='run1' WHERE id='internal:abc'")
     conn.execute("INSERT INTO sessions (adw_id, status) VALUES ('run1', 'running')")
@@ -346,7 +347,7 @@ def test_flow_implement_rejects_live_run(tmp_path, monkeypatch, capsys):
 
 def _adb(root: Path) -> sqlite3.Connection:
     """The project db the flow writes (same as _db in commands/ticket)."""
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     ticketing.ensure_schema(conn)
     return conn
 
@@ -743,7 +744,7 @@ def _deploy_project(
     )
     conn.commit()
     conn.close()
-    (root / "adws" / "config" / "deploy.yaml").write_text(
+    (root / ".adws" / "config" / "deploy.yaml").write_text(
         "version_files:\n  - pyproject.toml\n"
         'workbench:\n  command: ["bun", "run", "dev"]\n  container_port: 3000\n'
     )
@@ -757,7 +758,7 @@ def _deploy_project(
 
 
 def _workbench_rows(root: Path) -> list[tuple]:
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     rows = conn.execute(
         "SELECT adw_id, container, host_port, url, status FROM workbench_runs"
     ).fetchall()
@@ -944,7 +945,7 @@ def test_flow_deploy_workbench_failure_is_loud(tmp_path, monkeypatch, capsys):
     deploy before any machine write — never a silent skip."""
 
     root = _deploy_project(tmp_path, monkeypatch)
-    (root / "adws" / "config" / "deploy.yaml").write_text("version_files:\n  - pyproject.toml\n")
+    (root / ".adws" / "config" / "deploy.yaml").write_text("version_files:\n  - pyproject.toml\n")
     assert flow.deploy(Path.cwd(), None, yes=True) == 1
     assert "workbench" in capsys.readouterr().err
     conn = _adb(root)
@@ -1005,7 +1006,7 @@ def _release_project(tmp_path, monkeypatch, release_yaml=_RELEASE_YAML):
     """The deploy fixture with a `release:` block in deploy.yaml (canary +
     promote commands and the promote poll settings)."""
     root = _deploy_project(tmp_path, monkeypatch)
-    (root / "adws" / "config" / "deploy.yaml").write_text(release_yaml)
+    (root / ".adws" / "config" / "deploy.yaml").write_text(release_yaml)
     return root
 
 
@@ -1202,9 +1203,9 @@ def test_flow_sandboxed_dispatch_uses_the_sandbox(tmp_path, monkeypatch):
     assert captured["a"][1].name == "adw_plan.py"
 
 
-def test_flow_warns_on_legacy_layout(tmp_path, monkeypatch, capsys):
+def test_flow_requires_hidden_layout_on_legacy_project(tmp_path, monkeypatch, capsys):
     root = tmp_path / "proj"
-    (root / "adws" / "adw_data").mkdir(parents=True)  # v1 layout marker
+    (root / "adws" / "modules").mkdir(parents=True)
     monkeypatch.setattr(registry, "registry_path", lambda: tmp_path / ".sssf" / "projects.json")
-    assert flow.plan(root, None, None, False, no_sandbox=True) != 0
-    assert "legacy adws layout" in capsys.readouterr().err
+    assert flow.plan(root, None, None, False, no_sandbox=True) == 1
+    assert "run `sssf init` to upgrade" in capsys.readouterr().err

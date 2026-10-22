@@ -8,7 +8,7 @@ from sssf.commands import misc, viz
 
 def test_viz_start_reconciles_registered_database_before_launch(tmp_path, monkeypatch):
     root = tmp_path / "project"
-    db_path = root / "adws" / "data" / "sssf.db"
+    db_path = root / ".adws" / "data" / "sssf.db"
     db_path.parent.mkdir(parents=True)
     conn = sqlite3.connect(db_path)
     ticketing.ensure_schema(conn)

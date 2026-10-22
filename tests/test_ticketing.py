@@ -263,7 +263,7 @@ def test_fetch_linear_parses_graphql(tmp_path, monkeypatch):
 def test_sync_upserts_without_duplicates(tmp_path):
     from sssf.adw_modules import tracer as tracer_mod
 
-    db = tmp_path / "adws" / "adw_data" / "sssf.db"
+    db = tmp_path / ".adws" / "data" / "sssf.db"
     db.parent.mkdir(parents=True)
     tracer_mod.Tracer(db_path=db, events_jsonl=db.with_suffix(".jsonl")).conn.close()
     records = [ticketing.TicketRecord("jira", "ACME-1", "One", "d", "u")]
@@ -582,7 +582,7 @@ def test_create_idea_ticket_shell(tmp_path):
 def test_upsert_sync_rows_untracked_needs_triage_and_permanent(tmp_path):
     """Synced tickets land needs-triage + untracked; a re-sync updates
     title/description but NEVER rewrites kind/tracked/origin/status."""
-    db = tmp_path / "adws" / "adw_data" / "sssf.db"
+    db = tmp_path / ".adws" / "data" / "sssf.db"
     db.parent.mkdir(parents=True)
     rec = ticketing.TicketRecord("jira", "ACME-9", "Old title", "d", "u")
     ticketing.upsert_tickets(db, [rec])
@@ -962,7 +962,7 @@ def test_revert_deploy_ticket_requeues_only_signoff(tmp_path):
 
 
 def _plan_conn(root: Path) -> sqlite3.Connection:
-    db = root / "adws" / "data" / "sssf.db"
+    db = root / ".adws" / "data" / "sssf.db"
     db.parent.mkdir(parents=True, exist_ok=True)
     return _machine_conn(db)
 
@@ -979,7 +979,7 @@ def _plan_session(
 
 def _plan_artifacts(root: Path, adw_id: str, *, spec: str = "# Dark mode\n\nA spec.\n", tickets: str = "") -> None:
     """Write the plan run's artifacts exactly where the ADW lands them."""
-    specs = root / "adws" / "specs"
+    specs = root / ".adws" / "specs"
     specs.mkdir(parents=True, exist_ok=True)
     (specs / f"{adw_id}_spec-dark-mode.md").write_text(spec)
     (specs / f"{adw_id}_tickets-dark-mode.md").write_text(
@@ -1027,7 +1027,7 @@ def test_plan_guard_plan_once_refuses_planned_idea_without_revise(tmp_path):
 def test_plan_guard_plan_once_also_sees_a_spec(tmp_path):
     conn = _machine_conn(tmp_path / "m.db")
     parent = ticketing.create_idea_ticket(conn, "Dark mode")
-    conn.execute("UPDATE tickets SET spec='adws/specs/x.md' WHERE id=?", (parent,))
+    conn.execute("UPDATE tickets SET spec='.adws/specs/x.md' WHERE id=?", (parent,))
     conn.commit()
     assert "already planned" in ticketing.plan_guard(conn, parent)
     conn.close()
@@ -1096,7 +1096,7 @@ def test_finish_plan_run_transforms_linked_idea_ticket(tmp_path):
     row = conn.execute(
         "SELECT spec, status, adw_id FROM tickets WHERE id=?", (parent,)
     ).fetchone()
-    assert row[0] == "adws/specs/r1_spec-dark-mode.md"  # committed relative path
+    assert row[0] == ".adws/specs/r1_spec-dark-mode.md"  # committed relative path
     assert row[1] == "needs-triage"  # the parent stays out of the backlog
     assert row[2] == "r1"
     children = conn.execute(
@@ -1107,7 +1107,7 @@ def test_finish_plan_run_transforms_linked_idea_ticket(tmp_path):
     assert all(c[2] == "ready-for-agent" for c in children)
     assert all(c[3] == "implementation" for c in children)
     assert all(c[4] == parent for c in children)
-    assert all(c[5] == "adws/specs/r1_spec-dark-mode.md" for c in children)
+    assert all(c[5] == ".adws/specs/r1_spec-dark-mode.md" for c in children)
     events = ticketing.ticket_events(conn, parent)
     planned = [e for e in events if e["event_type"] == "planned"]
     assert len(planned) == 1
@@ -1129,7 +1129,7 @@ def test_finish_plan_run_no_args_creates_the_idea_ticket(tmp_path):
         "SELECT title, kind, status, spec, adw_id FROM tickets WHERE id=?", (landed,)
     ).fetchone()
     assert row == (
-        "Dark mode", "idea", "needs-triage", "adws/specs/r1_spec-dark-mode.md", "r1",
+        "Dark mode", "idea", "needs-triage", ".adws/specs/r1_spec-dark-mode.md", "r1",
     )
     children = conn.execute(
         "SELECT title FROM tickets WHERE parent_id=?", (landed,)
@@ -1533,7 +1533,7 @@ def test_sync_tickets_upserts_all_four_origins(tmp_path, monkeypatch):
     assert by_provider["github"].tickets == 1
     assert by_provider["gitlab"].tickets == 1
     assert "internal" not in by_provider  # nothing to fetch
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     rows = conn.execute(
         "SELECT id, status, kind, tracked, origin FROM tickets"
         " WHERE origin IN ('github','gitlab') ORDER BY id"

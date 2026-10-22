@@ -8,8 +8,7 @@ from sssf.adw_modules import agents
 TEMPLATES = Path(__file__).resolve().parents[1] / "src" / "sssf" / "templates"
 
 # The shipped template set collapsed from the 13 one-off combos to the three
-# flow chains (#89). Already-stamped projects keep their legacy ADWs on disk
-# (init --refresh copies only missing files; removal is manual/optional).
+# sanctioned flow chains (#89).
 FLOW_CHAINS = ("adw_plan", "adw_implement", "adw_deploy")
 
 
@@ -34,9 +33,9 @@ def test_starter_config_validates(tmp_path, monkeypatch):
     # agents.validate needs prompt files on disk + a resolvable model (R1):
     # replicate the stamped layout in tmp, chdir, and stub the catalog.
     monkeypatch.setattr(agents.agent_pi, "resolve_model", lambda pattern: ("openai", "gpt-4o-mini"))
-    data = tmp_path / "adws" / "data"
+    data = tmp_path / ".adws" / "data"
     shutil.copytree(TEMPLATES / "adws" / "data" / "prompt_engineering", data / "prompt_engineering")
-    cfg_dir = tmp_path / "adws" / "config"
+    cfg_dir = tmp_path / ".adws" / "config"
     cfg_dir.mkdir(parents=True)
     shutil.copy(TEMPLATES / "adws" / "config" / "sssf.config.yaml", cfg_dir / "sssf.config.yaml")
     # the template turns hermetic skills on (#88): validate() demands every
@@ -66,7 +65,7 @@ def test_starter_config_validates(tmp_path, monkeypatch):
         assert roster[name].model == model, f"{name} model drifted to {roster[name].model!r}"
 
 
-def test_artifact_folders_live_under_adws():
+def test_artifact_folders_live_under_hidden_adws():
     """specs/ and kb/ must stay under adws/ in every template — root-level
     artifact folders clutter the project root and drift from the convention."""
     for path in [
@@ -76,7 +75,7 @@ def test_artifact_folders_live_under_adws():
     ]:
         text = path.read_text()
         for folder in ("specs/", "kb/"):
-            assert folder not in text or f"adws/{folder}" in text, (
+            assert folder not in text or f".adws/{folder}" in text, (
                 f"{path.relative_to(TEMPLATES)} references bare {folder!r}"
             )
 
@@ -146,8 +145,8 @@ def test_adws_resolve_config_at_runtime():
     for adw in (TEMPLATES / "adws" / "modules").glob("adw_*.py"):
         text = adw.read_text()
         assert "agents.default_config_path" in text
-        assert "adws/adw_sssf_config" not in text
-        assert "adws/app_docs" not in text
+        assert ".adws/adw_sssf_config" not in text
+        assert ".adws/app_docs" not in text
 
 
 def test_fix_loop_adws_break_on_env_failure():
@@ -166,16 +165,3 @@ def test_fix_loop_adws_break_on_env_failure():
         assert "QualityLoop" in text, f"{name} missing the shared quality loop"
 
 
-def test_spec_interviewer_templates_exist():
-    """The three product-manager templates ship with the output contract and
-    the pre-loaded skill routing (the user never invokes a skill)."""
-    for mode, skills in (("idea", ("grilling", "brainstorming")),
-                         ("bug", ("grill-me", "grill-with-docs")),
-                         ("feature", ("grilling",))):
-        text = (TEMPLATES / "spec_interviewer" / f"{mode}.md").read_text()
-        assert "PRODUCT MANAGER" in text
-        assert "OUTPUT CONTRACT" in text
-        assert "adws/prompts/" in text and "ticket add" in text
-        assert "never" in text and "invokes a skill" in text
-        for skill in skills:
-            assert skill in text

@@ -34,8 +34,8 @@ async function waitForServer(timeoutMs = 15_000): Promise<void> {
 beforeAll(async () => {
   tmp = mkdtempSync(join(tmpdir(), 'sssf-sessions-'))
   const root = join(tmp, 'project')
-  mkdirSync(join(root, 'adws', 'data'), { recursive: true })
-  const dbPath = join(root, 'adws', 'data', 'sssf.db')
+  mkdirSync(join(root, '.adws', 'data'), { recursive: true })
+  const dbPath = join(root, '.adws', 'data', 'sssf.db')
   const db = new Database(dbPath)
   db.run('PRAGMA user_version = 7')
   db.run(`CREATE TABLE sessions (

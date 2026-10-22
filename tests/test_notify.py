@@ -11,15 +11,15 @@ from sssf.commands import notify_cmd
 
 def _project(tmp_path, notify_yaml: str | None = None) -> Path:
     root = tmp_path / "proj"
-    (root / "adws" / "config").mkdir(parents=True)
-    (root / "adws" / "data").mkdir(parents=True)
+    (root / ".adws" / "config").mkdir(parents=True)
+    (root / ".adws" / "data").mkdir(parents=True)
     if notify_yaml is not None:
-        (root / "adws" / "config" / "notify.yaml").write_text(notify_yaml)
+        (root / ".adws" / "config" / "notify.yaml").write_text(notify_yaml)
     return root
 
 
 def _db(root: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     conn.row_factory = sqlite3.Row
     notify.ensure_schema(conn)
     return conn

@@ -1,9 +1,7 @@
-"""The v2 stamped adws/ layout — the single source of truth for its paths.
+"""The v2 stamped .adws/ layout — the single source of truth for its paths.
 
-Strict, no runtime fallback: the engine resolves these paths only. A project
-that still lives at the v1 layout must run `sssf init --refresh` to migrate
-(which warns, backs up adws/, and moves it). Legacy detection exists solely
-to warn and to drive that migration.
+Legacy projects have an ``adws/`` tree but no complete ``.adws/`` footprint.
+They must run ``sssf init`` before a flow can use the new paths.
 """
 
 from __future__ import annotations
@@ -11,7 +9,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-ADWS = "adws"
+ADWS = ".adws"
+LEGACY_ADWS = "adws"
 
 
 def modules_dir(root: Path) -> Path:
@@ -46,30 +45,33 @@ def specs_dir(root: Path) -> Path:
     return root / ADWS / "specs"
 
 
-# The v1 markers — any one present means the project predates v2.
-_LEGACY_MARKERS = (
-    "adws/adw_sssf_config",
-    "adws/adw_data",
-    "adws/app_docs",
-)
+def has_current_layout(root: Path) -> bool:
+    """Whether the project has the footprint required by flow commands."""
+    return modules_dir(root).is_dir() and config_file(root).is_file()
 
 
 def is_legacy_layout(root: Path) -> bool:
-    for marker in _LEGACY_MARKERS:
-        if (root / marker).exists():
-            return True
-    # v1 chains sat directly under adws/ — e.g. adws/adw_simple_sdlc.py
-    return bool(any((root / ADWS).glob("adw_*.py")))
+    """True when the old visible footprint exists without a complete v2 stamp."""
+    return (root / LEGACY_ADWS).is_dir() and not has_current_layout(root)
+
+
+def require_current_layout(root: Path) -> bool:
+    """Reject flows until init has stamped the current hidden footprint."""
+    if has_current_layout(root):
+        return True
+    print(
+        f"sssf flow: project at {root} does not have the .adws/ layout — "
+        "run `sssf init` to upgrade",
+        file=sys.stderr,
+    )
+    return False
 
 
 def warn_if_legacy(root: Path, *, command: str) -> bool:
     if not is_legacy_layout(root):
         return False
     print(
-        f"sssf: legacy adws layout detected in {root} — chains/config/data live at "
-        "the v1 paths. Run `sssf init --refresh` to migrate (it backs up adws/ "
-        "first, then moves to the v2 layout: modules/, config/, data/, prompts/, "
-        "specs/, kb/).",
+        f"sssf: legacy adws layout detected in {root}; run `sssf init` to upgrade to .adws/.",
         file=sys.stderr,
     )
     return True

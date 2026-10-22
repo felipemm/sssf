@@ -7,8 +7,8 @@ import { MIN_SCHEMA_VERSION, SssfDb } from "./db.ts";
 
 function fakeDb() {
   const root = mkdtempSync(join(tmpdir(), "db-"));
-  mkdirSync(join(root, "adws", "data"), { recursive: true });
-  const path = join(root, "adws", "data", "sssf.db");
+  mkdirSync(join(root, ".adws", "data"), { recursive: true });
+  const path = join(root, ".adws", "data", "sssf.db");
   const db = new Database(path);
   db.exec("PRAGMA journal_mode = WAL");
   db.run("PRAGMA user_version = 7");  // a current contract db
@@ -74,8 +74,8 @@ describe("schema-version contract", () => {
 
   test("degrades a pre-contract db: migration columns read as NULL, never throw", () => {
     const root = mkdtempSync(join(tmpdir(), "db-"));
-    mkdirSync(join(root, "adws", "data"), { recursive: true });
-    const path = join(root, "adws", "data", "sssf.db");
+    mkdirSync(join(root, ".adws", "data"), { recursive: true });
+    const path = join(root, ".adws", "data", "sssf.db");
     const db = new Database(path);
     // legacy shape: no adw_name, no archived, no user_version stamp
     db.run(`CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, request TEXT, status TEXT,

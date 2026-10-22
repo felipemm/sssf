@@ -22,7 +22,7 @@ def run(
 ) -> int:
     root = find_project(Path.cwd(), project)
     if root is None:
-        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        print("sssf: no project here (no .adws/). Run `sssf init` first.", file=sys.stderr)
         return 1
     paths.warn_if_legacy(root, command="notify")
     urls: dict[str, str] = {}

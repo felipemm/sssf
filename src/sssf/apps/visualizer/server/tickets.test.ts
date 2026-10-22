@@ -173,7 +173,7 @@ describe("readTickets", () => {
       "INSERT INTO tickets (id, provider, external_id, title, status, kind, tracked, origin, parent_id, spec)"
       + " VALUES (?,?,?,?,?,?,?,?,?,?)",
     ).run("internal:child", "internal", "", "build the thing", "ready-for-agent",
-          "implementation", 1, "internal", "internal:idea", "adws/specs/thing.md");
+          "implementation", 1, "internal", "internal:idea", ".adws/specs/thing.md");
     db.query(
       "INSERT INTO tickets (id, provider, external_id, title, status, kind, tracked, origin)"
       + " VALUES (?,?,?,?,?,?,?,?)",
@@ -186,7 +186,7 @@ describe("readTickets", () => {
     expect(child.tracked).toBe(true);
     expect(child.origin).toBe("internal");
     expect(child.parent_id).toBe("internal:idea");   // lineage
-    expect(child.spec).toBe("adws/specs/thing.md");
+    expect(child.spec).toBe(".adws/specs/thing.md");
     expect(byId["internal:idea"]!.kind).toBe("idea");
   });
 
@@ -233,8 +233,8 @@ describe("isEnabled", () => {
     const root = mkdtempSync(join(tmpdir(), "tick-"));
 
     function write(yaml: string) {
-      mkdirSync(join(root, "adws", "config"), { recursive: true });
-      writeFileSync(join(root, "adws", "config", "ticketing.yaml"), yaml);
+      mkdirSync(join(root, ".adws", "config"), { recursive: true });
+      writeFileSync(join(root, ".adws", "config", "ticketing.yaml"), yaml);
     }
 
     write("providers:\n  - internal\n");
