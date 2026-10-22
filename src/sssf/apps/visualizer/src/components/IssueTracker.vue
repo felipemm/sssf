@@ -6,7 +6,7 @@
  * column; untracked tickets (synced, born needs-triage) sit in Needs triage
  * until marked ready-for-agent from the page.
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { ChevronDown, ChevronRight, RefreshCw, EyeOff, GitBranch } from 'lucide-vue-next'
 import { backlogTicket, fetchTickets, syncTickets, useProjects, type Ticket, type TicketsResponse } from '../lib/api'
 import { notify } from '../lib/toast'
@@ -26,10 +26,11 @@ const COLUMNS = [
   { key: 'blocked', label: 'Blocked', accent: 'var(--red)' },
 ] as const
 
-const tickets = ref<TicketsResponse>({ enabled: false, tickets: [] })
+// The fetched ticket payload is replaced as a whole, so deep reactivity is unnecessary.
+const tickets = shallowRef<TicketsResponse>({ enabled: false, tickets: [] })
 const apiError = ref<string | null>(null)
 const loaded = ref(false)
-const activeTicket = ref<Ticket | null>(null)
+const activeTicket = shallowRef<Ticket | null>(null)
 const syncing = ref(false)
 const untrackedOnly = ref(false)
 
@@ -176,7 +177,7 @@ onBeforeUnmount(() => clearInterval(timer))
           <input v-model="untrackedOnly" type="checkbox" />
           <EyeOff :size="13" /> untracked only
         </label>
-        <button class="sync-link" type="button" :disabled="syncing" aria-label="Fetch external tickets" @click="onSync">
+        <button class="sync-link" type="button" :disabled="syncing" :aria-busy="syncing" :aria-label="syncing ? 'Syncing external tickets' : 'Fetch external tickets'" @click="onSync">
           <RefreshCw :size="13" :class="{ spin: syncing }" /> {{ syncing ? 'syncing…' : 'sync' }}
         </button>
       </div>
@@ -213,6 +214,7 @@ onBeforeUnmount(() => clearInterval(timer))
             :class="{ untracked: !t.tracked }"
           >
             <button class="tk-open" type="button" @click="open(t)">
+              <span class="sr-only">Open ticket: </span>
               <span class="badge">{{ ORIGIN_BADGE[t.origin] ?? '?' }}</span>
               <span class="tk-title">{{ t.title }}</span>
               <span class="tk-meta dim">

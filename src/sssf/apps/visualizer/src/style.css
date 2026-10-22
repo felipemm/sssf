@@ -256,7 +256,7 @@ pre {
   outline-offset: 2px !important;
 }
 
-/* Accessibility: Visually hide elements while keeping them accessible to screen readers */
+/* Visually hidden but available to screen readers */
 .sr-only {
   position: absolute;
   width: 1px;
