@@ -130,7 +130,7 @@ def test_reopen_session_flips_terminal_row_to_running(tmp_path):
     the same phase_ids) is authoritative in the trace."""
 
 
-    data = tmp_path / "adws" / "data"
+    data = tmp_path / ".adws" / "data"
     data.mkdir(parents=True)
     conn = sqlite3.connect(str(project_db_path(data)))
     conn.execute(

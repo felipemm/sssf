@@ -1,7 +1,7 @@
 """Ticket ↔ MR registration (issue #98).
 
 The monitor scans `ready-to-deploy` tickets with an open MR. MR references
-live in the `ticket_mrs` table, written by `sssf mr add` (and later by the
+live in the `ticket_mrs` table, written by the deploy flow (and later by the
 deploy flow once it lands): deterministic, audited, and read by the viz
 server's monitor — never scraped from ticket text.
 """

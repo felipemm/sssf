@@ -10,16 +10,12 @@ from sssf.commands import (
     heal,
     init,
     misc,
-    mr,
     notify_cmd,
-    obs_cmds,
     sandbox_cmd,
-    spec,
     sweep,
     ticket,
     viz,
 )
-from sssf.project import data_dir, find_project
 
 
 def _dispatch_flow_implement(a, cwd: Path) -> int:
@@ -39,61 +35,15 @@ def _dispatch_ticket(a) -> int:
     action = a.ticket_action
     if action == "new":
         return ticket.new(a.title, a.project)
-    if action == "add":
-        return ticket.add(
-            a.title, a.project, description=a.description or "", prompt_file=a.prompt_file
-        )
     if action == "sync":
         return ticket.sync(a.project, provider=a.provider)
     if action == "list":
         return ticket.list_tickets(a.project, backlog_only=a.backlog)
-    if action == "run":
-        return ticket.run(a.ticket_id, a.project, a.no_sandbox, a.context or "")
     if action == "context":
         return ticket.ticket_context(a.ticket_id, a.project, a.set_text)
     if action == "backlog":
         return ticket.backlog(a.ticket_id, a.project, feedback=a.feedback)
-    if action == "writeback":
-        return ticket.writeback_cmd(
-            a.ticket_id,
-            a.project,
-            state=a.state,
-            comment=a.comment,
-            label=a.label,
-            remove_label=a.remove_label,
-        )
     return 1
-
-
-def _register_obs(sub: argparse._SubParsersAction) -> None:
-    """sessions / phases / tail / procs — each resolves the project db, then renders."""
-
-    def db_path(explicit: str | None) -> Path:
-        root = find_project(Path.cwd(), explicit)
-        if root is None:
-            print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
-            raise SystemExit(1)
-        return data_dir(root) / "sssf.db"
-
-    def sessions_cmd(a):
-        return obs_cmds.sessions(db_path(a.project))
-
-    def scoped_cmd(fn):
-        return lambda a: fn(db_path(a.project), a.adw_id)
-
-    p = sub.add_parser("sessions", help="trace: recent ADW runs")
-    p.add_argument("--project", default=None)
-    p.set_defaults(func=sessions_cmd)
-
-    for name, fn in (
-        ("phases", obs_cmds.phases),
-        ("tail", obs_cmds.tail),
-        ("procs", obs_cmds.procs),
-    ):
-        p = sub.add_parser(name, help=f"trace: {name} <adw_id>")
-        p.add_argument("--project", default=None)
-        p.add_argument("adw_id")
-        p.set_defaults(func=scoped_cmd(fn))
 
 
 def _dispatch_sandbox(a) -> int:
@@ -236,8 +186,6 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
 
-    _register_obs(sub)
-
     p = sub.add_parser("projects", help="list / remove registered projects")
     p.add_argument("action", nargs="?", default="list", choices=["list", "remove"])
     p.add_argument("name", nargs="?")
@@ -274,26 +222,13 @@ def main(argv: list[str] | None = None) -> int:
     p_sweep.add_argument("--days", type=int, default=30)
     p_sweep.set_defaults(func=lambda a: sweep.run(a.project, a.days))
 
-    p_ticket = sub.add_parser(
-        "ticket", help="ticketing integration (new / add / sync / list / run)"
-    )
+    p_ticket = sub.add_parser("ticket", help="ticketing integration (new / sync / list / context / backlog)")
     tsub = p_ticket.add_subparsers(dest="ticket_action", required=True)
     p_new = tsub.add_parser("new", help="create an idea ticket (title-only, born needs-triage)")
     p_new.add_argument("title")
     p_new.add_argument("--project", default=None)
-    p_add = tsub.add_parser(
-        "add", help="create an internal implementation ticket (ready-for-agent)"
-    )
-    p_add.add_argument("title")
-    p_add.add_argument("--description", default=None, help="short summary stored on the ticket")
-    p_add.add_argument(
-        "--prompt-file",
-        default=None,
-        help="relative path to the interview spec (adws/prompts/NN-<slug>.md) linked to this ticket",
-    )
-    p_add.add_argument("--project", default=None)
     p_sync = tsub.add_parser(
-        "sync", help="fetch external tickets into the queue (born needs-triage, untracked)"
+        "sync", help="pull tickets and mirror machine labels, closes, and comments"
     )
     p_sync.add_argument("--project", default=None)
     p_sync.add_argument(
@@ -308,19 +243,6 @@ def main(argv: list[str] | None = None) -> int:
         "--backlog",
         action="store_true",
         help="list only the backlog — exactly the ready-for-agent queue",
-    )
-    p_run = tsub.add_parser("run", help="spawn simple_sdlc for a ticket")
-    p_run.add_argument("ticket_id")
-    p_run.add_argument("--project", default=None)
-    p_run.add_argument(
-        "--context",
-        default=None,
-        help="extra context/steer appended to the prompt for this run",
-    )
-    p_run.add_argument(
-        "--no-sandbox",
-        action="store_true",
-        help="run in the current dir instead of a sandbox container",
     )
     p_backlog = tsub.add_parser(
         "backlog", help="requeue a ticket to ready-for-agent (keeps run history)"
@@ -341,16 +263,6 @@ def main(argv: list[str] | None = None) -> int:
         help="store this context on the ticket (printed when omitted)",
     )
     p_context.add_argument("--project", default=None)
-    p_writeback = tsub.add_parser(
-        "writeback",
-        help="push state/label/comment to the origin tracker (best-effort)",
-    )
-    p_writeback.add_argument("ticket_id")
-    p_writeback.add_argument("--state", default=None, help="state on the origin (github: open|closed; gitlab: opened|closed)")
-    p_writeback.add_argument("--comment", default=None, help="comment body on the origin")
-    p_writeback.add_argument("--label", default=None, help="label to add on the origin")
-    p_writeback.add_argument("--remove-label", dest="remove_label", default=None, help="label to remove on the origin")
-    p_writeback.add_argument("--project", default=None)
     p_ticket.set_defaults(func=lambda a: _dispatch_ticket(a))
 
     p_notify = sub.add_parser(
@@ -375,34 +287,9 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
 
-    p_mr = sub.add_parser("mr", help="register an MR against a ticket (monitor scan set)")
-    msub = p_mr.add_subparsers(dest="mr_action", required=True)
-    p_mr_add = msub.add_parser("add", help="attach one MR to a ticket (upsert)")
-    p_mr_add.add_argument("ticket_id")
-    p_mr_add.add_argument("repo", help="GitLab project path, e.g. group/project")
-    p_mr_add.add_argument("iid")
-    p_mr_add.add_argument("--url", default="", help="human-facing MR URL (notified)")
-    p_mr_add.add_argument("--project", default=None)
-    p_mr_add.set_defaults(func=lambda a: mr.add(a.ticket_id, a.repo, a.iid, a.project, url=a.url))
-    p_mr_list = msub.add_parser("list", help="list every registered MR")
-    p_mr_list.add_argument("--project", default=None)
-    p_mr_list.set_defaults(func=lambda a: mr.list_mrs(a.project))
-    p_mr_rm = msub.add_parser("rm", help="drop a ticket's MR reference")
-    p_mr_rm.add_argument("ticket_id")
-    p_mr_rm.add_argument("--project", default=None)
-    p_mr_rm.set_defaults(func=lambda a: mr.rm(a.ticket_id, a.project))
-
     p_heal = sub.add_parser("heal", help="self-healing monitor daemon (start / stop / status)")
     p_heal.add_argument("action", nargs="?", default="status", choices=["start", "stop", "status"])
     p_heal.set_defaults(func=lambda a: heal.main(a.action))
-
-    p_spec = sub.add_parser("spec", help="interview-driven ticket creation")
-    p_spec_create = p_spec.add_subparsers(dest="spec_action", required=True)
-    p_sc = p_spec_create.add_parser("create", help="start a product-manager interview")
-    p_sc.add_argument("--mode", default="idea", choices=["idea", "bug", "feature"])
-    p_sc.add_argument("--title", default=None)
-    p_sc.add_argument("--project", default=None)
-    p_sc.set_defaults(func=lambda a: spec.create(a.mode, a.title, Path.cwd(), a.project))
 
     p_sb = sub.add_parser(
         "sandbox", help="sandbox lifecycle (build / list / prune / stop / restart)"

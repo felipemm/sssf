@@ -43,7 +43,7 @@ def main() -> int:
     argv = sys.argv[1:]
     if argv and argv[0] == "--":
         argv = argv[1:]
-    data_dir = Path("adws/data")
+    data_dir = Path(".adws/data")
     try:
         from sssf.adw_modules.agents import default_config_path, load_config
 

@@ -21,7 +21,7 @@ def build(explicit: str | None) -> int:
 
     root = _root(explicit)
     if root is None:
-        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        print("sssf: no project here (no .adws/). Run `sssf init` first.", file=sys.stderr)
         return 1
     from sssf.adw_modules import paths
 
@@ -40,7 +40,7 @@ def build(explicit: str | None) -> int:
         except Exception as error:
             print(
                 f"sssf: cannot read {paths.config_file(root)} ({error}) — "
-                "if this project predates the v2 layout, run `sssf init --refresh`",
+                "if this project predates the hidden layout, run `sssf init`",
                 file=sys.stderr,
             )
             return 1

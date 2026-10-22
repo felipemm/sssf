@@ -5,13 +5,13 @@ from sssf.postmortem import classify_failure
 
 def test_missing_entry_file_hints_layout():
     tail = (
-        "python: can't open file '/work/adws/modules/adw_simple_sdlc.py':"
+        "python: can't open file '/work/.adws/modules/adw_simple_sdlc.py':"
         " [Errno 2] No such file or directory"
     )
     hint = classify_failure(tail, "2")
     assert "not in the worktree" in hint
     assert "git add -A && git commit" in hint
-    assert "/work/adws/modules/adw_simple_sdlc.py" in hint
+    assert "/work/.adws/modules/adw_simple_sdlc.py" in hint
 
 
 def test_no_such_file_naming_adws_hints_layout():
@@ -56,7 +56,7 @@ def test_executable_not_found_without_quoted_binary_is_generic():
 def test_127_with_specific_signature_prefers_signature():
     # The entry-file error exits 2, but if a tail BOTH names adws/ and
     # carries a 127, the layout signature wins — specific before generic.
-    tail = "can't open file '/work/adws/modules/x.py': No such file or directory"
+    tail = "can't open file '/work/.adws/modules/x.py': No such file or directory"
     assert "not in the worktree" in classify_failure(tail, "127")
 
 

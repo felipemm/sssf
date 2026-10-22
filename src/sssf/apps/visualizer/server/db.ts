@@ -4,12 +4,6 @@
  * The read connection is opened readonly and every query on it is a SELECT —
  * the writers are the tracers of running ADW processes, and WAL lets us read
  * straight through their inserts.
- *
- * ONE exception, opened lazily on its own connection: `setArchived`. Archiving
- * is review triage — "I have looked at this run" — which has to outlive a
- * browser, so it lives on the session row rather than in localStorage. It is
- * the only write this process can make, it touches exactly one column, and it
- * never runs unless a human clicks the button.
  */
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
@@ -27,9 +21,10 @@ import type {
   SessionSummary,
   ReviewRow,
   SessionUsage,
+  SessionsFilter,
 } from "../shared/types.ts";
 
-const DEFAULT_DB_RELATIVE = "adws/data/sssf.db";
+const DEFAULT_DB_RELATIVE = ".adws/data/sssf.db";
 const MAX_LIMIT = 1000;
 const DEFAULT_LIMIT = 500;
 
@@ -39,7 +34,7 @@ const DEFAULT_LIMIT = 500;
  * test asserts the equality). Columns added after the baseline are gated by
  * the since-map below; a db stamped below their version reads them as NULL.
  */
-export const MIN_SCHEMA_VERSION = 5;
+export const MIN_SCHEMA_VERSION = 8;
 
 /**
  * Columns added after the original schema, keyed "table.column" → the
@@ -78,7 +73,7 @@ export function openReadonly(path: string): Database {
 }
 
 /**
- * Resolve the db path: --db arg wins, then SSSF_DB, then <cwd>/adws/data/sssf.db.
+ * Resolve the db path: --db arg wins, then SSSF_DB, then <cwd>/.adws/data/sssf.db.
  * The db lives in the TARGET repo, so cwd is the repo the visualizer is pointed at.
  */
 export function resolveDbPath(argv: string[] = Bun.argv): string {
@@ -98,7 +93,7 @@ export class SssfDb {
   /**
    * Where the ADW session dirs live: `{data_dir}/sessions/{adw_id}/{agent}/`.
    * The db sits in the same data_dir (config's `observability.db` defaults to
-   * `adws/data/sssf.db`), so deriving it as a sibling of the db file keeps
+   * `.adws/data/sssf.db`), so deriving it as a sibling of the db file keeps
    * working when the whole data_dir is relocated.
    */
   readonly sessionsDir: string;
@@ -106,8 +101,6 @@ export class SssfDb {
   /** The db's PRAGMA user_version, read once at open. */
   readonly schemaVersion: number;
   private readonly db: Database;
-  /** Opened on first archive and kept; null until then. */
-  private writer: Database | null = null;
 
   constructor(path: string, db?: Database) {
     if (!db && !existsSync(path)) {
@@ -186,45 +179,33 @@ export class SssfDb {
   }
 
   close(): void {
-    this.writer?.close();
     this.db.close();
   }
 
   /**
-   * Archive or restore a session — the only write in this process.
-   *
-   * busy_timeout matters: a run may be mid-insert on the same WAL db, and a
-   * click should wait its turn rather than fail. Returns false when the id
-   * does not exist, so the route can 404 instead of silently succeeding.
+   * Sessions, most recent first, each with its phase statuses for the progress
+   * dots. Done/blocked refer to run outcomes (success/fail), not ticket states.
    */
-  setArchived(adwId: string, archived: boolean): boolean {
-    if (this.schemaVersion < (SINCE_VERSION["sessions.archived"] ?? 1)) {
-      throw new Error("this db predates the archived column — run any ADW once to migrate it");
-    }
-    if (!this.writer) {
-      this.writer = new Database(this.path);
-      this.writer.exec("PRAGMA busy_timeout=5000;");
-    }
-    this.writer
-      .query("UPDATE sessions SET archived = ? WHERE adw_id = ?")
-      .run(archived ? 1 : 0, adwId);
-    return this.session(adwId) !== null;
-  }
-
-  /** Sessions, most recent first, each with its phase statuses for the progress dots. */
-  sessions(limit = 200, onlyArchived = false): SessionSummary[] {
+  sessions(limit = 200, filter: SessionsFilter = "all"): SessionSummary[] {
+    const archived = this.columnValue("sessions", "archived");
+    const where: Record<SessionsFilter, string> = {
+      all: `COALESCE(${archived}, 0) = 0`,
+      done: `COALESCE(${archived}, 0) = 0 AND status = 'success'`,
+      blocked: `COALESCE(${archived}, 0) = 0 AND status = 'fail'`,
+      archived: `COALESCE(${archived}, 0) = 1`,
+    };
     const rows = this.db
-      .query<Session, [number, number]>(
+      .query<Session, [number]>(
         `SELECT adw_id, ${this.column("sessions", "adw_name")}, request,
                 status, engineer, started_at, ended_at,
                 total_tokens, total_cost,
                 ${this.column("sessions", "archived")}
            FROM sessions
-          WHERE COALESCE(${this.columnValue("sessions", "archived")}, 0) = ?
+          WHERE ${where[filter]}
           ORDER BY started_at DESC, rowid DESC
           LIMIT ?`,
       )
-      .all(onlyArchived ? 1 : 0, clamp(limit, 1, MAX_LIMIT));
+      .all(clamp(limit, 1, MAX_LIMIT));
 
     if (rows.length === 0) return [];
 
@@ -283,7 +264,8 @@ export class SssfDb {
         .query<Session, [string]>(
           `SELECT adw_id, ${this.column("sessions", "adw_name")}, request,
                   status, engineer, started_at, ended_at,
-                  total_tokens, total_cost
+                  total_tokens, total_cost,
+                  ${this.column("sessions", "archived")}
              FROM sessions WHERE adw_id = ?`,
         )
         .get(adwId) ?? null

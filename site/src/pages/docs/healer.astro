@@ -33,7 +33,7 @@ const description =
       </tr>
       <tr>
         <td><strong>Hung agent</strong>: no progress for a long interval (default: 10 minutes with no new events)</td>
-        <td><code class="hl">sssf run restart</code> the session, with a restart budget of <code class="hl">MAX_RESTARTS=3</code> per run. Exhausted budget → finalize as failed.</td>
+        <td><code class="hl">sssf sandbox restart</code> the session, with a restart budget of <code class="hl">MAX_RESTARTS=3</code> per run. Exhausted budget → finalize as failed.</td>
       </tr>
       <tr>
         <td><strong>Spawn-failed ticket</strong>: a ticket stuck in <code class="hl">starting</code></td>
@@ -63,9 +63,8 @@ sssf heal stop</code></pre>
 
   <h2>Hands-on recovery</h2>
   <p>
-    If you want to see what is alive before relying on the daemon:
-    <code class="hl">sssf procs &lt;adw_id&gt;</code> lists live processes; a hung run can be killed
-    children-first with <span class="cmd">sssf run stop</span>: a killed run finalizes its own
-    trace to <code class="hl">fail</code>.
+    Inspect the run in <span class="cmd">sssf viz</span> before recovery. A hung run can be
+    stopped with <span class="cmd">sssf sandbox stop &lt;adw_id&gt;</span>; the run is finalized
+    as failed and its worktree remains available for review.
   </p>
 </DocsLayout>

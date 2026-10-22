@@ -4,7 +4,7 @@
 unenforceable on its own:
 
   * `bash` runs anything. A builder handed bash to run a test suite can also
-    run `git checkout adws/` — which is not hypothetical: one did, discarding
+    run `git checkout .adws/` — which is not hypothetical: one did, discarding
     uncommitted changes to the very quality check it was about to be judged by.
   * `write` reaches any path, not just the one report file an agent was given
     it for. A reviewer configured with "no edit, so it cannot quietly fix"
@@ -76,7 +76,7 @@ def _glob(pattern: str) -> re.Pattern:
     """Translate a pattern, with `*` stopping at a path separator.
 
     fnmatch would let `*` cross `/`, which quietly widens every pattern:
-    `adws/adw_modules/` protects the engine module; `adws/modules/` protects the chains
+    `.adws/adw_modules/` protects the engine module; `.adws/modules/` protects the chains
     ADW scripts it means. `**` is the way to say "cross directories".
     """
     out, i = [], 0

@@ -46,7 +46,7 @@ def _recent_spawn_failures(limit: int = 5) -> list[tuple[str, str]]:
 
     root = Path.cwd()
     db = paths.data_dir(root) / "sssf.db"
-    if not (root / "adws").exists() or not db.exists():
+    if not (root / ".adws").exists() or not db.exists():
         return []
     conn = None
     try:
@@ -121,7 +121,7 @@ def _doctor_project(ok: bool) -> bool:
 
     root = find_project(Path.cwd(), None)
     if root is None:
-        console.print("[dim]no project here (adws/) — skipping project checks[/dim]")
+        console.print("[dim]no project here (.adws/) — skipping project checks[/dim]")
         return ok
     console.print(f"[bold]{root}[/bold]")
     from sssf import ticketing
@@ -129,7 +129,7 @@ def _doctor_project(ok: bool) -> bool:
     cfg = ticketing.load_config(root)
     if cfg is None or "internal" not in cfg.providers:
         console.print("[red]missing[/red]  internal ticketing provider "
-                      "(adws/config/ticketing.yaml)")
+                      "(.adws/config/ticketing.yaml)")
         ok = False
     else:
         console.print("[green]ok[/green]  internal ticketing provider")

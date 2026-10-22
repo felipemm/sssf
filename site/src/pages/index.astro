@@ -5,21 +5,20 @@ import PhaseLanes from '../components/PhaseLanes.astro';
 import VideoEmbed from '../components/VideoEmbed.astro';
 
 const terminalLines = [
-  { kind: 'prompt', text: '❯ sssf run simple_sdlc "add a side-by-side markdown viewer"' },
-  { kind: 'dim', text: 'request  ························ done' },
-  { kind: 'out', text: '  plan      planner        kimi-k3 · 2.1k tok · $0.02' },
-  { kind: 'out', text: '  build     builder        gemini-3.6-flash · 14.8k tok · $0.09' },
-  { kind: 'out', text: '  test      code           pytest · 42 passed' },
-  { kind: 'out', text: '  review    reviewer       gpt-5.6-terra · verdict: approved' },
-  { kind: 'ok', text: '✔ accepted: 3 commits, branch sssf/a1b2c3d4' },
-  { kind: 'dim', text: 'watch live: sssf viz → http://localhost:4600' },
+  { kind: 'prompt', text: '❯ sssf flow implement internal:abc123' },
+  { kind: 'dim', text: 'ticket ························ in-progress' },
+  { kind: 'out', text: '  triage    planner        scoped implementation plan' },
+  { kind: 'out', text: '  build     builder        changes ready for review' },
+  { kind: 'out', text: '  review    reviewer       verdict: approved' },
+  { kind: 'ok', text: '✔ ticket ready for signoff' },
+  { kind: 'dim', text: 'inspect the trace: sssf viz → http://localhost:4600' },
 ];
 
 const principles = [
   {
     eyebrow: 'Observable',
     title: 'If you cannot measure your agents, you cannot improve them.',
-    body: 'Every run, phase, envelope, gate, and tool call streams into SQLite while it is still happening. Watch mid-flight in the visualizer, or from the terminal.',
+    body: 'Every run, phase, envelope, gate, and tool call streams into SQLite while it is still happening. Watch mid-flight in the visualizer.',
     color: 'builder',
   },
   {
@@ -62,23 +61,27 @@ const concepts = [
 const quickstart = [
   {
     cmd: 'uv tool install sssf',
-    note: 'One global install. Python 3.11+, with the pi coding agent, bun for the viz, docker for sandboxed runs.',
+    note: 'One global install. Python 3.11+, with the pi coding agent, bun for the visualizer, and docker for sandboxed runs.',
   },
   {
     cmd: 'sssf init',
-    note: 'Stamp the factory into this repo: your chains, your roster (sssf.config.yaml), your prompts. Register it in ~/.sssf/projects.json.',
+    note: 'Stamp the hidden .adws/ footprint into this repo and register it in ~/.sssf/projects.json.',
   },
   {
-    cmd: 'sssf run scout "map the repo"',
-    note: 'Run a chain. Scout is read-only recon: a safe first run that proves the whole path: config → session → agent → envelope → trace.',
+    cmd: 'sssf ticket new "Explore dark mode"',
+    note: 'Capture an idea ticket in needs-triage; all work belongs to a ticket.',
   },
   {
-    cmd: 'sssf sessions',
-    note: 'See what happened from the terminal: runs, phases, events, live processes.',
+    cmd: 'sssf flow plan',
+    note: 'Explore the idea, write its spec, and create ready-for-agent implementation tickets.',
+  },
+  {
+    cmd: 'sssf flow implement afk',
+    note: 'Work the ready-for-agent queue one ticket per run, with a fresh context each round.',
   },
   {
     cmd: 'sssf viz',
-    note: 'Open the global visualizer on :4600: status dashboard, kanban board, and the full phase waterfall.',
+    note: 'Open the global visualizer on :4600: status dashboard, ticket board, session history, and traces.',
   },
 ];
 
@@ -210,7 +213,7 @@ const features = [
   <!-- ============ QUICKSTART ============ -->
   <section class="section">
     <div class="container">
-      <h2 class="section-title">From zero to a traced run in five commands</h2>
+      <h2 class="section-title">From zero to a traced run in six commands</h2>
       <div class="quickstart">
         <ol>
           {
@@ -229,9 +232,11 @@ const features = [
           lines={[
             { kind: 'prompt', text: '❯ uv tool install sssf' },
             { kind: 'prompt', text: '❯ sssf init' },
-            { kind: 'out', text: '✓ stamped adws/ · registered project' },
-            { kind: 'prompt', text: '❯ sssf run scout "map the repo"' },
-            { kind: 'ok', text: '✔ scout: 3 findings → context_handoff/' },
+            { kind: 'out', text: '✓ stamped .adws/ · registered project' },
+            { kind: 'prompt', text: '❯ sssf ticket new "Explore dark mode"' },
+            { kind: 'out', text: '✓ idea ticket captured · needs-triage' },
+            { kind: 'prompt', text: '❯ sssf flow plan' },
+            { kind: 'ok', text: '✔ plan landed · implementation tickets ready' },
             { kind: 'prompt', text: '❯ sssf viz' },
             { kind: 'out', text: '→ http://localhost:4600/#/status' },
           ]}

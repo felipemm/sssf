@@ -61,7 +61,7 @@ def _clear_sandbox(root: Path, adw_id: str) -> None:
     except Exception as error:
         print(f"sssf sweep: {root.name}: worktree cleanup failed: {error}")
     try:
-        conn = sandbox_run_db(root / "adws" / "data")
+        conn = sandbox_run_db(root / ".adws" / "data")
         conn.execute("DELETE FROM sandbox_run WHERE adw_id=?", (adw_id,))
         conn.close()
     except Exception as error:

@@ -152,11 +152,9 @@ sssf viz start --project P    # use a specific project's registry</code></pre>
     db every <code class="hl">observability.poll_ms</code> (default 500ms).
   </p>
 
-  <h2>Terminal observability</h2>
+  <h2>Trace-reading surface</h2>
   <p>
-    The same data is reachable without the browser:
-    <code class="hl">sssf sessions</code>, <code class="hl">sssf phases &lt;id&gt;</code>,
-    <code class="hl">sssf tail &lt;id&gt;</code>, <code class="hl">sssf procs &lt;id&gt;</code>, or plain <code class="hl">sqlite3 adws/data/sssf.db</code>, which is WAL so reads never
-    block a running workflow.
+    The visualizer is the supported trace-reading surface in SSSF 2.0. It browses the project
+    database at <code class="hl">.adws/data/sssf.db</code> without blocking running workflows.
   </p>
 </DocsLayout>

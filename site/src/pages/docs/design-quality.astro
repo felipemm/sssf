@@ -30,14 +30,9 @@ const description =
 
   <h2>The agentic pass</h2>
   <p>
-    <code>sssf run sdlc_full "..."</code> runs the standard simple-sdlc chain with the
-    designer in the middle: build → <code>design</code> (the designer runs the impeccable
-    audit → critique → polish → optimize pass on the declared surface) → quality gates →
-    review → commit. Two design-context phases are conditional: <code>init</code> (documenter
-    runs <code>/impeccable init</code> → PRODUCT.md, once per project) and
-    <code>document_design</code> (<code>/impeccable document</code> → DESIGN.md, when the
-    design world changed). The deterministic gates — including <code>design</code> — verify the
-    designer's work before anything commits.
+    The design check is part of the configured quality gates used by the implement flow. When
+    enabled, the designer audits, critiques, polishes, and optimizes the declared surface; the
+    deterministic gates verify its work before the implementation run can be accepted.
   </p>
 
   <h2>Opting in (per project)</h2>
@@ -45,8 +40,8 @@ const description =
     <li>Run <code>sssf init --design-quality &lt;surface&gt;</code> — it declares the surface
         once (default <code>site/dist</code>) and wires the <code>design</code> check + the
         designer's scope to it.</li>
-    <li>Run the full flow with <code>sssf run sdlc_full "..."</code> (or keep simple_sdlc — the
-        gate still runs in any chain's quality loop).</li>
+    <li>Use <code>sssf flow implement &lt;ticket-id&gt;</code> to run the quality gates as part
+        of an implementation ticket.</li>
     <li>Per-project rule control: <code>.impeccable/config.json</code> ignores; advisory
         findings never fail the gate.</li>
     <li>Rebuild the runner image after any Dockerfile change — stale images keep failing the

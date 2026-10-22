@@ -128,7 +128,7 @@ class ReviewOutput(EnvelopeBase):
 class DocumentOutput(EnvelopeBase):
     """Where the write-up of a completed change landed."""
 
-    document_path: str = ""  # the doc in the repo, e.g. adws/kb/<adw_id>_<slug>.md
+    document_path: str = ""  # the doc in the repo, e.g. .adws/kb/<adw_id>_<slug>.md
     documented_files: list[str] = Field(default_factory=list)
     commit_message: str = ""
 
@@ -400,16 +400,16 @@ class ConfigDefaults(BaseModel):
     # the machinery that decides whether its work passed.
     protected_files: list[str] = Field(
         default_factory=lambda: [
-            "adws/adw_modules/",
-            "adws/config/",
-            "adws/modules/",
+            ".adws/adw_modules/",
+            ".adws/config/",
+            ".adws/modules/",
         ]
     )
-    data_dir: str = "adws/data"
+    data_dir: str = ".adws/data"
 
 
 class ObservabilityConfig(BaseModel):
-    db: str = "adws/data/sssf.db"
+    db: str = ".adws/data/sssf.db"
     poll_ms: int = 500
 
 

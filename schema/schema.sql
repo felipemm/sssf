@@ -112,7 +112,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   spec TEXT NOT NULL DEFAULT '',
   rejection_feedback TEXT NOT NULL DEFAULT '',
   created_at TEXT,
-  updated_at TEXT
+  updated_at TEXT,
+  mirrored_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ticket_events (
@@ -122,6 +123,13 @@ CREATE TABLE IF NOT EXISTS ticket_events (
   actor TEXT NOT NULL DEFAULT 'system',
   payload TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ticket_mirror_operations (
+  ticket_id TEXT NOT NULL,
+  operation_key TEXT NOT NULL,
+  completed_at TEXT NOT NULL,
+  PRIMARY KEY (ticket_id, operation_key)
 );
 
 CREATE TABLE IF NOT EXISTS ticket_runs (

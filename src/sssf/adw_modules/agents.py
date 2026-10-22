@@ -49,7 +49,7 @@ def default_config_path() -> str:
     return str(paths.config_file(Path.cwd()))
 
 
-def load_config(path: str = "adws/config/sssf.config.yaml") -> SSSFConfig:
+def load_config(path: str = ".adws/config/sssf.config.yaml") -> SSSFConfig:
     raw = yaml.safe_load(Path(path).read_text()) or {}
     defaults = raw.get("defaults", {}) or {}
     for agent in raw.get("agents", []) or []:

@@ -5,7 +5,21 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-10-22
+
+### Changed
+
+- **Breaking 2.0 cutover (#121)** — the stamped footprint moves to `.adws/`.
+  `sssf init` backs up a legacy visible `adws/` tree to `sssf-<timestamp>/`,
+  warns that chains/prompts/config are not migrated, and carries forward only the
+  project database (migrated to the current schema). Plan, implement, and deploy
+  reject projects without the new layout and direct operators to run init.
+- **Flows-only CLI surface** — removed `spec create`, `ticket add`, `ticket run`,
+  `sessions`, `phases`, `tail`, `procs`, and the manual `mr` command, plus the
+  legacy `adw_simple_sdlc` run path. Ticket capture is `ticket new`; work runs
+  through `flow plan` / `flow implement`; run traces live in the visualizer.
+  Existing sandbox shell targets used by the UI remain available.
+- **Version 2.0.0** — package and runtime version identify the breaking release.
 
 ### Added
 
@@ -33,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   terminal confirmation (`--yes` is the explicit automation escape), the
   promote step polls the per-project status command until fully promoted
   (configured under the new optional `release:` block in
-  adws/config/deploy.yaml; a project without a deployment pipeline omits it
+  .adws/config/deploy.yaml; a project without a deployment pipeline omits it
   and skips the gates). A canary/promote failure or poll timeout parks the
   batch's tickets `ready-to-deploy → blocked` with the command's stderr as
   fix-forward feedback — visible and actionable, never silently retried (the
@@ -46,7 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Deploy flow: batch-to-dev release train + workbench signoff (#96)** —
   `sssf flow deploy` is now a host-side orchestration: it brings up the QA
   workbench from the `dev` branch (a container with the app's command and a
-  published port, configured under `adws/config/deploy.yaml` `workbench:`),
+  published port, configured under `.adws/config/deploy.yaml` `workbench:`),
   signs the batch off at the terminal with ONE verdict (one workbench, one
   verdict — `--yes` is the explicit automation escape), and runs the
   deterministic release train (bump → MR dev→main → e2e → release) in a
@@ -194,19 +208,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every `SssfDb` query against it, so reader/writer drift fails CI.
 
 - **Flows as the only entry point + chain set reduction (#89)** — work starts
-  only through `sssf flow plan|implement|deploy`; ad-hoc `sssf run <adw> "<prompt>"`
-  is removed. The shipped `adws/modules/` template set collapses from the 13
-  one-off combos to the three flow chains: `adw_plan` (exploration →
-  grill-with-docs → spec → tickets, exploration skippable), `adw_implement`
-  (triage → build → quality → builder self-review → review), and `adw_deploy`
-  (sandbox → terminal signoff → bump → MR → e2e → release, with `--yes` as the
-  explicit signoff automation escape). `init --refresh` lands the three chains
-  alongside legacy combos without touching edited chains; legacy removal is
-  manual. Already-stamped projects' legacy ADWs stay runnable via the legacy
-  `sssf ticket run` path and `sssf sandbox restart` (which re-runs the original
-  ADW). Run control moved to `sssf sandbox stop|restart`; the viz trace page
-  shells the new form. Per-flow deep semantics (ticket transforms, machine
-  transitions, workbench, canary/promote/close-by-commits) land in #91/#92/#96/#97.
+  through `sssf flow plan|implement|deploy`. The shipped `.adws/modules/` chain
+  set is `adw_plan` (exploration → grill-with-docs → spec → tickets),
+  `adw_implement` (triage → build → quality → builder self-review → review), and
+  `adw_deploy` (bump → MR → e2e → release). Run control is
+  `sssf sandbox stop|restart`; the visualizer shells the UI controls to those
+  supported commands. Per-flow semantics include ticket transforms, machine
+  transitions, workbench, canary/promote, and close-by-commits (#91/#92/#96/#97).
 
 ### Added
 
@@ -216,9 +224,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   adapter (`sssf notify`) on pipeline green, failed, and merged — exactly once
   per transition (last-seen state in `monitor_state`; a replaced MR resets it).
   Lives and dies with the server: boot sweep + interval, cleared on SIGINT. No
-  separate daemon. MRs attach to tickets via the new `sssf mr add/list/rm`
-  command (ticket_mrs table, audited); per-project config in
-  `adws/config/monitor.json` (gitlab_url + token_env, token from env or the
+  separate daemon. The deploy flow registers MRs through the ticketing API
+  (ticket_mrs table, audited); per-project config in
+  `.adws/config/monitor.json` (gitlab_url + token_env, token from env or the
   project .env). New `/api/projects/:project/monitor` status route.
 
 ### Added

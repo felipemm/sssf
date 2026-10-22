@@ -1,3 +1,3 @@
 # kb
 
-Write-ups the documenter commits (`adws/kb/<adw_id>_<slug>.md`).
+Write-ups the documenter commits (`.adws/kb/<adw_id>_<slug>.md`).

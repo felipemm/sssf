@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, shallowRef, watch } from 'vue'
-import { Archive, ArchiveRestore, RotateCw, Square, User } from 'lucide-vue-next'
+import { RotateCw, Square, User } from 'lucide-vue-next'
 import type { EventRow, SessionSummary } from '../lib/types'
-import { archiveSession, fetchEvents, restartRun, stopRun } from '../lib/api'
+import { fetchEvents, restartRun, stopRun } from '../lib/api'
+import { sessionActions } from '../lib/sessionActions'
 import { axisTicks, fmtOffset, ts } from '../lib/format'
 import { runDurationMs } from '../lib/duration'
 import { adwIconFor } from '../lib/adwIcons'
@@ -11,7 +12,7 @@ import { hrefFor } from '../lib/router'
 import StatChip from './StatChip.vue'
 
 const props = defineProps<{ session: SessionSummary; nowMs: number; archived?: boolean }>()
-const emit = defineEmits<{ archived: [adwId: string] }>()
+const emit = defineEmits<{ changed: [adwId: string] }>()
 
 // Sum of each phase's duration — the row span would count the idle gap
 // between a re-run's attempts as part of the run.
@@ -20,15 +21,14 @@ const durationMs = computed(() => runDurationMs(props.session, props.nowMs))
 const adwIcon = computed(() => adwIconFor(props.session.adw_name))
 
 // The card is an <a>; the button lives inside it, so the click must not
-// navigate. Told the parent optimistically — the poll would take up to half a
-// second to drop the card, and a triage click should feel instant.
+// navigate. Ask the parent to refresh after a run-control action.
 async function restart(event: MouseEvent) {
   event.preventDefault()
   event.stopPropagation()
   try {
     await restartRun(props.session.adw_id)
   } catch { /* the next poll reconciles */ }
-  emit('archived', props.session.adw_id)   // signals the parent to re-sync
+  emit('changed', props.session.adw_id)
 }
 
 async function stop(event: MouseEvent) {
@@ -37,18 +37,7 @@ async function stop(event: MouseEvent) {
   try {
     await stopRun(props.session.adw_id)
   } catch { /* the next poll reconciles */ }
-  emit('archived', props.session.adw_id)   // signals the parent to re-sync
-}
-
-async function archive(event: MouseEvent) {
-  event.preventDefault()
-  event.stopPropagation()
-  emit('archived', props.session.adw_id)
-  try {
-    await archiveSession(props.session.adw_id, !props.archived)   // restore on the archive page
-  } catch {
-    emit('archived', '')   // signals the parent to re-sync from the server
-  }
+  emit('changed', props.session.adw_id)
 }
 
 // Each card tails its own event stream: one full fetch on mount, then the
@@ -103,6 +92,7 @@ watch(
 )
 
 const running = computed(() => props.session.status === 'running')
+const controls = computed(() => sessionActions(props.session.status, props.archived ?? false))
 
 const range = computed(() => {
   const s = props.session
@@ -205,21 +195,10 @@ const tlHeight = computed(() => TL_AXIS_H + Math.max(1, rows.value.length) * TL_
       </span>
       <span class="card-id">{{ session.adw_id }}</span>
       <span v-if="session.ticket_id" class="card-ticket" :title="session.ticket_id">{{ session.ticket_id }}</span>
-      <span class="head-actions">
+      <span v-if="controls.canStop || controls.canRestart" class="head-actions">
         <button
-          class="card-archive"
-          type="button"
-          :disabled="!archived && session.status !== 'success' && session.status !== 'fail'"
-          :title="archived ? 'Restore — bring this run back to review' : (session.status === 'running' ? 'Running — archive available once done or failed' : 'Archive — remove this run from review')"
-          :aria-label="archived ? 'Restore run' : 'Archive run'"
-          @click="archive"
-        >
-          <Archive v-if="!archived" :size="14" :stroke-width="2" />
-          <ArchiveRestore v-else :size="14" :stroke-width="2" />
-        </button>
-        <button
-          v-if="!archived && session.status === 'running'"
-          class="card-archive"
+          v-if="controls.canStop"
+          class="card-control"
           type="button"
           title="Stop — cancel this run (marked failed, sandbox torn down)"
           aria-label="Stop run"
@@ -228,8 +207,8 @@ const tlHeight = computed(() => TL_AXIS_H + Math.max(1, rows.value.length) * TL_
           <Square :size="14" :stroke-width="2" />
         </button>
         <button
-          v-if="session.status === 'success' || session.status === 'fail'"
-          class="card-archive"
+          v-if="controls.canRestart"
+          class="card-control"
           type="button"
           title="Restart — re-run this session in a fresh sandbox"
           aria-label="Restart run"
@@ -293,7 +272,7 @@ const tlHeight = computed(() => TL_AXIS_H + Math.max(1, rows.value.length) * TL_
   flex-direction: column;
   gap: 6px;
   padding: 12px 14px;
-  position: relative;          /* anchors the archive button */
+  position: relative;          /* anchors the timeline and controls */
   border: 1px solid var(--border-soft);
   border-radius: 16px;
   background: var(--surface);
@@ -304,40 +283,6 @@ const tlHeight = computed(() => TL_AXIS_H + Math.max(1, rows.value.length) * TL_
     border-color 0.18s ease,
     box-shadow 0.18s ease,
     transform 0.18s ease;
-}
-
-.card-archive {
-  /* Inline in the header row (right-aligned) — always visible. */
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--faint);
-  font-family: inherit;
-  cursor: pointer;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease,
-    border-color 0.15s ease;
-}
-.card-archive:hover {
-  background: rgba(255, 111, 103, 0.16);
-  color: #ff6f67;
-  border-color: rgba(255, 111, 103, 0.35);
-}
-.card-archive:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-.card-archive:disabled:hover {
-  background: none;
-  color: var(--faint);
-  border-color: transparent;
 }
 
 .card:hover {
@@ -381,6 +326,23 @@ const tlHeight = computed(() => TL_AXIS_H + Math.max(1, rows.value.length) * TL_
   display: inline-flex;
   gap: 2px;
   margin-left: auto;
+}
+.card-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+}
+.card-control:hover {
+  color: var(--text);
+  background: rgba(200, 155, 255, 0.12);
 }
 .card-id {
   flex: none;
