@@ -146,6 +146,7 @@ export interface TicketsRow {
   rejection_feedback: string;
   created_at: string | null;
   updated_at: string | null;
+  mirrored_at: string | null;
 }
 
 /** `ticket_events` table — generated from db_schema.TicketEventsRow. */
@@ -156,6 +157,13 @@ export interface TicketEventsRow {
   actor: string;
   payload: string;
   created_at: string;
+}
+
+/** `ticket_mirror_operations` table — generated from db_schema.TicketMirrorOperationsRow. */
+export interface TicketMirrorOperationsRow {
+  ticket_id: string;
+  operation_key: string;
+  completed_at: string;
 }
 
 /** `ticket_runs` table — generated from db_schema.TicketRunsRow. */

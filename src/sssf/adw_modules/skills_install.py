@@ -6,8 +6,8 @@ Stamps the transitive closure of the workflow skills into
 `sssf doctor` can report staleness and `sssf init --refresh` can update.
 
 The stamp root is the twelve workflow skills the factory's flows reference
-(`WORKFLOW_SKILLS`) plus `brainstorming` (the spec_interviewer prompts invoke
-it). `closure()` expands the root: every included skill's files are scanned
+(`WORKFLOW_SKILLS`) plus `brainstorming`. `closure()` expands the root: every
+included skill's files are scanned
 for references to OTHER manifest skills (by frontmatter name) and those are
 included too, recursively, to a fixpoint. External setup references inside
 the skills' own prose (`/setup-matt-pocock-skills`) are rewritten to sssf's
@@ -86,9 +86,8 @@ def _git(*args: str, cwd: Path | None = None, timeout_s: int = 300):
 
 
 def _stamp_root() -> tuple[str, ...]:
-    """The closure seed: the workflow skills plus brainstorming (the
-    spec_interviewer prompts invoke it). Reads the module constants at call
-    time so tests can shrink the root."""
+    """The closure seed: the workflow skills plus brainstorming. Reads the
+    module constants at call time so tests can shrink the root."""
     return (*WORKFLOW_SKILLS, "brainstorming")
 
 

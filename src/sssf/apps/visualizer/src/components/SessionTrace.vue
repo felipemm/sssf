@@ -12,8 +12,9 @@ import type {
   Session,
   SessionUsage,
 } from '../lib/types'
-import { Archive, ArchiveRestore, Bot, ExternalLink, FileText, RotateCw, Square, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
-import { archiveSession, fetchEnvelopes, fetchEvents, fetchGates, fetchReview, fetchSession, fetchSessionLogs, fetchTickets, restartRun, stopRun, useProjects, type Ticket as TicketInfo } from '../lib/api'
+import { Bot, ExternalLink, FileText, RotateCw, Square, SquareTerminal, Ticket, UserRound } from 'lucide-vue-next'
+import { fetchEnvelopes, fetchEvents, fetchGates, fetchReview, fetchSession, fetchSessionLogs, fetchTickets, restartRun, stopRun, useProjects, type Ticket as TicketInfo } from '../lib/api'
+import { sessionActions } from '../lib/sessionActions'
 import { axisTicks, fmtCost, fmtDate, payloadOk, ts } from '../lib/format'
 import { runDurationMs } from '../lib/duration'
 import { modelIcon, modelName } from '../lib/models'
@@ -25,17 +26,6 @@ import PhaseDetail from './PhaseDetail.vue'
 import TicketModal from './TicketModal.vue'
 
 const props = defineProps<{ adwId: string; phaseId: string | null }>()
-
-// Archive/restore from the trace: triage while reading. On success the run has
-// left the review surface, so land back on the sessions home.
-async function toggleArchive() {
-  try {
-    await archiveSession(props.adwId, !session.value?.archived)
-    navigate({})
-  } catch {
-    /* stay on the page; the next poll reconciles */
-  }
-}
 
 // These API payloads are replaced as a whole, so deep reactivity is unnecessary.
 const session = shallowRef<Session | null>(null)
@@ -52,6 +42,9 @@ const apiError = ref<string | null>(null)
 const flash = ref('') // transient control feedback (restart/stop failures)
 const loaded = ref(false)
 const nowMs = ref(Date.now())
+const sessionControls = computed(() => session.value
+  ? sessionActions(session.value.status, Boolean(session.value.archived))
+  : { canStop: false, canRestart: false })
 
 let flashTimer: ReturnType<typeof setTimeout> | undefined
 function flashMsg(msg: string) {
@@ -577,17 +570,6 @@ function selectPhase(p: Phase) {
       <span class="request" :title="session.request ?? ''">{{ session.request }}</span>
       <StatusChip :status="session.status ?? 'fail'" />
       <button
-        class="strip-archive"
-        type="button"
-        :disabled="!session.archived && session.status !== 'success' && session.status !== 'fail'"
-        :title="session.archived ? 'Restore — bring this run back to review' : (session.status === 'running' ? 'Running — archive available once done or failed' : 'Archive — remove this run from review')"
-        :aria-label="session.archived ? 'Restore run' : 'Archive run'"
-        @click="toggleArchive"
-      >
-        <ArchiveRestore v-if="session.archived" :size="16" :stroke-width="2" />
-        <Archive v-else :size="16" :stroke-width="2" />
-      </button>
-      <button
         v-if="ticket"
         class="strip-archive"
         type="button"
@@ -598,7 +580,7 @@ function selectPhase(p: Phase) {
         <Ticket :size="16" :stroke-width="2" />
       </button>
       <button
-        v-if="session.status === 'running'"
+        v-if="sessionControls.canStop"
         class="strip-archive strip-stop"
         type="button"
         title="Stop — kill the sandbox and mark the run failed"
@@ -608,7 +590,7 @@ function selectPhase(p: Phase) {
         <Square :size="16" :stroke-width="2" />
       </button>
       <button
-        v-if="session.status === 'success' || session.status === 'fail'"
+        v-if="sessionControls.canRestart"
         class="strip-archive strip-restart"
         type="button"
         title="Restart — re-run this session in a fresh sandbox"

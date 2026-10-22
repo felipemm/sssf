@@ -35,13 +35,13 @@ def _make_db(path: Path) -> None:
 def _register(tmp_path: Path, monkeypatch, root: Path | None = None) -> None:
     monkeypatch.setattr(registry, "registry_path", lambda: tmp_path / ".sssf" / "projects.json")
     if root is not None:
-        registry.register_project(root, root / "adws" / "data" / "sssf.db", "0.1.0")
+        registry.register_project(root, root / ".adws" / "data" / "sssf.db", "0.1.0")
 
 
 def test_sweep_archives_old_finished_only(tmp_path, monkeypatch, capsys):
     root = tmp_path / "proj"
-    (root / "adws/data").mkdir(parents=True)
-    db = root / "adws" / "data" / "sssf.db"
+    (root / ".adws/data").mkdir(parents=True)
+    db = root / ".adws" / "data" / "sssf.db"
     _make_db(db)
     _register(tmp_path, monkeypatch, root)
 
@@ -60,8 +60,8 @@ def test_sweep_archives_old_finished_only(tmp_path, monkeypatch, capsys):
 
 def test_sweep_project_flag(tmp_path, monkeypatch, capsys):
     root = tmp_path / "proj"
-    (root / "adws/data").mkdir(parents=True)
-    db = root / "adws" / "data" / "sssf.db"
+    (root / ".adws/data").mkdir(parents=True)
+    db = root / ".adws" / "data" / "sssf.db"
     _make_db(db)
     # not registered — --project sweeps it directly
     assert sweep.run(str(root)) == 0
@@ -76,8 +76,8 @@ def test_sweep_empty_registry_is_friendly(tmp_path, monkeypatch, capsys):
 
 def test_sweep_clears_sandbox_resources(tmp_path, monkeypatch, capsys):
     root = tmp_path / "proj"
-    (root / "adws/data").mkdir(parents=True)
-    db = root / "adws" / "data" / "sssf.db"
+    (root / ".adws/data").mkdir(parents=True)
+    db = root / ".adws" / "data" / "sssf.db"
     _make_db(db)
     cleared = []
     monkeypatch.setattr(sweep, "_clear_sandbox", lambda r, a: cleared.append((r, a)))
@@ -98,8 +98,8 @@ def test_clear_sandbox_removes_container_and_worktree(tmp_path, monkeypatch):
 
 def test_sweep_days_flag(tmp_path, monkeypatch, capsys):
     root = tmp_path / "proj"
-    (root / "adws/data").mkdir(parents=True)
-    db = root / "adws" / "data" / "sssf.db"
+    (root / ".adws/data").mkdir(parents=True)
+    db = root / ".adws" / "data" / "sssf.db"
     _make_db(db)
     _register(tmp_path, monkeypatch, root)
     # 1-day window: only the 40-day-old sessions qualify
@@ -119,7 +119,7 @@ def test_sweep_clears_sandbox_run_row(tmp_path, monkeypatch):
     from sssf.commands import sweep as sweep_mod
 
     root = tmp_path / "proj"
-    data = root / "adws" / "data"
+    data = root / ".adws" / "data"
     data.mkdir(parents=True)
     db_path = sb.project_db_path(data)
     conn = sqlite3.connect(db_path)
@@ -161,7 +161,7 @@ def test_sweep_removes_orphan_containers(tmp_path, monkeypatch):
     from sssf.commands import sweep as sweep_mod
 
     root = tmp_path / "proj"
-    data = root / "adws" / "data"
+    data = root / ".adws" / "data"
     data.mkdir(parents=True)
     db_path = sb.project_db_path(data)
     conn = sqlite3.connect(db_path)

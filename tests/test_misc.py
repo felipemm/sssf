@@ -6,7 +6,7 @@ def test_projects_list_and_remove(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(registry, "registry_path", lambda: tmp_path / ".sssf" / "projects.json")
     root = tmp_path / "proj"
     root.mkdir()
-    registry.register_project(root, root / "adws/adw_data/sssf.db", "0.1.0")
+    registry.register_project(root, root / ".adws/data/sssf.db", "0.1.0")
     assert misc.projects("list", None) == 0
     assert "proj" in capsys.readouterr().out
     assert misc.projects("remove", "proj") == 0
@@ -56,10 +56,10 @@ def test_doctor_lists_recent_spawn_failures(tmp_path, monkeypatch, capsys):
     from sssf.adw_modules.tracer import Tracer
 
     project = tmp_path / "proj"
-    (project / "adws" / "data").mkdir(parents=True)
+    (project / ".adws" / "data").mkdir(parents=True)
     tracer = Tracer(
-        project / "adws" / "data" / "sssf.db",
-        project / "adws" / "data" / "sessions" / "abc1" / "events.jsonl",
+        project / ".adws" / "data" / "sssf.db",
+        project / ".adws" / "data" / "sessions" / "abc1" / "events.jsonl",
     )
     tracer.conn.execute(
         "INSERT INTO sessions (adw_id, adw_name, status, started_at, ended_at)"
@@ -87,7 +87,7 @@ def test_doctor_lists_recent_spawn_failures(tmp_path, monkeypatch, capsys):
 def test_doctor_no_spawn_failures_is_quiet(tmp_path, monkeypatch, capsys):
     """No 'recent spawn failures' section when there is nothing to report."""
     project = tmp_path / "proj"
-    (project / "adws" / "data").mkdir(parents=True)
+    (project / ".adws" / "data").mkdir(parents=True)
     monkeypatch.setattr(misc, "which", lambda name: "/usr/bin/" + name)
     # The spawn-failure listing is under test; main's project env checks
     # (ticketing/skills) are out of scope for a bare db fixture.
@@ -104,10 +104,10 @@ def test_doctor_spawn_failure_uses_log_tail_fallback(tmp_path, monkeypatch, caps
     from sssf.adw_modules.tracer import Tracer
 
     project = tmp_path / "proj"
-    (project / "adws" / "data").mkdir(parents=True)
+    (project / ".adws" / "data").mkdir(parents=True)
     tracer = Tracer(
-        project / "adws" / "data" / "sssf.db",
-        project / "adws" / "data" / "sessions" / "abc2" / "events.jsonl",
+        project / ".adws" / "data" / "sssf.db",
+        project / ".adws" / "data" / "sessions" / "abc2" / "events.jsonl",
     )
     tracer.conn.execute(
         "INSERT INTO sessions (adw_id, adw_name, status, started_at, ended_at)"
@@ -141,10 +141,10 @@ def test_doctor_spawn_failure_without_hint_is_labeled(tmp_path, monkeypatch, cap
     from sssf.adw_modules.tracer import Tracer
 
     project = tmp_path / "proj"
-    (project / "adws" / "data").mkdir(parents=True)
+    (project / ".adws" / "data").mkdir(parents=True)
     tracer = Tracer(
-        project / "adws" / "data" / "sssf.db",
-        project / "adws" / "data" / "sessions" / "abc3" / "events.jsonl",
+        project / ".adws" / "data" / "sssf.db",
+        project / ".adws" / "data" / "sessions" / "abc3" / "events.jsonl",
     )
     tracer.conn.execute(
         "INSERT INTO sessions (adw_id, adw_name, status, started_at, ended_at)"

@@ -3,7 +3,7 @@ import DocsLayout from '../../layouts/DocsLayout.astro';
 import Terminal from '../../components/Terminal.astro';
 
 const description =
-  'Install the CLI, stamp the factory into a repo, and prove the whole path with a read-only run.';
+  'Install SSSF 2.0, stamp the hidden project footprint, and start with the plan and implement flows.';
 ---
 <DocsLayout
   title="Quickstart"
@@ -14,108 +14,68 @@ const description =
 >
   <h2>Prerequisites</h2>
   <table>
-    <thead>
-      <tr><th>Tool</th><th>Why</th><th>Checked by</th></tr>
-    </thead>
+    <thead><tr><th>Tool</th><th>Why</th><th>Checked by</th></tr></thead>
     <tbody>
-      <tr><td><span class="cmd">uv</span> + Python 3.11+</td><td>The CLI is installed as a uv tool</td><td><span class="cmd">sssf doctor</span></td></tr>
-      <tr><td><span class="cmd">pi</span></td><td>The coding agent every agent phase runs</td><td><span class="cmd">sssf doctor</span></td></tr>
-      <tr><td><span class="cmd">bun</span></td><td>Serves the global visualizer (<span class="cmd">sssf viz</span>)</td><td><span class="cmd">sssf doctor</span></td></tr>
-      <tr><td><span class="cmd">sqlite3</span></td><td>The trace database reads</td><td><span class="cmd">sssf doctor</span></td></tr>
-      <tr><td><span class="cmd">docker</span></td><td>Sandboxed runs (optional for local runs)</td><td><span class="cmd">sssf sandbox build</span></td></tr>
+      <tr><td><span class="cmd">uv</span> + Python 3.11+</td><td>Install and run the CLI</td><td><span class="cmd">sssf doctor</span></td></tr>
+      <tr><td><span class="cmd">pi</span></td><td>The coding agent for agent phases</td><td><span class="cmd">sssf doctor</span></td></tr>
+      <tr><td><span class="cmd">bun</span></td><td>Serve the global visualizer</td><td><span class="cmd">sssf doctor</span></td></tr>
+      <tr><td><span class="cmd">docker</span></td><td>Sandboxed runs (optional with <code>--no-sandbox</code>)</td><td><span class="cmd">sssf sandbox build</span></td></tr>
     </tbody>
   </table>
-  <p>
-    You also need a model registered in the coding agent&rsquo;s catalog for whatever
-    <code class="hl">model:</code> entries your roster names. <span class="cmd">sssf doctor</span>
-    checks the toolchain; a missing API key fails when that agent runs, not at startup.
-  </p>
 
   <h2>1 · Install</h2>
   <pre><code>uv tool install sssf</code></pre>
-  <p>
-    One global install, any number of projects. You can also install from a checkout with
-    <code class="hl">uv tool install --editable .</code>. There is no per-project install step:
-    that is what <span class="cmd">sssf init</span> is for.
-  </p>
+  <p>One global install serves any number of projects. There is no per-project install step.</p>
 
-  <h2>2 · Stamp the factory into a repo</h2>
+  <h2>2 · Initialize a project</h2>
   <pre><code>cd your-repo
 sssf init</code></pre>
   <p>
-    <span class="cmd">sssf init</span> stamps the <strong>customization surface</strong> into the
-    current directory and registers the project:
+    Initialization stamps the hidden <code class="hl">.adws/</code> footprint and registers
+    the project. The tree contains the plan, implement, and deploy chains; roster and provider
+    config; the database and runtime artifacts; and prompt, spec, and knowledge-base directories.
+    Runtime database/session state is gitignored.
   </p>
-  <ul>
-    <li><code class="hl">adws/modules/adw_*.py</code>: your chains (AI Developer Workflows)</li>
-    <li><code class="hl">adws/config/sssf.config.yaml</code>: your agent roster</li>
-    <li><code class="hl">adws/data/prompt_engineering/</code>: your prompts, per agent</li>
-    <li><code class="hl">adws/data/harness_engineering/</code>: pi extensions</li>
-    <li><code class="hl">.pi/skills/</code>: the stamped hermetic workflow-skill closure — commit it (sandbox worktrees branch from <code class="hl">origin/main</code>)</li>
-    <li><code class="hl">.env.sample</code>: provider keys template</li>
-  </ul>
   <p>
-    It also appends an <code class="hl">&lt;!-- sssf --&gt;</code> block to
-    <code class="hl">AGENTS.md</code> and adds the runtime state
-    (<code class="hl">adws/data/sessions/</code>, <code class="hl">sssf.db</code> and its WAL
-    sidecars) to <code class="hl">.gitignore</code>.
+    On a pre-2.0 project, init backs up the visible <code class="hl">adws/</code> tree to
+    <code class="hl">sssf-&lt;timestamp&gt;/</code>, warns that custom chains and config are not
+    migrated, and carries forward only the SQLite database. Reapply desired customizations from
+    the backup. A flow on an un-upgraded project stops and tells you to run init.
   </p>
 
-  <h2>3 · Run something safe</h2>
-  <pre><code>sssf flow plan --skip-exploration</code></pre>
+  <h2>3 · Capture and plan a ticket</h2>
+  <pre><code>sssf ticket new "Explore dark mode"
+sssf flow plan</code></pre>
   <p>
-    Flows are the only entry point for work (#89). The plan flow runs
-    exploration (skippable here) → grill-with-docs → spec → implementation
-    tickets; a green run proves the whole path end to end: config validated,
-    session minted, agents ran, envelopes parsed, events landed in
-    <code class="hl">adws/data/sssf.db</code>. Fix it here before composing
-    anything larger, because every multi-agent chain rides this exact path.
-  </p>
-  <p>
-    Want to see it before wiring your own project? The
-    <a href="https://github.com/felipemm/inkwell">inkwell</a> demo repo is ready to run —
-    clone it and run <code>sssf flow</code> to watch a full traced chain.
-  </p>
-  <p>
-    Work always belongs to a ticket: <span class="cmd">sssf flow plan
-    &lt;ticket-id&gt;</span> turns an idea ticket into a spec plus
-    <span class="cmd">ready-for-agent</span> implementation children (plan-once;
-    <span class="cmd">--revise</span> re-plans), and
-    <span class="cmd">sssf flow implement &lt;ticket-id&gt;</span> implements one
-    <span class="cmd">ready-for-agent</span> ticket unattended (triage → build →
-    review). Run
-    <span class="cmd">sssf flow implement afk</span> to work the whole
-    <span class="cmd">ready-for-agent</span> queue to completion — one ticket per
-    run, fresh context each round, stopping when the queue is empty or
-    <span class="cmd">--cap</span> rounds are hit.
+    Work always belongs to a ticket. <code class="hl">ticket new</code> captures a title-only
+    idea; <code class="hl">flow plan</code> explores, writes the spec, and creates
+    <code class="hl">ready-for-agent</code> implementation tickets. To plan a known idea, pass its
+    ticket id: <code class="hl">sssf flow plan &lt;ticket-id&gt;</code>.
   </p>
 
-  <h2>4 · Look at the trace</h2>
-  <pre><code>sssf sessions        # recent runs, status, tokens, cost
-sssf phases a1b2c3d4  # the phase waterfall of one run
-sssf tail a1b2c3d4    # recent events of one run
-sssf procs a1b2c3d4   # live processes of one run</code></pre>
-
-  <h2>5 · Open the visualizer</h2>
-  <pre><code>sssf viz</code></pre>
+  <h2>4 · Implement and inspect</h2>
+  <pre><code>sssf flow implement &lt;ticket-id&gt;
+sssf flow implement afk
+sssf viz</code></pre>
   <p>
-    Spawns the global visualizer as a background service on port <code class="hl">4600</code> and
-    opens your browser. It is a global service over every registered project, with a project
-    picker in the UI. If the healer is not running, <span class="cmd">sssf viz start</span> rides
-    it along.
+    Implement runs one ready-for-agent ticket through triage, build, and review.
+    <code class="hl">afk</code> works the queue one ticket per run. The visualizer provides the
+    board, history, and traces. External tracker tickets are pulled and mirrored only when you run
+    <code class="hl">sssf ticket sync</code> (or use the board's sync button).
   </p>
+
   <div style="margin-top: 26px;">
     <Terminal
-      title="sssf: the whole quickstart"
+      title="sssf 2.0 quickstart"
       lines={[
         { kind: 'prompt', text: '❯ uv tool install sssf' },
-        { kind: 'out', text: '✓ installed sssf 1.0.0' },
+        { kind: 'out', text: '✓ installed sssf 2.0.0' },
         { kind: 'prompt', text: '❯ sssf init' },
-        { kind: 'out', text: '✓ stamped adws/ · registered <repo>' },
-        { kind: 'prompt', text: '❯ sssf run scout "map the repo"' },
-        { kind: 'ok', text: '✔ scout done: findings in context_handoff/' },
-        { kind: 'prompt', text: '❯ sssf sessions' },
-        { kind: 'out', text: 'a1b2c3d4  scout  success  3 findings  1.4k tok  $0.00' },
+        { kind: 'out', text: '✓ stamped .adws/ · registered <repo>' },
+        { kind: 'prompt', text: '❯ sssf ticket new "Explore dark mode"' },
+        { kind: 'out', text: '✓ ticket captured · needs-triage' },
+        { kind: 'prompt', text: '❯ sssf flow plan' },
+        { kind: 'out', text: '✓ plan landed · implementation tickets ready' },
         { kind: 'prompt', text: '❯ sssf viz' },
         { kind: 'out', text: '→ http://localhost:4600/#/status' },
       ]}
@@ -123,10 +83,6 @@ sssf procs a1b2c3d4   # live processes of one run</code></pre>
   </div>
 
   <h2>Sanity check</h2>
-  <pre><code>sssf doctor   # uv · pi · bun · sqlite3 · ~/.local/bin on PATH</code></pre>
-  <p>
-    <span class="cmd">sssf doctor</span> checks the global prerequisites and reports each one
-    with the path it resolved. Every recipe here is also available as a plain command: nothing
-    depends on aliases or wrappers.
-  </p>
+  <pre><code>sssf doctor</code></pre>
+  <p>Doctor reports the global prerequisites and paths it resolved.</p>
 </DocsLayout>

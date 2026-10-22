@@ -22,17 +22,18 @@ describe("runTicket", () => {
     const res = await runTicket("/proj", "internal:x", undefined, spawn);
     expect(res.ok).toBe(true);
     expect(res.adwId).toBe("abc12345");
-    expect((spawn as unknown as { calls: string[][] }).calls[0]).toEqual([
-      "sssf", "ticket", "run", "internal:x", "--project", "/proj",
-    ]);
+    expect((spawn as unknown as { calls: string[][] }).calls).toEqual([[
+      "sssf", "flow", "implement", "internal:x", "--project", "/proj",
+    ]]);
   });
 
-  test("operator context is passed to the CLI via --context", async () => {
+  test("operator context is persisted before the implement flow starts", async () => {
     const spawn = fakeSpawn("sssf ticket: run spawned for internal:x — adw_id abc12345");
     const res = await runTicket("/proj", "internal:x", "focus on the OAuth flow", spawn);
     expect(res.ok).toBe(true);
-    expect((spawn as unknown as { calls: string[][] }).calls[0]).toEqual([
-      "sssf", "ticket", "run", "internal:x", "--context", "focus on the OAuth flow", "--project", "/proj",
+    expect((spawn as unknown as { calls: string[][] }).calls).toEqual([
+      ["sssf", "ticket", "context", "internal:x", "--set", "focus on the OAuth flow", "--project", "/proj"],
+      ["sssf", "flow", "implement", "internal:x", "--project", "/proj"],
     ]);
   });
 

@@ -4,20 +4,20 @@ import { CircleCheck, CircleX, ExternalLink, LoaderCircle, Play, X } from 'lucid
 import { runTicket, saveTicketContext } from '../lib/api'
 import { notify } from '../lib/toast'
 import { renderMarkdown } from '../lib/markdown'
+import { isRunnableTicket } from '../lib/ticketFilters'
 import type { Ticket, TicketRun } from '../lib/api'
 
 const props = defineProps<{ ticket: Ticket }>()
 const emit = defineEmits<{ close: []; ran: [] }>()
 
-// Run lives on the card AND here: a backlog ticket is runnable from the modal
-// too. The board refetches on 'ran'; failures surface the CLI's output
-// (including stderr) so a stale-image or env error is visible, not silent.
+// Only ready-for-agent tickets are runnable. The board refetches on 'ran';
+// flow errors (including not-ready and legacy-layout errors) surface here.
 const running = ref(false)
 const error = ref('')
 // Prefilled from the persisted ticket context — survives failures and closes.
 const steer = ref(props.ticket.context ?? '')
 let saveTimer: ReturnType<typeof setTimeout> | undefined
-const runnable = computed(() => props.ticket.status === 'backlog')
+const runnable = computed(() => isRunnableTicket(props.ticket))
 
 function saveSteer() {
   void saveTicketContext(props.ticket.id, steer.value.trim())
@@ -47,8 +47,7 @@ async function run() {
   error.value = ''
   try {
     clearTimeout(saveTimer)
-    saveSteer()  // persist before spawning so a failed run keeps the context
-    const res = await runTicket(props.ticket.id, steer.value)
+    const res = await runTicket(props.ticket.id, steer.value.trim())
     if (!res.ok) {
       error.value = res.output || 'run failed'
       notify(res.output || 'run failed')

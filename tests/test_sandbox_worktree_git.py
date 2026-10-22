@@ -23,7 +23,7 @@ from sssf.sandbox.worktree_git import (
     sandbox_dir,
 )
 
-BASE = "adws/config/sssf.config.yaml"
+BASE = ".adws/config/sssf.config.yaml"
 
 
 @pytest.fixture
@@ -71,11 +71,11 @@ def _config(root, *, enabled=True, branch="dev", push=True, resolve=True, resolv
     if resolve_skill_path:
         block["integration"]["resolve_skill_path"] = resolve_skill_path
     cfg.write_text(yaml.safe_dump(block))
-    # Real projects commit the config and ignore the adws/data runtime; mirror
+    # Real projects commit the config and ignore the .adws/data runtime; mirror
     # that so the integration dirty-check sees a clean tree.
     gi = root / ".gitignore"
     if not gi.exists():
-        gi.write_text("adws/data/\n")
+        gi.write_text(".adws/data/\n")
     _git(root, "add", "-A", check=True)
     _git(root, "commit", "-qm", "integration config", check=True)
     return cfg
@@ -132,7 +132,7 @@ def _conflicting_run(repo):
 
 
 def _session_db(root, adw_id, status="success"):
-    db = root / "adws" / "data" / "sssf.db"
+    db = root / ".adws" / "data" / "sssf.db"
     db.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db))
     conn.execute("CREATE TABLE IF NOT EXISTS sessions (adw_id TEXT PRIMARY KEY, status TEXT)")
@@ -429,7 +429,7 @@ def test_integrate_merges_run_into_dev_and_pushes(repo):
     _run_commit(wt)
     run_tip = _git(repo, "rev-parse", "sssf/abcd1234").stdout.strip()
 
-    outcome = integrate_run(repo, "abcd1234", repo / "adws" / "data")
+    outcome = integrate_run(repo, "abcd1234", repo / ".adws" / "data")
 
     assert outcome["outcome"] == "merged"
     assert outcome["target"] == "dev"
@@ -450,7 +450,7 @@ def test_integrate_creates_dev_when_missing_and_pushes(repo):
     _run_commit(wt)
     run_tip = _git(repo, "rev-parse", "sssf/beef0001").stdout.strip()
 
-    outcome = integrate_run(repo, "beef0001", repo / "adws" / "data")
+    outcome = integrate_run(repo, "beef0001", repo / ".adws" / "data")
 
     assert outcome["outcome"] == "merged"
     assert _git(repo, "rev-parse", "dev").stdout.strip() == run_tip
@@ -469,7 +469,7 @@ def test_integrate_pushes_nothing_when_push_disabled(repo):
     run_tip = _git(repo, "rev-parse", "sssf/cafe0002").stdout.strip()
     assert run_tip != origin_before
 
-    outcome = integrate_run(repo, "cafe0002", repo / "adws" / "data")
+    outcome = integrate_run(repo, "cafe0002", repo / ".adws" / "data")
 
     assert outcome["outcome"] == "merged"
     assert outcome["pushed"] is False
@@ -484,9 +484,9 @@ def test_integrate_skips_when_already_merged(repo):
     _push_dev(repo)
     wt = _branch_from(repo, "dead0003")
     _run_commit(wt)
-    assert integrate_run(repo, "dead0003", repo / "adws" / "data")["outcome"] == "merged"
+    assert integrate_run(repo, "dead0003", repo / ".adws" / "data")["outcome"] == "merged"
 
-    outcome = integrate_run(repo, "dead0003", repo / "adws" / "data")
+    outcome = integrate_run(repo, "dead0003", repo / ".adws" / "data")
 
     assert outcome is None  # the run's tip is already on dev — nothing to do
     assert _git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "main"
@@ -504,7 +504,7 @@ def test_integrate_skips_when_tree_dirty(repo):
     assert run_tip != dev_before
     (repo / "f.txt").write_text("dirty\n")  # operator's uncommitted edit
 
-    outcome = integrate_run(repo, "d1rt0004", repo / "adws" / "data")
+    outcome = integrate_run(repo, "d1rt0004", repo / ".adws" / "data")
 
     assert outcome["outcome"] == "skipped"
     assert "dirty" in outcome["reason"]
@@ -523,7 +523,7 @@ def test_integrate_merges_local_only_repo(local_repo):
     _run_commit(wt)
     run_tip = _git(local_repo, "rev-parse", "sssf/10ca1005").stdout.strip()
 
-    outcome = integrate_run(local_repo, "10ca1005", local_repo / "adws" / "data")
+    outcome = integrate_run(local_repo, "10ca1005", local_repo / ".adws" / "data")
 
     assert outcome["outcome"] == "merged"
     assert outcome["pushed"] is False  # no origin — nothing to push
@@ -540,7 +540,7 @@ def test_integrate_conflict_aborts_without_resolve(repo):
     _config(repo, resolve=False)
     _conflicting_run(repo)
 
-    outcome = integrate_run(repo, "c0nf1ict", repo / "adws" / "data")
+    outcome = integrate_run(repo, "c0nf1ict", repo / ".adws" / "data")
 
     assert outcome["outcome"] == "conflicted"
     assert outcome["resolved"] is False
@@ -575,7 +575,7 @@ def test_integrate_conflict_resolved_by_agent(repo, monkeypatch):
 
     monkeypatch.setattr(agent_pi, "run", fake_run)
 
-    outcome = integrate_run(repo, "c0nf1ict", repo / "adws" / "data")
+    outcome = integrate_run(repo, "c0nf1ict", repo / ".adws" / "data")
 
     assert outcome["outcome"] == "merged"
     assert outcome["resolved"] is True
@@ -597,7 +597,7 @@ def test_integrate_conflict_agent_leaves_conflicts(repo, monkeypatch):
 
     monkeypatch.setattr(agent_pi, "run", lambda request: None)  # agent does nothing
 
-    outcome = integrate_run(repo, "c0nf1ict", repo / "adws" / "data")
+    outcome = integrate_run(repo, "c0nf1ict", repo / ".adws" / "data")
 
     assert outcome["outcome"] == "conflicted"
     assert outcome["resolved"] is False

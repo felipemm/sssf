@@ -39,8 +39,8 @@ const description =
       the process ends.</li>
   </ul>
   <p>
-    There is no silent failure: if it crashed, the trace says so, and the trace is the single
-    source of truth the visualizer, the terminal commands, and the healer all read.
+    There is no silent failure: if it crashed, the trace says so. The visualizer and healer read
+    that trace from the project database.
   </p>
 
   <h2>No-op re-runs are green</h2>
@@ -87,18 +87,14 @@ const description =
       <tr><th>Command</th><th>Semantics</th></tr>
     </thead>
     <tbody>
-      <tr><td><code class="hl">sssf run stop &lt;adw_id&gt;</code></td><td>Kill a live run: the sandbox is torn down and the run is marked failed.</td></tr>
-      <tr><td><code class="hl">sssf run restart &lt;adw_id&gt;</code></td><td>Re-run a session on its existing branch with the original request as the prompt: the ADW joins and reaps the old state.</td></tr>
+      <tr><td><code class="hl">sssf sandbox stop &lt;adw_id&gt;</code></td><td>Stop a live container and mark the run failed while retaining its worktree for review.</td></tr>
+      <tr><td><code class="hl">sssf sandbox restart &lt;adw_id&gt;</code></td><td>Re-run a session on its existing sandbox branch.</td></tr>
     </tbody>
   </table>
 
-  <h2>Observing from the terminal</h2>
-  <pre><code>sssf sessions        # recent runs: adw_id · name · status · request · tokens · cost
-sssf phases &lt;id&gt;     # the phase waterfall of one run
-sssf tail &lt;id&gt;       # the last 25 events of one run, newest first
-sssf procs &lt;id&gt;      # live processes of one run (adw_id → pid)</code></pre>
+  <h2>Inspecting runs</h2>
   <p>
-    All four resolve the project db (or take <code class="hl">--project</code>), open it WAL, and
-    render a rich table. Reads never block a running workflow.
+    Use <span class="cmd">sssf viz</span> to browse session history, phases, envelopes, gates,
+    and events. The visualizer is the trace-reading surface in SSSF 2.0.
   </p>
 </DocsLayout>

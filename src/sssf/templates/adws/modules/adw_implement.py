@@ -2,7 +2,7 @@
 """ADW Implement — the implement flow chain: triage → build → review.
 
 Usage:
-    uv run adws/adw_implement.py "<prompt or path/to/prompt.md>" [--config adws/config/sssf.config.yaml] [--adw-id a1b2c3d4]
+    uv run .adws/modules/adw_implement.py "<prompt or path/to/prompt.md>" [--config .adws/config/sssf.config.yaml] [--adw-id a1b2c3d4]
 
 Phases: engineer(request) -> scout(triage) -> builder(build) ->
 [quality verify/fix] bounded -> builder(self_review) ->
@@ -92,7 +92,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config",
         default=None,
-        help="path to sssf.config.yaml (default: adws/config/sssf.config.yaml)",
+        help="path to sssf.config.yaml (default: .adws/config/sssf.config.yaml)",
     )
     parser.add_argument("--adw-id", default=None, help="join or pin an existing session")
     args = parser.parse_args()

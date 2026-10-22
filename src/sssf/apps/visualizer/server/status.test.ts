@@ -8,7 +8,7 @@ import { ticketingEnabled } from "./ticketing.ts";
 
 function fakeProject() {
   const root = mkdtempSync(join(tmpdir(), "status-"));
-  const dbDir = join(root, "adws", "data");
+  const dbDir = join(root, ".adws", "data");
   mkdirSync(dbDir, { recursive: true });
   const path = join(dbDir, "sssf.db");
   const db = new Database(path);
@@ -52,8 +52,8 @@ describe("computeStatus trends", () => {
 describe("ticketingEnabled (shared with tickets.ts)", () => {
   test("v2 project with providers is enabled", () => {
     const root = mkdtempSync(join(tmpdir(), "st-en-"));
-    mkdirSync(join(root, "adws", "config"), { recursive: true });
-    writeFileSync(join(root, "adws", "config", "ticketing.yaml"),
+    mkdirSync(join(root, ".adws", "config"), { recursive: true });
+    writeFileSync(join(root, ".adws", "config", "ticketing.yaml"),
                   "providers:\n  - internal\n");
     expect(ticketingEnabled(root)).toBe(true);
   });

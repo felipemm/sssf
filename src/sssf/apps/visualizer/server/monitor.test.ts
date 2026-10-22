@@ -11,13 +11,13 @@ const DEPLOY = "ready-to-deploy";
 
 function makeProject(tag: string): { root: string; dbPath: string } {
   const root = mkdtempSync(join(tmpdir(), `monitor-${tag}-`));
-  mkdirSync(join(root, "adws", "config"), { recursive: true });
-  mkdirSync(join(root, "adws", "data"), { recursive: true });
+  mkdirSync(join(root, ".adws", "config"), { recursive: true });
+  mkdirSync(join(root, ".adws", "data"), { recursive: true });
   writeFileSync(
-    join(root, "adws", "config", "monitor.json"),
+    join(root, ".adws", "config", "monitor.json"),
     JSON.stringify({ gitlab_url: "https://gitlab.example.com", token_env: "GITLAB_TOKEN" }),
   );
-  const dbPath = join(root, "adws", "data", "sssf.db");
+  const dbPath = join(root, ".adws", "data", "sssf.db");
   const db = new Database(dbPath);
   db.run(`CREATE TABLE tickets (
     id TEXT PRIMARY KEY, provider TEXT NOT NULL, external_id TEXT,
@@ -93,7 +93,7 @@ describe("readMonitorConfig", () => {
 
   test("null when the config file is missing", () => {
     const { root } = makeProject("nocfg");
-    rmSync(join(root, "adws", "config", "monitor.json"));
+    rmSync(join(root, ".adws", "config", "monitor.json"));
     expect(readMonitorConfig(root)).toBeNull();
   });
 });
@@ -192,8 +192,8 @@ describe("sweepMonitor", () => {
 
   test("unconfigured project reports an error, never crashes", async () => {
     const { root } = makeProject("unconf");
-    rmSync(join(root, "adws", "config", "monitor.json"));
-    const dbPath = join(root, "adws", "data", "sssf.db");
+    rmSync(join(root, ".adws", "config", "monitor.json"));
+    const dbPath = join(root, ".adws", "data", "sssf.db");
     const res = await sweepMonitor(dbPath, root, { token: () => "", notify: noopNotify });
     expect(res.error).toMatch(/not configured/);
     expect(res.watched).toBe(0);
@@ -228,8 +228,8 @@ describe("monitorStatus", () => {
 
   test("unconfigured project reads as not configured", () => {
     const { root } = makeProject("status-nc");
-    rmSync(join(root, "adws", "config", "monitor.json"));
-    const status = monitorStatus(join(root, "adws", "data", "sssf.db"), root);
+    rmSync(join(root, ".adws", "config", "monitor.json"));
+    const status = monitorStatus(join(root, ".adws", "data", "sssf.db"), root);
     expect(status.configured).toBe(false);
     expect(status.states).toEqual([]);
   });

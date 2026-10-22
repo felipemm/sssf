@@ -153,18 +153,51 @@ def test_missing_binary_recorded_as_event(tmp_path, monkeypatch):
     conn.close()
 
 
-def test_jira_and_linear_record_skipped(tmp_path, monkeypatch):
+def test_jira_writer_supports_transition_comment_and_control_label_operations(tmp_path, monkeypatch):
     conn = _conn(tmp_path)
     _insert(conn, "jira:ACME-1", "jira", "ACME-1")
+    calls = []
+    _run_mock(monkeypatch, calls)
+
+    writeback.writeback_state(conn, "jira:ACME-1", "closed")
+    writeback.writeback_comment(conn, "jira:ACME-1", "Closed by sssf.")
+    writeback.writeback_label(conn, "jira:ACME-1", "ready-for-agent", add=True)
+    writeback.writeback_label(conn, "jira:ACME-1", "needs-triage", add=False)
+
+    assert calls == [
+        ["acli", "jira", "workitem", "transition", "--key", "ACME-1", "--status", "Closed", "--yes"],
+        ["acli", "jira", "workitem", "comment", "create", "--key", "ACME-1", "--body", "Closed by sssf."],
+        ["acli", "jira", "workitem", "edit", "--key", "ACME-1", "--labels", "ready-for-agent", "--yes"],
+        ["acli", "jira", "workitem", "edit", "--key", "ACME-1", "--remove-labels", "needs-triage", "--yes"],
+    ]
+    assert _events(conn, "jira:ACME-1") == []
+    conn.close()
+
+
+def test_jira_sync_sends_only_controlled_label_operations(tmp_path, monkeypatch):
+    conn = _conn(tmp_path)
+    _insert(conn, "jira:ACME-1", "jira", "ACME-1")
+    calls = []
+    _run_mock(monkeypatch, calls)
+
+    assert writeback.mirror_tickets(conn, providers={"jira"}) == {}
+
+    assert calls == [
+        ["acli", "jira", "workitem", "edit", "--key", "ACME-1", "--remove-labels", "needs-triage", "--yes"],
+        ["acli", "jira", "workitem", "edit", "--key", "ACME-1", "--remove-labels", "blocked", "--yes"],
+        ["acli", "jira", "workitem", "edit", "--key", "ACME-1", "--labels", "ready-for-agent", "--yes"],
+    ]
+    assert all(call[7] in writeback.CONTROL_LABELS for call in calls)
+    conn.close()
+
+
+def test_linear_records_skipped_without_a_writer(tmp_path, monkeypatch):
+    conn = _conn(tmp_path)
     _insert(conn, "linear:ENG-3", "linear", "ENG-3")
     calls = []
     _run_mock(monkeypatch, calls)
-    writeback.writeback_state(conn, "jira:ACME-1", "open")
     writeback.writeback_comment(conn, "linear:ENG-3", "x")
-    assert calls == []  # no wired writer — nothing shelled
-    jira_events = _events(conn, "jira:ACME-1")
-    assert jira_events[0]["event_type"] == "writeback_skipped"
-    assert jira_events[0]["payload"] == {"origin": "jira", "operation": "state"}
+    assert calls == []
     linear_events = _events(conn, "linear:ENG-3")
     assert linear_events[0]["event_type"] == "writeback_skipped"
     conn.close()

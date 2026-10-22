@@ -7,6 +7,7 @@ are the only entry point for starting work.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import sys
@@ -18,15 +19,16 @@ from sssf.commands import flow
 
 def _setup_project(tmp_path, monkeypatch, *, sandbox_key: bool = False) -> Path:
     root = tmp_path / "proj"
-    (root / "adws" / "config").mkdir(parents=True)
-    (root / "adws" / "data").mkdir(parents=True)
-    (root / "adws" / "prompts").mkdir(parents=True)
+    (root / ".adws" / "config").mkdir(parents=True)
+    (root / ".adws" / "modules").mkdir()
+    (root / ".adws" / "data").mkdir(parents=True)
+    (root / ".adws" / "prompts").mkdir(parents=True)
     cfg = "defaults:\n  coding_agent: pi\n  model: openai/gpt-4o-mini\n"
     if sandbox_key:
         cfg += "sandbox:\n  enabled: false\n"
-    (root / "adws" / "config" / "sssf.config.yaml").write_text(cfg)
+    (root / ".adws" / "config" / "sssf.config.yaml").write_text(cfg)
     monkeypatch.setattr(registry, "registry_path", lambda: tmp_path / ".sssf" / "projects.json")
-    registry.register_project(root, root / "adws" / "data" / "sssf.db", "1.0.0")
+    registry.register_project(root, root / ".adws" / "data" / "sssf.db", "1.0.0")
     monkeypatch.chdir(root)
     return root
 
@@ -39,7 +41,7 @@ def _seed_ticket(
     description: str = "Make it dark",
     kind: str = "implementation",
 ) -> None:
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     ticketing.ensure_schema(conn)
     conn.execute(
         "INSERT INTO tickets (id, provider, external_id, title, description, status, kind)"
@@ -84,7 +86,7 @@ def test_flow_plan_skip_exploration_is_forwarded(tmp_path, monkeypatch):
 
 def _adb(root: Path) -> sqlite3.Connection:
     """The project db the flow writes (same as _db in commands/ticket)."""
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     ticketing.ensure_schema(conn)
     return conn
 
@@ -125,8 +127,8 @@ def test_flow_plan_plan_once_refuses_planned_idea_without_revise(tmp_path, monke
     the explicit --revise escape (#91 AC5)."""
     root = _setup_project(tmp_path, monkeypatch)
     _seed_ticket(root, "internal:idea", status="needs-triage", kind="idea", title="Dark mode")
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
-    conn.execute("UPDATE tickets SET spec='adws/specs/old.md' WHERE id='internal:idea'")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
+    conn.execute("UPDATE tickets SET spec='.adws/specs/old.md' WHERE id='internal:idea'")
     conn.commit()
     conn.close()
     calls = _capture_call(monkeypatch)
@@ -147,7 +149,7 @@ def test_flow_plan_links_the_run_before_the_spawn(tmp_path, monkeypatch):
     seen_link: list[str | None] = []
 
     def fake_call(argv, **kw):
-        conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+        conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
         seen_link.append(
             conn.execute("SELECT adw_id FROM tickets WHERE id='internal:idea'").fetchone()[0]
         )
@@ -159,7 +161,7 @@ def test_flow_plan_links_the_run_before_the_spawn(tmp_path, monkeypatch):
     assert flow.plan(Path.cwd(), "internal:idea", None, False, no_sandbox=True) == 0
     linked = calls[0][calls[0].index("--adw-id") + 1]
     assert seen_link == [linked]  # mid-run read sees the link
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     row = conn.execute("SELECT adw_id FROM tickets WHERE id='internal:idea'").fetchone()
     runs = conn.execute("SELECT adw_id FROM ticket_runs WHERE ticket_id='internal:idea'").fetchall()
     conn.close()
@@ -175,7 +177,7 @@ def test_flow_plan_no_sandbox_success_lands_the_transform(tmp_path, monkeypatch,
 
     def fake_call(argv, **kw):
         adw_id = argv[argv.index("--adw-id") + 1]
-        conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+        conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
         conn.execute(
             "INSERT INTO sessions (adw_id, adw_name, status, started_at, ended_at)"
             " VALUES (?,?,?, '2026-09-01T00:00:00+00:00', '2026-09-01T01:00:00+00:00')",
@@ -183,7 +185,7 @@ def test_flow_plan_no_sandbox_success_lands_the_transform(tmp_path, monkeypatch,
         )
         conn.commit()
         conn.close()
-        specs = root / "adws" / "specs"
+        specs = root / ".adws" / "specs"
         specs.mkdir(parents=True, exist_ok=True)
         (specs / f"{adw_id}_spec-dark-mode.md").write_text("# Dark mode\n\nSpec body.\n")
         (specs / f"{adw_id}_tickets-dark-mode.md").write_text(
@@ -193,7 +195,7 @@ def test_flow_plan_no_sandbox_success_lands_the_transform(tmp_path, monkeypatch,
 
     monkeypatch.setattr(flow.subprocess, "call", fake_call)
     assert flow.plan(Path.cwd(), "internal:idea", None, False, no_sandbox=True) == 0
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     row = conn.execute("SELECT spec FROM tickets WHERE id='internal:idea'").fetchone()
     children = conn.execute("SELECT title FROM tickets WHERE parent_id='internal:idea'").fetchall()
     conn.close()
@@ -210,7 +212,7 @@ def test_flow_plan_no_sandbox_failure_lands_nothing(tmp_path, monkeypatch):
 
     monkeypatch.setattr(flow.subprocess, "call", fake_call)
     assert flow.plan(Path.cwd(), "internal:idea", None, False, no_sandbox=True) == 1
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     row = conn.execute("SELECT spec, status FROM tickets WHERE id='internal:idea'").fetchone()
     conn.close()
     assert row == ("", "needs-triage")  # untouched
@@ -224,7 +226,7 @@ def test_flow_plan_sandbox_spawn_failure_leaves_the_ticket_planable(tmp_path, mo
     _seed_ticket(root, "internal:idea", status="needs-triage", kind="idea", title="Dark mode")
     monkeypatch.setattr(flow, "_dispatch_chain", lambda *a, **k: 1)
     assert flow.plan(Path.cwd(), "internal:idea", None, False, no_sandbox=False) == 1
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     status = conn.execute("SELECT status FROM tickets WHERE id='internal:idea'").fetchone()[0]
     conn.close()
     assert status == "needs-triage"
@@ -245,7 +247,7 @@ def test_flow_plan_no_args_success_creates_idea_ticket_and_children(tmp_path, mo
         )
         conn.commit()
         conn.close()
-        specs = root / "adws" / "specs"
+        specs = root / ".adws" / "specs"
         specs.mkdir(parents=True, exist_ok=True)
         (specs / f"{adw_id}_spec-dark-mode.md").write_text("# Dark mode\n\nSpec body.\n")
         (specs / f"{adw_id}_tickets-dark-mode.md").write_text(
@@ -255,7 +257,7 @@ def test_flow_plan_no_args_success_creates_idea_ticket_and_children(tmp_path, mo
 
     monkeypatch.setattr(flow.subprocess, "call", fake_call)
     assert flow.plan(Path.cwd(), None, None, False, no_sandbox=True) == 0
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     parents = conn.execute("SELECT id, title, kind FROM tickets WHERE kind='idea'").fetchall()
     conn.close()
     assert len(parents) == 1 and parents[0][1] == "Dark mode"
@@ -293,6 +295,35 @@ def test_flow_implement_dispatches_implement_chain(tmp_path, monkeypatch):
     assert "Make it dark" in argv[2]
 
 
+def test_flow_implement_reconciles_finished_tickets_before_claim(tmp_path, monkeypatch):
+    root = _setup_project(tmp_path, monkeypatch)
+    _seed_ticket(root, "internal:current")
+    conn = _adb(root)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, external_id, title, status, adw_id)"
+        " VALUES ('internal:stale', 'internal', '', 'Stale', 'in-progress', 'oldrun')"
+    )
+    conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, status) VALUES ('oldrun', 'adw_implement', 'success')"
+    )
+    conn.commit()
+    conn.close()
+
+    seen = []
+
+    def dispatch(*_args, **_kwargs):
+        db = _adb(root)
+        seen.append(
+            db.execute("SELECT status FROM tickets WHERE id='internal:stale'").fetchone()[0]
+        )
+        db.close()
+        return 1
+
+    monkeypatch.setattr(flow, "_dispatch_chain", dispatch)
+    assert flow.implement(Path.cwd(), "internal:current", None, no_sandbox=False) == 1
+    assert seen == [ticketing.STATUS_SIGNOFF]
+
+
 def test_flow_implement_requires_ready_for_agent(tmp_path, monkeypatch, capsys):
     root = _setup_project(tmp_path, monkeypatch)
     _seed_ticket(root, "internal:idea", status="needs-triage")
@@ -305,7 +336,7 @@ def test_flow_implement_requires_ready_for_agent(tmp_path, monkeypatch, capsys):
 def test_flow_implement_rejects_live_run(tmp_path, monkeypatch, capsys):
     root = _setup_project(tmp_path, monkeypatch)
     _seed_ticket(root, "internal:abc")
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     conn.execute("CREATE TABLE IF NOT EXISTS sessions (adw_id TEXT PRIMARY KEY, status TEXT)")
     conn.execute("UPDATE tickets SET adw_id='run1' WHERE id='internal:abc'")
     conn.execute("INSERT INTO sessions (adw_id, status) VALUES ('run1', 'running')")
@@ -317,7 +348,7 @@ def test_flow_implement_rejects_live_run(tmp_path, monkeypatch, capsys):
 
 def _adb(root: Path) -> sqlite3.Connection:
     """The project db the flow writes (same as _db in commands/ticket)."""
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     ticketing.ensure_schema(conn)
     return conn
 
@@ -471,9 +502,7 @@ def test_flow_implement_afk_iterates_the_queue_to_empty(tmp_path, monkeypatch, c
         return 0
 
     monkeypatch.setattr(flow.subprocess, "call", fake_call)
-    assert flow.implement_afk(
-        Path.cwd(), cap=30, wait_seconds=60, no_sandbox=True
-    ) == 0
+    assert flow.implement_afk(Path.cwd(), cap=30, wait_seconds=60, no_sandbox=True) == 0
     assert len(calls) == 3  # one round per ticket
     assert len(set(adw_ids)) == 3  # each round is a fresh run / context window
     conn = _adb(root)
@@ -492,9 +521,7 @@ def test_flow_implement_afk_iterates_the_queue_to_empty(tmp_path, monkeypatch, c
 def test_flow_implement_afk_empty_queue_terminates_immediately(tmp_path, monkeypatch, capsys):
     _root = _setup_project(tmp_path, monkeypatch, sandbox_key=True)
     calls = _capture_call(monkeypatch)
-    assert flow.implement_afk(
-        Path.cwd(), cap=30, wait_seconds=60, no_sandbox=True
-    ) == 0
+    assert flow.implement_afk(Path.cwd(), cap=30, wait_seconds=60, no_sandbox=True) == 0
     assert calls == []  # nothing spawned
     assert "queue empty after 0 round(s)" in capsys.readouterr().out
 
@@ -513,14 +540,12 @@ def test_flow_implement_afk_cap_stops_the_loop(tmp_path, monkeypatch, capsys):
         return 0
 
     monkeypatch.setattr(flow.subprocess, "call", fake_call)
-    assert flow.implement_afk(
-        Path.cwd(), cap=2, wait_seconds=60, no_sandbox=True
-    ) == 0
+    assert flow.implement_afk(Path.cwd(), cap=2, wait_seconds=60, no_sandbox=True) == 0
     assert len(calls) == 2
     conn = _adb(root)
-    done = conn.execute(
-        "SELECT COUNT(*) FROM tickets WHERE status='ready-for-signoff'"
-    ).fetchone()[0]
+    done = conn.execute("SELECT COUNT(*) FROM tickets WHERE status='ready-for-signoff'").fetchone()[
+        0
+    ]
     pending = conn.execute(
         "SELECT COUNT(*) FROM tickets WHERE status='ready-for-agent'"
     ).fetchone()[0]
@@ -548,7 +573,7 @@ def test_flow_implement_afk_failed_round_requeues_and_is_retried(tmp_path, monke
         conn.execute(
             "INSERT INTO envelopes (envelope_id, adw_id, agent, output_type, payload_json,"
             " valid, attempt, created_at) VALUES (?,?, 'reviewer', 'ReviewOutput',"
-            " '{\"approved\": false, \"blocking\": [\"fix the redirect\"]}',"
+            ' \'{"approved": false, "blocking": ["fix the redirect"]}\','
             " 1, 1, '2026-09-01T01:00:00+00:00')",
             (f"env1-{adw_id}", adw_id),
         )
@@ -558,17 +583,15 @@ def test_flow_implement_afk_failed_round_requeues_and_is_retried(tmp_path, monke
         return 1
 
     monkeypatch.setattr(flow.subprocess, "call", fake_call)
-    assert flow.implement_afk(
-        Path.cwd(), cap=3, wait_seconds=60, no_sandbox=True
-    ) == 0
+    assert flow.implement_afk(Path.cwd(), cap=3, wait_seconds=60, no_sandbox=True) == 0
     assert len(calls) == 3  # the requeued ticket is picked again each round
     conn = _adb(root)
     row = conn.execute(
         "SELECT status, rejection_feedback FROM tickets WHERE id='internal:a'"
     ).fetchone()
-    runs = conn.execute(
-        "SELECT COUNT(*) FROM ticket_runs WHERE ticket_id='internal:a'"
-    ).fetchone()[0]
+    runs = conn.execute("SELECT COUNT(*) FROM ticket_runs WHERE ticket_id='internal:a'").fetchone()[
+        0
+    ]
     conn.close()
     assert row[0] == "ready-for-agent"
     assert "fix the redirect" in row[1]
@@ -586,15 +609,12 @@ def test_flow_implement_afk_sandboxed_waits_for_the_settle(tmp_path, monkeypatch
 
     def fake_dispatch(root_, adw_name, prompt, extra, no_sandbox, adw_id=None):
         conn = _adb(root_)
-        ticket_id = conn.execute(
-            "SELECT id FROM tickets WHERE adw_id=?", (adw_id,)
-        ).fetchone()[0]
+        ticket_id = conn.execute("SELECT id FROM tickets WHERE adw_id=?", (adw_id,)).fetchone()[0]
         # exactly the round's own claim may be in-progress at spawn time — a
         # previous round's ticket must already be settled
         in_progress = sorted(
-            r[0] for r in conn.execute(
-                "SELECT id FROM tickets WHERE status='in-progress'"
-            ).fetchall()
+            r[0]
+            for r in conn.execute("SELECT id FROM tickets WHERE status='in-progress'").fetchall()
         )
         conn.execute(
             "INSERT INTO sessions (adw_id, adw_name, status, started_at, ended_at)"
@@ -605,9 +625,7 @@ def test_flow_implement_afk_sandboxed_waits_for_the_settle(tmp_path, monkeypatch
         conn.close()
         # simulate the monitor's settle: success → ready-for-signoff
         conn = _adb(root_)
-        ticketing.transition_ticket(
-            conn, ticket_id, ticketing.STATUS_SIGNOFF, actor="test"
-        )
+        ticketing.transition_ticket(conn, ticket_id, ticketing.STATUS_SIGNOFF, actor="test")
         conn.commit()
         conn.close()
         seen.append((ticket_id, in_progress))
@@ -615,9 +633,7 @@ def test_flow_implement_afk_sandboxed_waits_for_the_settle(tmp_path, monkeypatch
 
     monkeypatch.setattr(flow, "_dispatch_chain", fake_dispatch)
     monkeypatch.setattr(flow.time, "sleep", lambda s: None)
-    assert flow.implement_afk(
-        Path.cwd(), cap=30, wait_seconds=60, no_sandbox=False
-    ) == 0
+    assert flow.implement_afk(Path.cwd(), cap=30, wait_seconds=60, no_sandbox=False) == 0
     # each round spawned with only its own claim in-progress — the previous
     # round had settled before the next dispatch
     assert seen == [("internal:a", ["internal:a"]), ("internal:b", ["internal:b"])]
@@ -641,18 +657,14 @@ def test_flow_implement_afk_sandboxed_wait_timeout_is_loud(tmp_path, monkeypatch
 
     def fake_dispatch(root_, adw_name, prompt, extra, no_sandbox, adw_id=None):
         conn = _adb(root_)
-        ticket_id = conn.execute(
-            "SELECT id FROM tickets WHERE adw_id=?", (adw_id,)
-        ).fetchone()[0]
+        ticket_id = conn.execute("SELECT id FROM tickets WHERE adw_id=?", (adw_id,)).fetchone()[0]
         conn.close()
         spawned.append(ticket_id)
         return 0  # the run never settles (no session row, ticket stays in-progress)
 
     monkeypatch.setattr(flow, "_dispatch_chain", fake_dispatch)
     monkeypatch.setattr(flow.time, "sleep", lambda s: None)
-    assert flow.implement_afk(
-        Path.cwd(), cap=30, wait_seconds=1, no_sandbox=False
-    ) == 1
+    assert flow.implement_afk(Path.cwd(), cap=30, wait_seconds=1, no_sandbox=False) == 1
     assert spawned == ["internal:a"]  # never stacked round 2 on the live run
     assert "still live after 1s" in capsys.readouterr().err
 
@@ -668,14 +680,10 @@ def test_flow_implement_afk_sandboxed_spawn_failure_aborts(tmp_path, monkeypatch
         return 1  # sandbox spawn failed → implement() requeues the claim
 
     monkeypatch.setattr(flow, "_dispatch_chain", fake_dispatch)
-    assert flow.implement_afk(
-        Path.cwd(), cap=30, wait_seconds=60, no_sandbox=False
-    ) == 1
+    assert flow.implement_afk(Path.cwd(), cap=30, wait_seconds=60, no_sandbox=False) == 1
     assert "did not start" in capsys.readouterr().err
     conn = _adb(root)
-    row = conn.execute(
-        "SELECT status FROM tickets WHERE id='internal:a'"
-    ).fetchone()
+    row = conn.execute("SELECT status FROM tickets WHERE id='internal:a'").fetchone()
     conn.close()
     assert row[0] == "ready-for-agent"  # the claim was requeued, not stuck
 
@@ -714,7 +722,7 @@ def _deploy_project(
     )
     conn.commit()
     conn.close()
-    (root / "adws" / "config" / "deploy.yaml").write_text(
+    (root / ".adws" / "config" / "deploy.yaml").write_text(
         "version_files:\n  - pyproject.toml\n"
         'workbench:\n  command: ["bun", "run", "dev"]\n  container_port: 3000\n'
     )
@@ -728,12 +736,46 @@ def _deploy_project(
 
 
 def _workbench_rows(root: Path) -> list[tuple]:
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     rows = conn.execute(
         "SELECT adw_id, container, host_port, url, status FROM workbench_runs"
     ).fetchall()
     conn.close()
     return rows
+
+
+class _FakeNotifyTransport:
+    def __init__(self, result=None, on_post=None):
+        from sssf import notify
+
+        self.calls = []
+        self.result = result or notify.PostResult(ok=True, ts="111.222", attempts=1)
+        self.on_post = on_post
+
+    def post(self, *, channel, text, thread_ts=None):
+        call = {"channel": channel, "text": text, "thread_ts": thread_ts}
+        self.calls.append(call)
+        if self.on_post:
+            self.on_post(call)
+        return self.result
+
+
+def test_flow_deploy_notifies_workbench_signoff_waiting(tmp_path, monkeypatch):
+    root = _deploy_project(tmp_path, monkeypatch)
+    (root / ".adws" / "config" / "notify.yaml").write_text("channel: '#alerts'\n")
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
+    transport = _FakeNotifyTransport()
+    answers = iter(["n", ""])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+
+    assert flow.deploy(Path.cwd(), None, yes=False, notify_transport=transport) == 0
+
+    assert len(transport.calls) == 1
+    alert = transport.calls[0]
+    assert "internal:abc" in alert["text"]
+    assert "signoff" in alert["text"].lower()
+    assert "http://127.0.0.1:41234" in alert["text"]
+    assert "|workbench>" in alert["text"]
 
 
 def test_flow_deploy_brings_up_workbench_and_approves_batch(tmp_path, monkeypatch):
@@ -915,7 +957,7 @@ def test_flow_deploy_workbench_failure_is_loud(tmp_path, monkeypatch, capsys):
     deploy before any machine write — never a silent skip."""
 
     root = _deploy_project(tmp_path, monkeypatch)
-    (root / "adws" / "config" / "deploy.yaml").write_text("version_files:\n  - pyproject.toml\n")
+    (root / ".adws" / "config" / "deploy.yaml").write_text("version_files:\n  - pyproject.toml\n")
     assert flow.deploy(Path.cwd(), None, yes=True) == 1
     assert "workbench" in capsys.readouterr().err
     conn = _adb(root)
@@ -956,7 +998,6 @@ _RELEASE_YAML = (
     "  promote:\n"
     '    command: ["tompero", "deployment", "canary", "promote", "--service", "demo"]\n'
     '    status_command: ["tompero", "deployment", "get", "--service", "demo", "-O", "json"]\n'
-
     '    promoted_match: "promoted"\n'
     "    poll_interval_s: 0\n"
     "    poll_timeout_s: 60\n"
@@ -976,7 +1017,7 @@ def _release_project(tmp_path, monkeypatch, release_yaml=_RELEASE_YAML):
     """The deploy fixture with a `release:` block in deploy.yaml (canary +
     promote commands and the promote poll settings)."""
     root = _deploy_project(tmp_path, monkeypatch)
-    (root / "adws" / "config" / "deploy.yaml").write_text(release_yaml)
+    (root / ".adws" / "config" / "deploy.yaml").write_text(release_yaml)
     return root
 
 
@@ -1020,6 +1061,40 @@ def test_flow_deploy_canary_runs_only_after_confirmation(tmp_path, monkeypatch):
         "done",
     )
     conn.close()
+
+
+def test_flow_deploy_notifies_before_promote_confirmation(tmp_path, monkeypatch):
+    tompero_url = "https://tompero.example/deployments/demo"
+    release_yaml = _RELEASE_YAML + f"  tompero_url: {tompero_url}\n"
+    root = _release_project(tmp_path, monkeypatch, release_yaml)
+    (root / ".adws" / "config" / "notify.yaml").write_text("channel: '#alerts'\n")
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
+    transport = _FakeNotifyTransport()
+    _capture_call(monkeypatch)
+    monkeypatch.setattr(
+        flow.subprocess,
+        "run",
+        _fake_release_run([], lambda _argv: _FakeRun()),
+    )
+    answers = iter(["y", "y", "n"])
+
+    def answer(prompt):
+        if "promote" in prompt:
+            assert any(
+                "waiting for terminal confirmation to promote" in call["text"]
+                for call in transport.calls
+            )
+        return next(answers)
+
+    monkeypatch.setattr("builtins.input", answer)
+    assert flow.deploy(Path.cwd(), None, notify_transport=transport) == 0
+
+    promote_alert = next(
+        call
+        for call in transport.calls
+        if "waiting for terminal confirmation to promote" in call["text"]
+    )
+    assert "<https://tompero.example/deployments/demo|tompero>" in promote_alert["text"]
 
 
 def test_flow_deploy_canary_skipped_without_confirmation(tmp_path, monkeypatch, capsys):
@@ -1069,6 +1144,63 @@ def test_flow_deploy_canary_failure_parks_blocked(tmp_path, monkeypatch):
     conn.close()
 
 
+def test_flow_deploy_canary_failure_notifies_each_blocked_ticket(tmp_path, monkeypatch):
+    import subprocess
+
+    tompero_url = "https://tompero.example/deployments/demo"
+    root = _release_project(
+        tmp_path,
+        monkeypatch,
+        _RELEASE_YAML + f"  tompero_url: {tompero_url}\n",
+    )
+    _seed_ticket(root, "internal:def", status="ready-for-signoff", title="Another")
+    subprocess.run(["git", "checkout", "-q", "dev"], cwd=root, check=True)
+    (root / "other.txt").write_text("other\n")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "feat: another (#internal:def)"], cwd=root, check=True)
+    subprocess.run(["git", "checkout", "-q", "main"], cwd=root, check=True)
+    (root / ".adws" / "data").mkdir(parents=True, exist_ok=True)
+    (root / ".adws" / "config" / "deploy.yaml").write_text(
+        _RELEASE_YAML + f"  tompero_url: {tompero_url}\n"
+    )
+    _seed_ticket(root, "internal:abc", status="ready-for-signoff", title="Dark mode")
+    _seed_ticket(root, "internal:def", status="ready-for-signoff", title="Another")
+    (root / ".adws" / "config" / "notify.yaml").write_text("channel: '#alerts'\n")
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
+    blocked_when_notified = []
+
+    def check_blocked(call):
+        if "Canary failed" in call["text"]:
+            conn = _adb(root)
+            blocked_when_notified.append(
+                conn.execute("SELECT status FROM tickets ORDER BY id").fetchall()
+            )
+            conn.close()
+
+    transport = _FakeNotifyTransport(on_post=check_blocked)
+    _capture_call(monkeypatch)
+
+    def handler(argv):
+        if argv[3] == "start":
+            return _FakeRun(returncode=1, stderr="crash loop on canary")
+        return _FakeRun()
+
+    monkeypatch.setattr(flow.subprocess, "run", _fake_release_run([], handler))
+    monkeypatch.setattr("builtins.input", lambda _prompt: "y")
+    assert flow.deploy(Path.cwd(), None, notify_transport=transport) == 1
+
+    alerts = [call for call in transport.calls if "Canary failed" in call["text"]]
+    assert len(alerts) == 2
+    assert all("blocked" in call["text"] for call in alerts)
+    assert all(f"<{tompero_url}|tompero>" in call["text"] for call in alerts)
+    assert blocked_when_notified == [[("blocked",), ("blocked",)]] * 2
+    for ticket_id in ("internal:abc", "internal:def"):
+        ticket_alerts = [call for call in transport.calls if ticket_id in call["text"]]
+        assert len(ticket_alerts) == 2
+        assert ticket_alerts[0]["thread_ts"] is None
+        assert ticket_alerts[1]["thread_ts"] == "111.222"
+
+
 def test_flow_deploy_promote_polls_until_fully_promoted(tmp_path, monkeypatch):
     """Promote executes the tompero canary-promote command only after
     confirmation, then polls deployment status until fully promoted (issue
@@ -1093,6 +1225,51 @@ def test_flow_deploy_promote_polls_until_fully_promoted(tmp_path, monkeypatch):
         "done",
     )
     conn.close()
+
+
+def test_flow_deploy_notifies_release_completion_with_action_urls(tmp_path, monkeypatch):
+    mr_url = "https://git.example/demo/merge_requests/12"
+    release_url = "https://tompero.example/releases/3"
+    tompero_url = "https://tompero.example/deployments/demo"
+    release_yaml = (
+        _RELEASE_YAML + f"  tompero_url: {tompero_url}\n" + f"  release_url: {release_url}\n"
+    )
+    root = _release_project(tmp_path, monkeypatch, release_yaml)
+    import subprocess
+
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://git.example/demo.git"],
+        cwd=root,
+        check=True,
+    )
+    (root / ".adws" / "config" / "notify.yaml").write_text("channel: '#alerts'\n")
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
+    transport = _FakeNotifyTransport()
+
+    def record_mr(argv, cwd):
+        adw_id = argv[argv.index("--adw-id") + 1]
+        record = Path(cwd) / ".adws" / "data" / "deploy" / f"{adw_id}-mr.json"
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text(json.dumps({"title": "release", "url": mr_url, "iid": "12"}))
+        return 0
+
+    monkeypatch.setattr(flow.subprocess, "call", record_mr)
+    monkeypatch.setattr(
+        flow.subprocess,
+        "run",
+        _fake_release_run([], lambda _argv: _FakeRun(stdout='{"status": "promoted"}')),
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt: "y")
+
+    assert flow.deploy(Path.cwd(), None, notify_transport=transport) == 0
+
+    done = next(call for call in transport.calls if "Release completed" in call["text"])
+    assert f"<{mr_url}|mr>" in done["text"]
+    assert f"<{release_url}|release>" in done["text"]
+    assert (
+        f"<{tompero_url}|tompero>"
+        in next(call for call in transport.calls if "promote" in call["text"])["text"]
+    )
 
 
 def test_flow_deploy_promote_timeout_parks_blocked(tmp_path, monkeypatch):
@@ -1128,6 +1305,63 @@ def test_flow_deploy_promote_timeout_parks_blocked(tmp_path, monkeypatch):
     assert row[0] == "blocked"
     assert "promoted" in row[1]
     conn.close()
+
+
+def test_flow_deploy_omits_unconfigured_action_urls(tmp_path, monkeypatch):
+    root = _release_project(tmp_path, monkeypatch)
+    (root / ".adws" / "config" / "notify.yaml").write_text("channel: '#alerts'\n")
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
+    transport = _FakeNotifyTransport()
+    _capture_call(monkeypatch)
+    monkeypatch.setattr(
+        flow.subprocess,
+        "run",
+        _fake_release_run([], lambda _argv: _FakeRun(stdout='{"status": "promoted"}')),
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt: "y")
+
+    assert flow.deploy(Path.cwd(), None, notify_transport=transport) == 0
+
+    promote = next(
+        call
+        for call in transport.calls
+        if "waiting for terminal confirmation to promote" in call["text"]
+    )
+    done = next(call for call in transport.calls if "Release completed" in call["text"])
+    assert "|tompero>" not in promote["text"]
+    assert "<" not in done["text"]
+
+
+def test_flow_deploy_delivery_failures_are_traced_without_blocking(tmp_path, monkeypatch, capsys):
+    from sssf import notify
+
+    root = _release_project(tmp_path, monkeypatch)
+    (root / ".adws" / "config" / "notify.yaml").write_text("channel: '#alerts'\n")
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
+    transport = _FakeNotifyTransport(
+        result=notify.PostResult(ok=False, error="rate_limited", attempts=6)
+    )
+    _capture_call(monkeypatch)
+    monkeypatch.setattr(
+        flow.subprocess,
+        "run",
+        _fake_release_run([], lambda _argv: _FakeRun(stdout='{"status": "promoted"}')),
+    )
+    monkeypatch.setattr("builtins.input", lambda _prompt: "y")
+
+    assert flow.deploy(Path.cwd(), None, notify_transport=transport) == 0
+
+    assert "deploy notification failed" in capsys.readouterr().err
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
+    events = conn.execute(
+        "SELECT ticket_id, ok, error, attempts FROM notify_events ORDER BY id"
+    ).fetchall()
+    conn.close()
+    assert events == [("internal:abc", 0, "rate_limited", 6)] * 3
+    conn = _adb(root)
+    status = conn.execute("SELECT status FROM tickets WHERE id='internal:abc'").fetchone()
+    conn.close()
+    assert status == ("done",)
 
 
 def test_flow_deploy_without_release_block_skips_gates_but_closes(tmp_path, monkeypatch, capsys):
@@ -1173,9 +1407,9 @@ def test_flow_sandboxed_dispatch_uses_the_sandbox(tmp_path, monkeypatch):
     assert captured["a"][1].name == "adw_plan.py"
 
 
-def test_flow_warns_on_legacy_layout(tmp_path, monkeypatch, capsys):
+def test_flow_requires_hidden_layout_on_legacy_project(tmp_path, monkeypatch, capsys):
     root = tmp_path / "proj"
-    (root / "adws" / "adw_data").mkdir(parents=True)  # v1 layout marker
+    (root / "adws" / "modules").mkdir(parents=True)
     monkeypatch.setattr(registry, "registry_path", lambda: tmp_path / ".sssf" / "projects.json")
-    assert flow.plan(root, None, None, False, no_sandbox=True) != 0
-    assert "legacy adws layout" in capsys.readouterr().err
+    assert flow.plan(root, None, None, False, no_sandbox=True) == 1
+    assert "run `sssf init` to upgrade" in capsys.readouterr().err

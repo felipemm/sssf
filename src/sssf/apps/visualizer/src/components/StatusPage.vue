@@ -71,7 +71,7 @@ watch(selectedProject, () => {
     <template v-if="status">
       <!-- main info strip -->
       <div class="strip">
-        <div class="tile"><span class="k">db</span><span class="v code">adws/adw_data/sssf.db</span></div>
+        <div class="tile"><span class="k">db</span><span class="v code">.adws/data/sssf.db</span></div>
         <div class="tile"><span class="k">ticketing</span><span class="v">{{ status.project.ticketing_enabled ? 'on' : 'off' }}</span></div>
         <div class="tile">
           <span class="k">active runs</span>
@@ -91,7 +91,7 @@ watch(selectedProject, () => {
               <dt class="hint hint-line" data-hint="All sessions ever run in this project.">total</dt><dd>{{ status.totals.runs }}</dd>
               <dt class="hint hint-line" data-hint="Sessions that ended in 'fail'. Stopped runs count too — stop finalizes as 'fail'.">failed</dt><dd>{{ status.totals.failed }}</dd>
               <dt class="hint hint-line" data-hint="Average wall-clock time of successful runs, in minutes.">avg duration</dt><dd>{{ Math.round(status.totals.avg_duration_s / 60) }}m</dd>
-              <dt class="hint hint-line" data-hint="Sessions archived as reviewed (archive buttons / the archive sweep).">archived</dt><dd>{{ status.totals.archived }}</dd>
+              <dt class="hint hint-line" data-hint="Sessions archived by the automatic or manual sweep.">archived</dt><dd>{{ status.totals.archived }}</dd>
             </dl>
           </section>
           <section class="kpi">

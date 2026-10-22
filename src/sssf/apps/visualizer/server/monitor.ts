@@ -19,7 +19,7 @@ import { fetchMrState as defaultFetchMrState } from "./gitlab.ts";
 import type { MrStateResult } from "./gitlab.ts";
 import type { ProjectRegistry } from "./registry.ts";
 
-export const MONITOR_CONFIG_FILE = "adws/config/monitor.json";
+export const MONITOR_CONFIG_FILE = ".adws/config/monitor.json";
 export const DEFAULT_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes, per the issue
 
 export interface MonitorConfig {
@@ -56,7 +56,7 @@ const SCAN_SQL = `SELECT t.id, t.title, m.repo, m.iid, m.url
   FROM tickets t JOIN ticket_mrs m ON m.ticket_id = t.id
   WHERE t.status = 'ready-to-deploy'`;
 
-/** Parse adws/config/monitor.json; null when the file is absent. */
+/** Parse .adws/config/monitor.json; null when the file is absent. */
 export function readMonitorConfig(root: string): MonitorConfig | null {
   const path = join(root, MONITOR_CONFIG_FILE);
   if (!existsSync(path)) return null;
@@ -129,7 +129,7 @@ export async function sweepMonitor(
   const result: SweepResult = { project: root, db: dbPath, watched: 0, notified: 0 };
   const config = readMonitorConfig(root);
   if (!config) {
-    result.error = "monitor not configured (adws/config/monitor.json)";
+    result.error = "monitor not configured (.adws/config/monitor.json)";
     return result;
   }
   const fetchMrState = deps.fetchMrState ?? ((opts) => defaultFetchMrState(opts));

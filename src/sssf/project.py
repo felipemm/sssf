@@ -8,13 +8,13 @@ from pathlib import Path
 def find_project(cwd: Path, explicit: str | None = None) -> Path | None:
     if explicit:
         root = Path(explicit).expanduser().resolve()
-        return root if (root / "adws").is_dir() else None
+        return root if (root / ".adws").is_dir() or (root / "adws").is_dir() else None
     cur = cwd.resolve()
     for candidate in [cur, *cur.parents]:
-        if (candidate / "adws").is_dir():
+        if (candidate / ".adws").is_dir() or (candidate / "adws").is_dir():
             return candidate
         if (candidate / ".git").exists():
-            return None  # hit a repo root without adws/ — stop
+            return None  # hit a repo root without either stamped layout — stop
     return None
 
 

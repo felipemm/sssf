@@ -1,6 +1,6 @@
 // A tiny reactive toast store: actions push messages; the Toasts component
 // renders them bottom-right and auto-dismisses. Used for CLI/action failures
-// (ticket run/backlog, sweep) so an error is visible even when the action
+// (ticket actions, sweep) so an error is visible even when the action
 // lives deep in a card — not just in a modal.
 import { reactive } from 'vue'
 

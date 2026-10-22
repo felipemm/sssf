@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, mkdirSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { MACHINE_STATUSES } from "../shared/machineStatuses";
 import { isEnabled, readTickets } from "./tickets";
 
 function makeDb(path: string): Database {
@@ -147,11 +148,21 @@ describe("readTickets", () => {
       .run("internal:m2", "internal", "", "triaging", "needs-triage");
     db.query("INSERT INTO tickets (id, provider, external_id, title, status) VALUES (?,?,?,?,?)")
       .run("internal:m3", "internal", "", "building", "in-progress");
+    db.query("INSERT INTO tickets (id, provider, external_id, title, status, adw_id) VALUES (?,?,?,?,?,?)")
+      .run("internal:m4", "internal", "", "blocked", "blocked", "sess_old_fail");
+    for (const status of [MACHINE_STATUSES.READY_FOR_SIGNOFF, MACHINE_STATUSES.READY_TO_DEPLOY, MACHINE_STATUSES.DONE]) {
+      db.query("INSERT INTO tickets (id, provider, external_id, title, status) VALUES (?,?,?,?,?)")
+        .run(`internal:${status}`, "internal", "", status, status);
+    }
     db.close();
     const byId = Object.fromEntries(readTickets(dbPath).map((t) => [t.id, t]));
     expect(byId["internal:m1"]!.status).toBe("ready-for-agent");
     expect(byId["internal:m2"]!.status).toBe("needs-triage");
     expect(byId["internal:m3"]!.status).toBe("in-progress");
+    expect(byId["internal:m4"]!.status).toBe("blocked");
+    for (const status of [MACHINE_STATUSES.READY_FOR_SIGNOFF, MACHINE_STATUSES.READY_TO_DEPLOY, MACHINE_STATUSES.DONE]) {
+      expect(byId[`internal:${status}`]!.status).toBe(status);
+    }
   });
 
   test("machine fields surface: kind, tracked, origin, parent_id, spec", () => {
@@ -162,7 +173,7 @@ describe("readTickets", () => {
       "INSERT INTO tickets (id, provider, external_id, title, status, kind, tracked, origin, parent_id, spec)"
       + " VALUES (?,?,?,?,?,?,?,?,?,?)",
     ).run("internal:child", "internal", "", "build the thing", "ready-for-agent",
-          "implementation", 1, "internal", "internal:idea", "adws/specs/thing.md");
+          "implementation", 1, "internal", "internal:idea", ".adws/specs/thing.md");
     db.query(
       "INSERT INTO tickets (id, provider, external_id, title, status, kind, tracked, origin)"
       + " VALUES (?,?,?,?,?,?,?,?)",
@@ -175,7 +186,7 @@ describe("readTickets", () => {
     expect(child.tracked).toBe(true);
     expect(child.origin).toBe("internal");
     expect(child.parent_id).toBe("internal:idea");   // lineage
-    expect(child.spec).toBe("adws/specs/thing.md");
+    expect(child.spec).toBe(".adws/specs/thing.md");
     expect(byId["internal:idea"]!.kind).toBe("idea");
   });
 
@@ -222,8 +233,8 @@ describe("isEnabled", () => {
     const root = mkdtempSync(join(tmpdir(), "tick-"));
 
     function write(yaml: string) {
-      mkdirSync(join(root, "adws", "config"), { recursive: true });
-      writeFileSync(join(root, "adws", "config", "ticketing.yaml"), yaml);
+      mkdirSync(join(root, ".adws", "config"), { recursive: true });
+      writeFileSync(join(root, ".adws", "config", "ticketing.yaml"), yaml);
     }
 
     write("providers:\n  - internal\n");
