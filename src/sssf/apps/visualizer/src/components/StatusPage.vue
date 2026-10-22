@@ -195,6 +195,7 @@ watch(selectedProject, () => {
                 :key="d"
                 type="button"
                 :class="{ on: windowDays === d }"
+                :aria-pressed="windowDays === d"
                 @click="setWindow(d)"
               >{{ d }}d</button>
             </div>
