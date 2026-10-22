@@ -526,11 +526,15 @@ export async function reviewFor(
   let state: ReviewInfo["container"]["state"] = "absent";
   if (row) {
     const name = row.container || `sssf-${adwId}`;
-    try {
-      const status = await dockerPs(name);
-      state = status.includes("Up") ? "running" : status ? "exited" : "absent";
-    } catch {
-      state = "absent"; // docker unreachable/absent — treat as absent
+    if (!SAFE_CONTAINER.test(name)) {
+      state = "absent";
+    } else {
+      try {
+        const status = await dockerPs(name);
+        state = status.includes("Up") ? "running" : status ? "exited" : "absent";
+      } catch {
+        state = "absent"; // docker unreachable/absent — treat as absent
+      }
     }
   }
   return { row, container: { state } };

@@ -301,6 +301,7 @@ function toggleCollapsed(key: string) {
             type="button"
             aria-label="Fetch external tickets"
             :disabled="syncing"
+            :aria-busy="syncing"
             :title="'Fetch external tickets'"
             @click="onSync"
           >

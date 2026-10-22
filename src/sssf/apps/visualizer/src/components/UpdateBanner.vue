@@ -61,6 +61,7 @@ onMounted(check)
           class="check-btn"
           type="button"
           :disabled="checking"
+          :aria-busy="checking"
           :title="checking ? 'Checking…' : 'Check for updates now'"
           aria-label="Check for updates now"
           @click.stop="check"
