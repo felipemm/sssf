@@ -27,6 +27,17 @@ the issue-tracker page until marked `ready-for-agent`, and they follow exactly
 the same rules and workflows as tracked tickets.
 _Avoid_: "external" (a tracked ticket can also exist on a tracker)
 
+**Sync**:
+The bidirectional tracker mirror (`sssf ticket sync`): pulls external tickets
+(born `needs-triage`, untracked) per each provider's configured filter — JQL
+for jira, in `.adws/config/ticketing.yaml` — then pushes the machine's control
+labels onto the origin (add/remove the state label — `needs-triage`,
+`ready-for-agent`, `blocked`, … — never touching foreign labels), transitions
+`done` tickets to closed, and appends the machine's comments (rejection
+feedback, closing note). The CLI and the tracker page's sync button are the
+only writers to trackers — nothing pushes on its own.
+_Avoid_: writeback (that verb merged into sync)
+
 **Idea ticket**:
 A title-only shell with a blank spec, born `needs-triage`. Created by
 `sssf ticket new` for quick capture, or by `sssf flow plan` once a brief is
@@ -157,7 +168,7 @@ _Avoid_: a separate daemon that outlives the viz
 **Promote**:
 The canary promotion step: sssf executes the per-project tompero command
 (`tompero deployment canary promote …`, configured under `release:` in
-adws/config/deploy.yaml) only after the human confirms it at the terminal,
+.adws/config/deploy.yaml) only after the human confirms it at the terminal,
 then polls `tompero deployment get` until the deployment is fully promoted.
 The canary step before it is equally confirmed; a canary/promote failure
 parks the batch's tickets in `blocked` — visible and actionable, never
