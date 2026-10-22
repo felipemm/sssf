@@ -147,22 +147,6 @@ onMounted(() => {
 onBeforeUnmount(() => resizeObs?.disconnect())
 onUnmounted(() => clearInterval(timer))
 
-// Once sessions + tickets are loaded, apply the saved toggle (if any) and
-// measure — the first fit measurement therefore always sees the final layout.
-let appliedSaved = false
-watch([() => loaded.value, () => ticketsLoaded.value, () => columns.value.length], () => {
-  if (appliedSaved) {
-    // re-measure when the layout re-renders (ticketing toggle, column change)
-    if (shrinkFit.value) void nextTick(() => requestAnimationFrame(() => computeZoom()))
-    return
-  }
-  if (loaded.value && ticketsLoaded.value) {
-    appliedSaved = true
-    shrinkFit.value = savedFit
-    if (savedFit) void nextTick(() => requestAnimationFrame(() => computeZoom()))
-  }
-})
-
 const AGENT_STAGE: Record<string, string> = {
   planner: 'planning',
   builder: 'building',
@@ -202,6 +186,22 @@ const COLUMNS = [
 const columns = computed(() =>
   tickets.value.enabled ? COLUMNS : COLUMNS.filter((c) => c.key !== 'backlog'),
 )
+
+// Once sessions + tickets are loaded, apply the saved toggle (if any) and
+// measure — the first fit measurement therefore always sees the final layout.
+let appliedSaved = false
+watch([() => loaded.value, () => ticketsLoaded.value, () => columns.value.length], () => {
+  if (appliedSaved) {
+    // re-measure when the layout re-renders (ticketing toggle, column change)
+    if (shrinkFit.value) void nextTick(() => requestAnimationFrame(() => computeZoom()))
+    return
+  }
+  if (loaded.value && ticketsLoaded.value) {
+    appliedSaved = true
+    shrinkFit.value = savedFit
+    if (savedFit) void nextTick(() => requestAnimationFrame(() => computeZoom()))
+  }
+})
 
 const byColumn = computed(() => {
   const groups: Record<string, SessionSummary[]> = {
