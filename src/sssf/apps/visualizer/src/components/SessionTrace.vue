@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch, watchEffect, shallowRef} from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch, watchEffect } from 'vue'
 import type {
   AgentSession,
   AgentStartPayload,
@@ -37,16 +37,17 @@ async function toggleArchive() {
   }
 }
 
-const session = ref<Session | null>(null)
-const ticket = ref<TicketInfo | null>(null)
+// These API payloads are replaced as a whole, so deep reactivity is unnecessary.
+const session = shallowRef<Session | null>(null)
+const ticket = shallowRef<TicketInfo | null>(null)
 const ticketChecked = ref(false)
-const activeTicket = ref<TicketInfo | null>(null)
-const phases = shallowRef<Phase[]>([]) // Arrays are entirely replaced, safe for shallowRef
-const agents = shallowRef<AgentSession[]>([]) // Arrays are entirely replaced, safe for shallowRef
-const usage = ref<SessionUsage>({ read: 0, written: 0 })
-const events = shallowRef<EventRow[]>([]) // Arrays are entirely replaced, safe for shallowRef
-const envelopes = shallowRef<Envelope[]>([]) // Arrays are entirely replaced, safe for shallowRef
-const gates = shallowRef<GateResult[]>([]) // Arrays are entirely replaced, safe for shallowRef
+const activeTicket = shallowRef<TicketInfo | null>(null)
+const phases = shallowRef<Phase[]>([])
+const agents = shallowRef<AgentSession[]>([])
+const usage = shallowRef<SessionUsage>({ read: 0, written: 0 })
+const events = shallowRef<EventRow[]>([])
+const envelopes = shallowRef<Envelope[]>([])
+const gates = shallowRef<GateResult[]>([])
 const apiError = ref<string | null>(null)
 const flash = ref('') // transient control feedback (restart/stop failures)
 const loaded = ref(false)
@@ -731,6 +732,8 @@ function selectPhase(p: Phase) {
               :class="[p.status, { selected: p.phase_id === phaseId }]"
               :style="blockStyle(p, lane)"
               :title="`${p.name} — ${p.status}${p.description ? `\n${p.description}` : ''}`"
+              :aria-label="`Phase ${p.name}, status ${p.status}`"
+              :aria-current="p.phase_id === phaseId ? 'step' : false"
               @click="selectPhase(p)"
             >
               <span class="b-top">
@@ -763,6 +766,8 @@ function selectPhase(p: Phase) {
             :class="{ selected: p.phase_id === phaseId }"
             :style="{ right: `${10 + i * 5}px`, width: '170px' }"
             :title="`${p.name} — queued`"
+            :aria-label="`Phase ${p.name}, status queued`"
+            :aria-current="p.phase_id === phaseId ? 'step' : false"
             @click="selectPhase(p)"
           >
             <span class="b-top">
