@@ -44,10 +44,10 @@ const view = computed(() => {
   if (r.cockpit) return 'cockpit'
   if (r.project) {
     if (r.adwId) return 'trace'
-    return r.tab === 'sessions' ? 'list' : (r.tab ?? 'status')
+    return r.tab === 'sessions' || r.tab === 'archived' ? 'list' : (r.tab ?? 'status')
   }
   if (r.adwId) return 'trace'
-  if (r.tab) return selectedProject.value ? (r.tab === 'sessions' ? 'list' : r.tab) : 'cockpit'
+  if (r.tab) return selectedProject.value ? (r.tab === 'sessions' || r.tab === 'archived' ? 'list' : r.tab) : 'cockpit'
   return 'cockpit'
 })
 // In the trace branch adwId is non-null by construction; the template can't
@@ -70,7 +70,7 @@ function onProjectSelect(name: string) {
   const current = view.value
   const tab =
     current === 'list' ? 'sessions'
-    : current === 'status' || current === 'board' || current === 'tracker' || current === 'archived' ? current
+    : current === 'status' || current === 'board' || current === 'tracker' ? current
     : 'status'
   navigate({ project: name, tab })
 }
@@ -158,14 +158,6 @@ async function onSweep() {
             :aria-selected="view === 'list'"
             >sessions</a
           >
-          <a
-            :href="tabHref('archived')"
-            class="tab"
-            :class="{ active: view === 'archived' }"
-            role="tab"
-            :aria-selected="view === 'archived'"
-            >archived</a
-          >
         </div>
         <template v-if="view === 'trace' && route.adwId">
           <span class="sep">›</span>
@@ -201,8 +193,7 @@ async function onSweep() {
       <KanbanBoard v-else-if="view === 'board'" />
       <IssueTracker v-else-if="view === 'tracker'" />
       <StatusPage v-else-if="view === 'status'" />
-      <SessionsList v-else-if="view === 'list'" />
-      <SessionsList v-else-if="view === 'archived'" archived />
+      <SessionsList v-else-if="view === 'list'" :initial-filter="route.tab === 'archived' ? 'archived' : 'all'" />
       <SessionTrace v-else :key="traceAdwId" :adw-id="traceAdwId" :phase-id="route.phaseId" />
     </main>
 
@@ -307,7 +298,7 @@ async function onSweep() {
   color: var(--text);
 }
 
-/* View tabs: sessions | board | archived, active one highlighted. */
+/* View tabs: sessions | board, active one highlighted. */
 .tabs {
   display: inline-flex;
   align-items: center;

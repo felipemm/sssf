@@ -162,6 +162,7 @@ class TicketsRow(Row):
     rejection_feedback: str = Field(default="", json_schema_extra={"not_null": True})
     created_at: str | None = None
     updated_at: str | None = None
+    mirrored_at: str | None = None
 
 
 class TicketEventsRow(Row):
@@ -171,6 +172,12 @@ class TicketEventsRow(Row):
     actor: str = Field(default="system", json_schema_extra={"not_null": True})
     payload: str = Field(default="{}", json_schema_extra={"not_null": True})
     created_at: str = Field(json_schema_extra={"not_null": True})
+
+
+class TicketMirrorOperationsRow(Row):
+    ticket_id: str = Field(json_schema_extra={"pk": True, "not_null": True})
+    operation_key: str = Field(json_schema_extra={"pk": True, "not_null": True})
+    completed_at: str = Field(json_schema_extra={"not_null": True})
 
 
 class TicketRunsRow(Row):
@@ -244,6 +251,7 @@ TABLES: dict[str, type[Row]] = {
     "agent_sessions": AgentSessionsRow,
     "tickets": TicketsRow,
     "ticket_events": TicketEventsRow,
+    "ticket_mirror_operations": TicketMirrorOperationsRow,
     "ticket_runs": TicketRunsRow,
     "ticket_mrs": TicketMrsRow,
     "notify_threads": NotifyThreadsRow,
@@ -281,8 +289,15 @@ def _add_machine_columns(conn: sqlite3.Connection) -> None:
             conn.execute(ddl)
 
 
+def _add_mirrored_at(conn: sqlite3.Connection) -> None:
+    """Add the sync watermark to a schema-v6 tickets table."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(tickets)")}
+    if "mirrored_at" not in cols:
+        conn.execute("ALTER TABLE tickets ADD COLUMN mirrored_at TEXT")
+
+
 # The current schema version. Bump on every schema-affecting change.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 8
 
 # Columns the read-only viz reader (db.ts SINCE_VERSION) can serve as NULL on
 # dbs stamped below the version that guarantees them. The codegen renders
@@ -329,6 +344,42 @@ MIGRATIONS: list[tuple[int, str, str | Callable[[sqlite3.Connection], None]]] = 
         UPDATE tickets SET origin=provider
           WHERE provider != 'internal' AND origin='internal';
         """,
+    ),
+    (
+        6,
+        "normalize legacy statuses on synced tickets",
+        """
+        UPDATE tickets SET status = CASE status
+          WHEN 'backlog' THEN 'ready-for-agent'
+          WHEN 'starting' THEN 'in-progress'
+          WHEN 'running' THEN 'in-progress'
+          WHEN 'failed' THEN 'ready-for-agent'
+          WHEN 'success' THEN 'done'
+        END
+        WHERE tracked=0
+          AND status IN ('backlog', 'starting', 'running', 'failed', 'success');
+        """,
+    ),
+    (
+        7,
+        "ticket sync mirror watermark",
+        _add_mirrored_at,
+    ),
+    (
+        8,
+        "ticket sync partial-operation checkpoints",
+        "CREATE TABLE IF NOT EXISTS ticket_mirror_operations ("
+        "ticket_id TEXT NOT NULL, operation_key TEXT NOT NULL, completed_at TEXT NOT NULL, "
+        "PRIMARY KEY (ticket_id, operation_key));"
+        "INSERT OR IGNORE INTO ticket_mirror_operations (ticket_id, operation_key, completed_at) "
+        "SELECT id, 'done:close', mirrored_at FROM tickets "
+        "WHERE status='done' AND mirrored_at IS NOT NULL;"
+        "INSERT OR IGNORE INTO ticket_mirror_operations (ticket_id, operation_key, completed_at) "
+        "SELECT id, 'done:comment', mirrored_at FROM tickets "
+        "WHERE status='done' AND mirrored_at IS NOT NULL;"
+        "INSERT OR IGNORE INTO ticket_mirror_operations (ticket_id, operation_key, completed_at) "
+        "SELECT id, 'feedback:comment', mirrored_at FROM tickets "
+        "WHERE status='ready-for-agent' AND mirrored_at IS NOT NULL;",
     ),
 ]
 

@@ -15,7 +15,7 @@ from sssf.sandbox.docker import container_name
 
 def project_db_path(data_dir: Path) -> Path:
     """The shared project db (bind-mounted into the container at
-    /work/adws/data/sssf.db)."""
+    /work/.adws/data/sssf.db)."""
     return data_dir / "sssf.db"
 
 

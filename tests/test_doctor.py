@@ -11,10 +11,10 @@ from sssf.commands import misc
 
 def _project(tmp_path, monkeypatch, ticketing_yaml: str | None = None) -> Path:
     root = tmp_path / "proj"
-    (root / "adws" / "config").mkdir(parents=True)
-    (root / "adws" / "data").mkdir(parents=True)
+    (root / ".adws" / "config").mkdir(parents=True)
+    (root / ".adws" / "data").mkdir(parents=True)
     if ticketing_yaml is not None:
-        (root / "adws" / "config" / "ticketing.yaml").write_text(ticketing_yaml)
+        (root / ".adws" / "config" / "ticketing.yaml").write_text(ticketing_yaml)
     monkeypatch.chdir(root)
     return root
 

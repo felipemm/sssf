@@ -21,7 +21,7 @@ def _roster(data_dir) -> str:
   coding_agent: pi
   model: openai/gpt-4o-mini
   thinking: medium
-  data_dir: adws/adw_data
+  data_dir: .adws/data
 agents:
 {agents_block}
 """
@@ -31,7 +31,7 @@ def test_validate_accepts_starter_roster(tmp_path, monkeypatch):
     # agents.validate checks prompt files exist AND resolves the model against
     # pi's live catalog — neither is available in unit tests (ruling R1).
     monkeypatch.setattr(agents.agent_pi, "resolve_model", lambda pattern: ("openai", "gpt-4o-mini"))
-    data_dir = tmp_path / "adws" / "adw_data"
+    data_dir = tmp_path / ".adws" / "data"
     for agent in ("planner", "builder", "reviewer", "scout", "documenter"):
         d = data_dir / "prompt_engineering" / agent
         d.mkdir(parents=True)
@@ -74,7 +74,7 @@ def _roster_with_skills(data_dir, *, hermetic: bool) -> str:
   coding_agent: pi
   model: openai/gpt-4o-mini
   thinking: medium
-{flag}  data_dir: adws/adw_data
+{flag}  data_dir: .adws/data
 agents:
 {agents_block}
 """
@@ -88,7 +88,7 @@ def _stamp_skill(root: Path, name: str) -> None:
 
 def test_validate_hermetic_requires_stamped_skills(tmp_path, monkeypatch):
     monkeypatch.setattr(agents.agent_pi, "resolve_model", lambda pattern: ("openai", "gpt-4o-mini"))
-    data_dir = tmp_path / "adws" / "adw_data"
+    data_dir = tmp_path / ".adws" / "data"
     for agent in ("planner", "builder"):
         d = data_dir / "prompt_engineering" / agent
         d.mkdir(parents=True)

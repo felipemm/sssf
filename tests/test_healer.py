@@ -81,7 +81,7 @@ def test_recover_finalize_marks_failed(tmp_path, monkeypatch):
     (root / "f.txt").write_text("x\n")
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
     subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
-    data = root / "adws" / "data"
+    data = root / ".adws" / "data"
     data.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(sb.project_db_path(data)))
     conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
@@ -115,7 +115,7 @@ def test_recover_ticket_backlog_keeps_history(tmp_path, monkeypatch):
     root = tmp_path / "proj"
     root.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
-    data = root / "adws" / "data"
+    data = root / ".adws" / "data"
     data.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(sb.project_db_path(data)))
     conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
@@ -168,7 +168,7 @@ def test_restart_budget_exhausts_then_finalizes(tmp_path, monkeypatch):
     (root / "f.txt").write_text("x\n")
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
     subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
-    data = root / "adws" / "data"
+    data = root / ".adws" / "data"
     data.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(sb.project_db_path(data)))
     conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
@@ -218,7 +218,7 @@ def test_restart_cli_failure_is_reported(tmp_path, monkeypatch):
     root = tmp_path / "proj3"
     root.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=root, check=True)
-    data = root / "adws" / "data"
+    data = root / ".adws" / "data"
     data.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(sb.project_db_path(data)))
     conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
@@ -325,7 +325,7 @@ def test_recover_records_and_prunes_healed_state(tmp_path, monkeypatch):
     (root / "f.txt").write_text("x\n")
     subprocess.run(["git", "add", "-A"], cwd=root, check=True)
     subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
-    data = root / "adws" / "data"
+    data = root / ".adws" / "data"
     data.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(sb.project_db_path(data)))
     conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
@@ -349,8 +349,8 @@ def test_recover_records_and_prunes_healed_state(tmp_path, monkeypatch):
 def _sandbox_proj(tmp_path, name="proj", image="sssf-runner", enabled=True):
     """A scratch project root with a v2 config declaring a sandbox image."""
     root = tmp_path / name
-    (root / "adws" / "config").mkdir(parents=True)
-    (root / "adws" / "config" / "sssf.config.yaml").write_text(
+    (root / ".adws" / "config").mkdir(parents=True)
+    (root / ".adws" / "config" / "sssf.config.yaml").write_text(
         f"sandbox:\n  enabled: {'true' if enabled else 'false'}\n  image: {image}\n"
     )
     return root
@@ -484,8 +484,8 @@ def test_clean_orphans_reports_but_never_deletes(tmp_path, monkeypatch):
 
     monkeypatch.setattr(h, "STATE_DIR", tmp_path)
     root = tmp_path / "proj"
-    (root / "adws" / "data").mkdir(parents=True)
-    conn = sqlite3.connect(str(root / "adws" / "data" / "sssf.db"))
+    (root / ".adws" / "data").mkdir(parents=True)
+    conn = sqlite3.connect(str(root / ".adws" / "data" / "sssf.db"))
     conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT)")
     conn.commit()
     conn.close()

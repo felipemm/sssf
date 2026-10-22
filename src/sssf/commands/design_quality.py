@@ -34,11 +34,11 @@ IMPERCEPTIBLE_CONFIG: dict[str, dict[str, list[str]]] = {
     }
 }
 
-_ERR = "sssf: --design-quality needs adws/config/sssf.config.yaml — run `sssf init` first"
+_ERR = "sssf: --design-quality needs .adws/config/sssf.config.yaml — run `sssf init` first"
 
 
 def config_file(root: Path) -> Path:
-    return root / "adws" / "config" / "sssf.config.yaml"
+    return root / ".adws" / "config" / "sssf.config.yaml"
 
 
 def _block_end(lines: list[str], start: int, indent: int) -> int:
@@ -158,7 +158,7 @@ def configure(root: Path, surface: str) -> int:
     print(f"sssf: design gate configured — surface {surface} (quality.checks `design`)")
     print(f"sssf: designer scope set to {surface}; .impeccable/config.json ready")
     print(
-        "sssf: commit adws/config/sssf.config.yaml + .impeccable/ — sandboxed "
+        "sssf: commit .adws/config/sssf.config.yaml + .impeccable/ — sandboxed "
         "runs read the committed state. Run the full flow with `sssf flow deploy`"
     )
     return 0

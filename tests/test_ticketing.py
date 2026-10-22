@@ -263,7 +263,7 @@ def test_fetch_linear_parses_graphql(tmp_path, monkeypatch):
 def test_sync_upserts_without_duplicates(tmp_path):
     from sssf.adw_modules import tracer as tracer_mod
 
-    db = tmp_path / "adws" / "adw_data" / "sssf.db"
+    db = tmp_path / ".adws" / "data" / "sssf.db"
     db.parent.mkdir(parents=True)
     tracer_mod.Tracer(db_path=db, events_jsonl=db.with_suffix(".jsonl")).conn.close()
     records = [ticketing.TicketRecord("jira", "ACME-1", "One", "d", "u")]
@@ -373,6 +373,94 @@ def test_migration_is_idempotent(tmp_path):
     ticketing.ensure_schema(conn)  # second pass over an already-migrated db
     row = conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone()
     assert row == ("ready-for-agent",)
+    conn.close()
+
+
+def test_reconcile_settles_successful_terminal_run_with_audit_event(tmp_path):
+    conn = _machine_conn(tmp_path / "m.db")
+    _insert_ticket(conn, "t1", status=ticketing.STATUS_IN_PROGRESS, adw_id="run1")
+    conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, status) VALUES (?,?,?)",
+        ("run1", ticketing.IMPLEMENT_ADW, "success"),
+    )
+
+    assert ticketing.reconcile_stale_tickets(conn, actor="viz") == 1
+    assert ticketing.reconcile_stale_tickets(conn, actor="viz") == 0
+    assert conn.execute("SELECT COUNT(*) FROM ticket_events WHERE ticket_id='t1'").fetchone() == (
+        1,
+    )
+    assert conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone() == (
+        ticketing.STATUS_SIGNOFF,
+    )
+    event = ticketing.ticket_events(conn, "t1")[0]
+    assert event["event_type"] == "transition"
+    assert event["actor"] == "viz"
+    assert event["payload"] == {
+        "from": ticketing.STATUS_IN_PROGRESS,
+        "to": ticketing.STATUS_SIGNOFF,
+        "comment": "implement flow run succeeded — ready for signoff",
+    }
+    conn.close()
+
+
+def test_reconcile_requeues_failed_terminal_run_with_feedback(tmp_path):
+    conn = _machine_conn(tmp_path / "m.db")
+    _insert_ticket(conn, "t1", status=ticketing.STATUS_IN_PROGRESS, adw_id="run1")
+    conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, status) VALUES (?,?,?)",
+        ("run1", ticketing.IMPLEMENT_ADW, "fail"),
+    )
+
+    assert ticketing.reconcile_stale_tickets(conn) == 1
+    assert conn.execute(
+        "SELECT status, rejection_feedback FROM tickets WHERE id='t1'"
+    ).fetchone() == (ticketing.STATUS_READY, "the implement flow run failed")
+    event = ticketing.ticket_events(conn, "t1")[0]
+    assert event["payload"]["from"] == ticketing.STATUS_IN_PROGRESS
+    assert event["payload"]["to"] == ticketing.STATUS_READY
+    assert event["payload"]["feedback"] == "the implement flow run failed"
+    conn.close()
+
+
+@pytest.mark.parametrize("session_status", ["success", "fail"])
+def test_reconcile_settles_terminal_legacy_run_without_changing_flow_guard(
+    tmp_path, session_status
+):
+    conn = _impl_db(
+        tmp_path,
+        adw_name="adw_simple_sdlc",
+        session_status=session_status,
+    )
+
+    assert ticketing.reconcile_stale_tickets(conn, actor="viz") == 1
+    expected_status = (
+        ticketing.STATUS_SIGNOFF if session_status == "success" else ticketing.STATUS_READY
+    )
+    assert conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone() == (
+        expected_status,
+    )
+    (event,) = ticketing.ticket_events(conn, "t1")
+    assert event["event_type"] == "transition"
+    assert event["actor"] == "viz"
+    assert event["payload"]["from"] == ticketing.STATUS_IN_PROGRESS
+    assert event["payload"]["to"] == expected_status
+    assert ticketing.reconcile_stale_tickets(conn, actor="viz") == 0
+    conn.close()
+
+
+def test_reconcile_leaves_nonterminal_runs_in_progress(tmp_path):
+    conn = _machine_conn(tmp_path / "m.db")
+    _insert_ticket(conn, "t1", status=ticketing.STATUS_IN_PROGRESS, adw_id="run1")
+    conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, status) VALUES (?,?,?)",
+        ("run1", ticketing.IMPLEMENT_ADW, "running"),
+    )
+
+    assert ticketing.reconcile_stale_tickets(conn) == 0
+    assert conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone() == (
+        ticketing.STATUS_IN_PROGRESS,
+    )
+    assert ticketing.ticket_events(conn, "t1") == []
     conn.close()
 
 
@@ -520,7 +608,7 @@ def test_create_idea_ticket_shell(tmp_path):
 def test_upsert_sync_rows_untracked_needs_triage_and_permanent(tmp_path):
     """Synced tickets land needs-triage + untracked; a re-sync updates
     title/description but NEVER rewrites kind/tracked/origin/status."""
-    db = tmp_path / "adws" / "adw_data" / "sssf.db"
+    db = tmp_path / ".adws" / "data" / "sssf.db"
     db.parent.mkdir(parents=True)
     rec = ticketing.TicketRecord("jira", "ACME-9", "Old title", "d", "u")
     ticketing.upsert_tickets(db, [rec])
@@ -900,7 +988,7 @@ def test_revert_deploy_ticket_requeues_only_signoff(tmp_path):
 
 
 def _plan_conn(root: Path) -> sqlite3.Connection:
-    db = root / "adws" / "data" / "sssf.db"
+    db = root / ".adws" / "data" / "sssf.db"
     db.parent.mkdir(parents=True, exist_ok=True)
     return _machine_conn(db)
 
@@ -917,7 +1005,7 @@ def _plan_session(
 
 def _plan_artifacts(root: Path, adw_id: str, *, spec: str = "# Dark mode\n\nA spec.\n", tickets: str = "") -> None:
     """Write the plan run's artifacts exactly where the ADW lands them."""
-    specs = root / "adws" / "specs"
+    specs = root / ".adws" / "specs"
     specs.mkdir(parents=True, exist_ok=True)
     (specs / f"{adw_id}_spec-dark-mode.md").write_text(spec)
     (specs / f"{adw_id}_tickets-dark-mode.md").write_text(
@@ -965,7 +1053,7 @@ def test_plan_guard_plan_once_refuses_planned_idea_without_revise(tmp_path):
 def test_plan_guard_plan_once_also_sees_a_spec(tmp_path):
     conn = _machine_conn(tmp_path / "m.db")
     parent = ticketing.create_idea_ticket(conn, "Dark mode")
-    conn.execute("UPDATE tickets SET spec='adws/specs/x.md' WHERE id=?", (parent,))
+    conn.execute("UPDATE tickets SET spec='.adws/specs/x.md' WHERE id=?", (parent,))
     conn.commit()
     assert "already planned" in ticketing.plan_guard(conn, parent)
     conn.close()
@@ -1034,7 +1122,7 @@ def test_finish_plan_run_transforms_linked_idea_ticket(tmp_path):
     row = conn.execute(
         "SELECT spec, status, adw_id FROM tickets WHERE id=?", (parent,)
     ).fetchone()
-    assert row[0] == "adws/specs/r1_spec-dark-mode.md"  # committed relative path
+    assert row[0] == ".adws/specs/r1_spec-dark-mode.md"  # committed relative path
     assert row[1] == "needs-triage"  # the parent stays out of the backlog
     assert row[2] == "r1"
     children = conn.execute(
@@ -1045,7 +1133,7 @@ def test_finish_plan_run_transforms_linked_idea_ticket(tmp_path):
     assert all(c[2] == "ready-for-agent" for c in children)
     assert all(c[3] == "implementation" for c in children)
     assert all(c[4] == parent for c in children)
-    assert all(c[5] == "adws/specs/r1_spec-dark-mode.md" for c in children)
+    assert all(c[5] == ".adws/specs/r1_spec-dark-mode.md" for c in children)
     events = ticketing.ticket_events(conn, parent)
     planned = [e for e in events if e["event_type"] == "planned"]
     assert len(planned) == 1
@@ -1067,7 +1155,7 @@ def test_finish_plan_run_no_args_creates_the_idea_ticket(tmp_path):
         "SELECT title, kind, status, spec, adw_id FROM tickets WHERE id=?", (landed,)
     ).fetchone()
     assert row == (
-        "Dark mode", "idea", "needs-triage", "adws/specs/r1_spec-dark-mode.md", "r1",
+        "Dark mode", "idea", "needs-triage", ".adws/specs/r1_spec-dark-mode.md", "r1",
     )
     children = conn.execute(
         "SELECT title FROM tickets WHERE parent_id=?", (landed,)
@@ -1471,7 +1559,7 @@ def test_sync_tickets_upserts_all_four_origins(tmp_path, monkeypatch):
     assert by_provider["github"].tickets == 1
     assert by_provider["gitlab"].tickets == 1
     assert "internal" not in by_provider  # nothing to fetch
-    conn = sqlite3.connect(root / "adws" / "data" / "sssf.db")
+    conn = sqlite3.connect(root / ".adws" / "data" / "sssf.db")
     rows = conn.execute(
         "SELECT id, status, kind, tracked, origin FROM tickets"
         " WHERE origin IN ('github','gitlab') ORDER BY id"

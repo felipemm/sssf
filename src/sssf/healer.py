@@ -198,7 +198,7 @@ def recover(
     cutoff = (now - datetime.timedelta(days=7)).isoformat()
     state["healed"] = [h for h in state["healed"] if h.get("ts", "") >= cutoff][-1000:]
     wt = sandbox_dir(root, adw_id)
-    per_run_db = wt / "adws" / "data" / "sssf.db"
+    per_run_db = wt / ".adws" / "data" / "sssf.db"
 
     if action == "finalize":
         from sssf.sandbox.orchestrator import stop_run
@@ -342,7 +342,7 @@ def heal_once(initial: dict | None = None) -> list[str]:
             wt = sandbox_dir(root, adw_id)
             has_wt = wt.exists()
             has_ct = _container_exists(adw_id)
-            per_run = wt / "adws" / "data" / "sssf.db"
+            per_run = wt / ".adws" / "data" / "sssf.db"
             action = diagnose(
                 status,
                 None,

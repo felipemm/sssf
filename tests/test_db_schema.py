@@ -268,6 +268,44 @@ def test_legacy_db_migrates_to_the_machine(tmp_path):
     assert conn.execute("PRAGMA user_version").fetchone()[0] == db_schema.SCHEMA_VERSION
 
 
+def test_migration_6_normalizes_only_legacy_synced_statuses(tmp_path):
+    conn = sqlite3.connect(tmp_path / "v5.db")
+    db_schema.apply_schema(conn)
+    legacy_statuses = {
+        "backlog": "ready-for-agent",
+        "starting": "in-progress",
+        "running": "in-progress",
+        "failed": "ready-for-agent",
+        "success": "done",
+    }
+    for legacy, _machine in legacy_statuses.items():
+        conn.execute(
+            "INSERT INTO tickets (id, provider, title, status, tracked, origin)"
+            " VALUES (?, 'jira', ?, ?, 0, 'jira')",
+            (f"jira:{legacy}", legacy, legacy),
+        )
+    conn.execute(
+        "INSERT INTO tickets (id, provider, title, status, tracked, origin)"
+        " VALUES ('internal:legacy', 'internal', 'legacy', 'backlog', 1, 'internal')"
+    )
+    conn.execute(
+        "INSERT INTO tickets (id, provider, title, status, tracked, origin)"
+        " VALUES ('jira:machine', 'jira', 'machine', 'blocked', 0, 'jira')"
+    )
+    conn.execute("PRAGMA user_version = 5")
+    db_schema.apply_schema(conn)
+
+    statuses = dict(conn.execute("SELECT id, status FROM tickets"))
+    assert {f"jira:{status}": statuses[f"jira:{status}"] for status in legacy_statuses} == {
+        f"jira:{legacy}": machine for legacy, machine in legacy_statuses.items()
+    }
+    assert statuses["internal:legacy"] == "backlog"
+    assert statuses["jira:machine"] == "blocked"
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 8
+    assert "mirrored_at" in {row[1] for row in conn.execute("PRAGMA table_info(tickets)")}
+    conn.close()
+
+
 def test_apply_schema_tolerates_existing_machine_columns(tmp_path):
     """A db that already has the machine columns (pre-refactor ticketing ran
     on it) still migrates cleanly at version 0 — the column ALTERs are

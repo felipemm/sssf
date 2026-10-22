@@ -61,17 +61,17 @@ def _setup_project(tmp_path, monkeypatch) -> Path:
     root = tmp_path / "proj"
     root.mkdir()
     monkeypatch.setattr(registry, "registry_path", lambda: tmp_path / ".sssf" / "projects.json")
-    (root / "adws" / "modules").mkdir(parents=True)
-    (root / "adws" / "config").mkdir(parents=True)
-    (root / "adws" / "config" / "sssf.config.yaml").write_text(
+    (root / ".adws" / "modules").mkdir(parents=True)
+    (root / ".adws" / "config").mkdir(parents=True)
+    (root / ".adws" / "config" / "sssf.config.yaml").write_text(
         "defaults:\n  coding_agent: pi\n  model: openai/gpt-4o-mini\n"
         "sandbox:\n  enabled: false\n"
-        "observability:\n  db: adws/data/sssf.db\n"
+        "observability:\n  db: .adws/data/sssf.db\n"
     )
-    registry.register_project(root, root / "adws" / "data" / "sssf.db", "1.0.0")
+    registry.register_project(root, root / ".adws" / "data" / "sssf.db", "1.0.0")
     # A legacy ADW left in the project from before the chain-set reduction —
     # restart resolves it from the project file when no installed template exists.
-    (root / "adws" / "modules" / "adw_build_review.py").write_text("print('legacy adw')\n")
+    (root / ".adws" / "modules" / "adw_build_review.py").write_text("print('legacy adw')\n")
     monkeypatch.chdir(root)
     return root
 
@@ -110,7 +110,7 @@ def test_spawn_sandbox_creates_worktree_and_records_port(tmp_path, monkeypatch, 
         "abc123",
         cmd=["true"],
         image="sssf-runner",
-        data_dir=root / "adws" / "adw_data",
+        data_dir=root / ".adws" / "data",
         pi_home=tmp_path / "pi",
     )
     assert sandbox_dir(root, "abc123").is_dir()
@@ -125,7 +125,7 @@ def test_stop_run_finalizes_stale_session(tmp_path, monkeypatch, fake_docker):
     from sssf.sandbox.rundb import project_db_path
 
     root = _make_repo(tmp_path)
-    data = root / "adws" / "adw_data"
+    data = root / ".adws" / "data"
     data.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(project_db_path(data)))
     conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
@@ -145,7 +145,7 @@ def test_stop_run_marks_inflight_phases(tmp_path, monkeypatch, fake_docker):
     from sssf.sandbox.rundb import project_db_path
 
     root = _make_repo(tmp_path)
-    data = root / "adws" / "adw_data"
+    data = root / ".adws" / "data"
     data.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(project_db_path(data)))
     conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
@@ -286,14 +286,14 @@ def test_monitor_exits_when_run_ends_but_container_alive(tmp_path, monkeypatch):
 
     root = tmp_path / "proj"
     root.mkdir()
-    data = root / "adws" / "data"
+    data = root / ".adws" / "data"
     data.mkdir(parents=True)
     conn = sqlite3.connect(str(data / "sssf.db"))
     conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
     conn.commit()
     conn.close()
     # the container's worktree — where the per-run db and the supervisor marker live
-    wt_data = sandbox_dir(root, "r6") / "adws" / "data"
+    wt_data = sandbox_dir(root, "r6") / ".adws" / "data"
     (wt_data / "sessions").mkdir(parents=True)
 
     monkeypatch.setattr(
@@ -321,7 +321,7 @@ def test_monitor_settles_implement_ticket_after_run_ends(tmp_path, monkeypatch):
 
     root = tmp_path / "proj"
     root.mkdir()
-    data = root / "adws" / "data"
+    data = root / ".adws" / "data"
     data.mkdir(parents=True)
     db = data / "sssf.db"
     conn = sqlite3.connect(str(db))
@@ -339,7 +339,7 @@ def test_monitor_settles_implement_ticket_after_run_ends(tmp_path, monkeypatch):
     )
     conn.commit()
     conn.close()
-    wt_data = sandbox_dir(root, "r9") / "adws" / "data"
+    wt_data = sandbox_dir(root, "r9") / ".adws" / "data"
     (wt_data / "sessions").mkdir(parents=True)
     (wt_data / "sessions" / "r9.supervisor-exit").write_text("0")
 
@@ -364,7 +364,7 @@ def test_monitor_failed_implement_run_requeues_ticket(tmp_path, monkeypatch):
 
     root = tmp_path / "proj"
     root.mkdir()
-    data = root / "adws" / "data"
+    data = root / ".adws" / "data"
     data.mkdir(parents=True)
     db = data / "sssf.db"
     conn = sqlite3.connect(str(db))
@@ -386,7 +386,7 @@ def test_monitor_failed_implement_run_requeues_ticket(tmp_path, monkeypatch):
     )
     conn.commit()
     conn.close()
-    wt_data = sandbox_dir(root, "r10") / "adws" / "data"
+    wt_data = sandbox_dir(root, "r10") / ".adws" / "data"
     (wt_data / "sessions").mkdir(parents=True)
     (wt_data / "sessions" / "r10.supervisor-exit").write_text("1")
 
@@ -422,10 +422,10 @@ def test_stop_run_stops_container_keeps_worktree_and_marks_stopped(tmp_path, mon
         ),
     )
     root = tmp_path / "proj"
-    data = root / "adws" / "data"
+    data = root / ".adws" / "data"
     data.mkdir(parents=True)
     wt = sb.sandbox_dir(root, "r9")
-    (wt / "adws" / "data" / "sessions").mkdir(parents=True)
+    (wt / ".adws" / "data" / "sessions").mkdir(parents=True)
     conn = sqlite3.connect(str(project_db_path(data)))
     conn.execute("CREATE TABLE sessions (adw_id TEXT PRIMARY KEY, status TEXT, ended_at TEXT)")
     conn.execute(
@@ -477,9 +477,9 @@ def test_record_never_started_leaves_evidence(monkeypatch, tmp_path):
     ticket — the monitor no longer erases the only evidence."""
     from sssf.adw_modules.tracer import Tracer
 
-    db = tmp_path / "proj" / "adws" / "data" / "sssf.db"
+    db = tmp_path / "proj" / ".adws" / "data" / "sssf.db"
     tracer = Tracer(
-        db, tmp_path / "proj" / "adws" / "data" / "sessions" / "abc123" / "events.jsonl"
+        db, tmp_path / "proj" / ".adws" / "data" / "sessions" / "abc123" / "events.jsonl"
     )
     tracer.conn.execute(
         "INSERT INTO tickets (id, provider, title, status, adw_id) VALUES (?,?,?,?,?)",
@@ -494,7 +494,7 @@ def test_record_never_started_leaves_evidence(monkeypatch, tmp_path):
                 args,
                 0,
                 stdout=(
-                    "python: can't open file 'adws/modules/adw_simple_sdlc.py':"
+                    "python: can't open file '.adws/modules/adw_implement.py':"
                     " [Errno 2] No such file or directory\n"
                 ),
                 stderr="",
@@ -502,7 +502,7 @@ def test_record_never_started_leaves_evidence(monkeypatch, tmp_path):
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
     monkeypatch.setattr("sssf.sandbox.orchestrator._docker", fake_docker)
-    per_run = tmp_path / "proj" / ".worktrees" / "abc123" / "adws" / "data" / "sssf.db"
+    per_run = tmp_path / "proj" / ".worktrees" / "abc123" / ".adws" / "data" / "sssf.db"
     orchestrator_mod.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
 
     row = tracer.conn.execute(
@@ -531,9 +531,9 @@ def test_record_never_started_zero_evidence_has_null_remediation(monkeypatch, tm
     null means zero evidence, not 'unmatched signature'."""
     from sssf.adw_modules.tracer import Tracer
 
-    db = tmp_path / "proj" / "adws" / "data" / "sssf.db"
+    db = tmp_path / "proj" / ".adws" / "data" / "sssf.db"
     tracer = Tracer(
-        db, tmp_path / "proj" / "adws" / "data" / "sessions" / "abc123" / "events.jsonl"
+        db, tmp_path / "proj" / ".adws" / "data" / "sessions" / "abc123" / "events.jsonl"
     )
 
     def fake_docker(*args, **kwargs):
@@ -541,7 +541,7 @@ def test_record_never_started_zero_evidence_has_null_remediation(monkeypatch, tm
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
     monkeypatch.setattr("sssf.sandbox.orchestrator._docker", fake_docker)
-    per_run = tmp_path / "proj" / ".worktrees" / "abc123" / "adws" / "data" / "sssf.db"
+    per_run = tmp_path / "proj" / ".worktrees" / "abc123" / ".adws" / "data" / "sssf.db"
     orchestrator_mod.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
 
     ev = tracer.conn.execute("SELECT payload_json FROM events WHERE adw_id='abc123'").fetchone()
@@ -555,9 +555,9 @@ def test_record_never_started_skips_when_adw_started(monkeypatch, tmp_path):
     per-run db (not yet merged)."""
     from sssf.adw_modules.tracer import Tracer
 
-    db = tmp_path / "proj" / "adws" / "data" / "sssf.db"
+    db = tmp_path / "proj" / ".adws" / "data" / "sssf.db"
     tracer = Tracer(
-        db, tmp_path / "proj" / "adws" / "data" / "sessions" / "abc123" / "events.jsonl"
+        db, tmp_path / "proj" / ".adws" / "data" / "sessions" / "abc123" / "events.jsonl"
     )
     tracer.conn.execute("INSERT INTO sessions (adw_id, status) VALUES ('abc123', 'running')")
 
@@ -565,7 +565,7 @@ def test_record_never_started_skips_when_adw_started(monkeypatch, tmp_path):
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
     monkeypatch.setattr("sssf.sandbox.orchestrator._docker", fake_docker)
-    per_run = tmp_path / "proj" / ".worktrees" / "abc123" / "adws" / "data" / "sssf.db"
+    per_run = tmp_path / "proj" / ".worktrees" / "abc123" / ".adws" / "data" / "sssf.db"
     orchestrator_mod.record_never_started(tmp_path / "proj", "abc123", tracer, per_run)
 
     rows = tracer.conn.execute("SELECT count(*) FROM sessions WHERE adw_id='abc123'").fetchone()[0]
@@ -609,7 +609,7 @@ def test_spawn_wraps_supervisor_and_records_sandbox_run(tmp_path, monkeypatch):
 
     wt = tmp_path / "wt"
     wt.mkdir()
-    data = tmp_path / "adws" / "data"
+    data = tmp_path / ".adws" / "data"
     data.mkdir(parents=True)
     conn = sqlite3.connect(str(data / "sssf.db"))
     conn.execute(
@@ -634,7 +634,7 @@ def test_spawn_wraps_supervisor_and_records_sandbox_run(tmp_path, monkeypatch):
     sb.spawn_sandbox(
         tmp_path,
         "abc1",
-        cmd=["python", "adws/modules/adw_x.py", "p", "--adw-id", "abc1"],
+        cmd=["python", ".adws/modules/adw_x.py", "p", "--adw-id", "abc1"],
         image="sssf-runner",
         data_dir=data,
         pi_home=tmp_path / "pi",
@@ -659,7 +659,7 @@ def test_spawn_records_row_without_review_config(tmp_path, monkeypatch):
 
     wt = tmp_path / "wt"
     wt.mkdir()
-    data = tmp_path / "adws" / "data"
+    data = tmp_path / ".adws" / "data"
     data.mkdir(parents=True)
     conn = sqlite3.connect(str(data / "sssf.db"))
     conn.execute(
@@ -729,15 +729,15 @@ def test_run_lifecycle_spawn_monitor_teardown(tmp_path, monkeypatch, fake_docker
 
     monkeypatch.setattr("sssf.sandbox.docker._engine_fingerprint", lambda: "FPFIXED")
     root = tmp_path / "proj"
-    data = root / "adws" / "data"
+    data = root / ".adws" / "data"
     data.mkdir(parents=True)
     wt = root / ".worktrees" / "abc1"
-    (wt / "adws" / "data" / "sessions").mkdir(parents=True)
+    (wt / ".adws" / "data" / "sessions").mkdir(parents=True)
 
     record = spawn_sandbox(
         root,
         "abc1",
-        cmd=["python", "adws/modules/adw_x.py", "p", "--adw-id", "abc1"],
+        cmd=["python", ".adws/modules/adw_x.py", "p", "--adw-id", "abc1"],
         image="sssf-runner",
         data_dir=data,
         pi_home=tmp_path / "pi",
@@ -749,7 +749,7 @@ def test_run_lifecycle_spawn_monitor_teardown(tmp_path, monkeypatch, fake_docker
     # the supervisor writes its exit marker and the container EXITS with the
     # ADW's code (ADR-0004 — the runner executes work and ends; the workbench
     # is the deploy flow's QA surface).
-    per_run = wt / "adws" / "data" / "sssf.db"
+    per_run = wt / ".adws" / "data" / "sssf.db"
     conn = sqlite3.connect(str(per_run), isolation_level=None)
     db_schema.apply_schema(conn)
     conn.execute(
@@ -769,7 +769,7 @@ def test_run_lifecycle_spawn_monitor_teardown(tmp_path, monkeypatch, fake_docker
         ),
     )
     conn.close()
-    marker = wt / "adws" / "data" / "sessions" / "abc1.supervisor-exit"
+    marker = wt / ".adws" / "data" / "sessions" / "abc1.supervisor-exit"
     marker.write_text("0")
 
     assert monitor_run(root, "abc1") == 0
@@ -792,15 +792,14 @@ def test_sandbox_build_reads_v2_config(tmp_path, monkeypatch, fake_docker):
     """sandbox build must load the config from adws/config (v2) — the v1 path
     crash (audit B1, PR #28)."""
     root = tmp_path / "proj"
-    (root / "adws" / "config").mkdir(parents=True)
-    (root / "adws" / "config" / "sssf.config.yaml").write_text("sandbox:\n  image: sssf-runner\n")
+    (root / ".adws" / "config").mkdir(parents=True)
+    (root / ".adws" / "config" / "sssf.config.yaml").write_text("sandbox:\n  image: sssf-runner\n")
     monkeypatch.chdir(root)
     from sssf.commands import sandbox_cmd
 
     assert sandbox_cmd.build(None) == 0
-    # a v1-only project fails loudly (legacy banner + readable message),
-    # never with a raw traceback (audit B1)
-    (root / "adws" / "config").rename(root / "adws" / "adw_sssf_config")
+    # A visible legacy footprint does not satisfy the new hidden config path.
+    (root / ".adws").rename(root / "adws")
     monkeypatch.chdir(root)
     assert sandbox_cmd.build(None) == 1
 
@@ -822,7 +821,7 @@ def test_monitor_lands_plan_tickets_after_successful_run(tmp_path, monkeypatch):
 
     root = tmp_path / "proj"
     root.mkdir()
-    data = root / "adws" / "data"
+    data = root / ".adws" / "data"
     data.mkdir(parents=True)
     db = data / "sssf.db"
     conn = sqlite3.connect(str(db))
@@ -843,13 +842,13 @@ def test_monitor_lands_plan_tickets_after_successful_run(tmp_path, monkeypatch):
     conn.close()
     # the run's artifacts live in the per-run worktree, where the ADW wrote them
     wt = sandbox_dir(root, "r9")
-    specs = wt / "adws" / "specs"
+    specs = wt / ".adws" / "specs"
     specs.mkdir(parents=True)
     (specs / "r9_spec-dark-mode.md").write_text("# Dark mode\n\nSpec body.\n")
     (specs / "r9_tickets-dark-mode.md").write_text(
         "# Slices\n\n## Toggle\n\nA toggle.\n\n## Persist\n\nPersist it.\n"
     )
-    wt_data = wt / "adws" / "data"
+    wt_data = wt / ".adws" / "data"
     (wt_data / "sessions").mkdir(parents=True)
     (wt_data / "sessions" / "r9.supervisor-exit").write_text("0")
 
@@ -863,7 +862,7 @@ def test_monitor_lands_plan_tickets_after_successful_run(tmp_path, monkeypatch):
     spec = conn.execute("SELECT spec FROM tickets WHERE id='internal:idea'").fetchone()[0]
     children = conn.execute("SELECT title FROM tickets WHERE parent_id='internal:idea'").fetchall()
     conn.close()
-    assert spec == "adws/specs/r9_spec-dark-mode.md"
+    assert spec == ".adws/specs/r9_spec-dark-mode.md"
     assert [c[0] for c in children] == ["Toggle", "Persist"]
 
 
@@ -876,7 +875,7 @@ def test_monitor_skips_plan_transform_for_failed_runs(tmp_path, monkeypatch):
 
     root = tmp_path / "proj"
     root.mkdir()
-    data = root / "adws" / "data"
+    data = root / ".adws" / "data"
     data.mkdir(parents=True)
     db = data / "sssf.db"
     conn = sqlite3.connect(str(db))
@@ -894,11 +893,11 @@ def test_monitor_skips_plan_transform_for_failed_runs(tmp_path, monkeypatch):
     conn.commit()
     conn.close()
     wt = sandbox_dir(root, "r10")
-    specs = wt / "adws" / "specs"
+    specs = wt / ".adws" / "specs"
     specs.mkdir(parents=True)
     (specs / "r10_spec-dark-mode.md").write_text("# Dark mode\n\nSpec body.\n")
     (specs / "r10_tickets-dark-mode.md").write_text("# Slices\n\n## Toggle\n\nA toggle.\n")
-    wt_data = wt / "adws" / "data"
+    wt_data = wt / ".adws" / "data"
     (wt_data / "sessions").mkdir(parents=True)
     (wt_data / "sessions" / "r10.supervisor-exit").write_text("0")
 

@@ -1,5 +1,6 @@
 /** Ticketing: enabled check + backlog reads over a project's trace db. */
 import { Database } from "bun:sqlite";
+import { isMachineStatus } from "../shared/machineStatuses";
 
 export interface TicketRun {
   adw_id: string
@@ -26,19 +27,6 @@ export interface Ticket {
   parent_id: string | null;    // lineage: implementation tickets -> their idea
   spec: string;                // spec reference the plan flow attached
 }
-
-/** The ticket machine's statuses (mirror of ticketing.py MACHINE_STATUSES,
- *  issue #87). A stored machine state is authoritative — readTickets never
- *  re-derives it from a session. Keep in sync with the Python constant. */
-export const MACHINE_STATUSES = new Set([
-  "needs-triage",
-  "ready-for-agent",
-  "in-progress",
-  "ready-for-signoff",
-  "ready-to-deploy",
-  "done",
-  "blocked",
-]);
 
 const TICKETS_DDL = `CREATE TABLE IF NOT EXISTS tickets (
   id TEXT PRIMARY KEY, provider TEXT NOT NULL, external_id TEXT,
@@ -105,7 +93,7 @@ export function readTickets(dbPath: string): Ticket[] {
       // wins over session derivation. `backlog` keeps its pre-machine meaning
       // (the explicit retry state) and wins too. Only the remaining legacy
       // statuses derive from the CURRENT (latest) run's session.
-      if (row.status !== "backlog" && !MACHINE_STATUSES.has(row.status) && row.adw_id && row.session_status) {
+      if (row.status !== "backlog" && !isMachineStatus(row.status) && row.adw_id && row.session_status) {
         status = row.session_status === "success" ? "done" : row.session_status === "fail" ? "failed" : "running";
       }
 

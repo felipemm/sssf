@@ -1,8 +1,7 @@
 """`sssf flow` — the three human-invoked flows: plan / implement / deploy.
 
 Flows are the ONLY entry point for starting work (#89): ad-hoc `sssf run <adw>
-"<prompt>"` is removed. Already-stamped projects' legacy ADWs stay runnable
-through the legacy ticket-run path (`sssf ticket run`).
+"<prompt>"` and the legacy ticket-run path have been removed.
 
 The implement flow drives the ticket machine (#92): it claims the ticket
 (ready-for-agent → in-progress) before the run spawns, records every run in
@@ -28,20 +27,25 @@ import sys
 import time
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sssf.notify import Transport
 
 from sssf import registry
+from sssf.adw_modules import paths
 from sssf.project import find_project
-
-DEPLOY_CONFIG = "adws/config/deploy.yaml"
 
 
 def _root(cwd: Path, explicit: str | None) -> Path | None:
     return find_project(cwd, explicit)
 
 
-def _adw_file(root: Path, name: str) -> Path | None:
-    from sssf.adw_modules import paths
+def _require_flow_layout(root: Path) -> bool:
+    return paths.require_current_layout(root)
 
+
+def _adw_file(root: Path, name: str) -> Path | None:
     """Prefer the INSTALLED template for standard ADWs — a project's committed
     copy goes stale after an sssf upgrade. Custom ADWs (no installed template)
     fall back to the project's file (the legacy path for already-stamped
@@ -89,7 +93,7 @@ def _run_sandboxed(
         spawn_sandbox(
             root,
             adw_id,
-            cmd=["python", f"adws/modules/{adw_file.name}", *args, "--adw-id", adw_id],
+            cmd=["python", f".adws/modules/{adw_file.name}", *args, "--adw-id", adw_id],
             image=cfg.sandbox.image,
             data_dir=data_dir,
             pi_home=pi_home,
@@ -124,11 +128,12 @@ def _dispatch_chain(
     """
     from sssf.adw_modules import paths
 
-    paths.warn_if_legacy(root, command="flow")
+    if not paths.require_current_layout(root):
+        return 1
     adw_file = _adw_file(root, adw_name)
     if adw_file is None:
         print(
-            f"sssf: no flow chain '{adw_name}' (looked for adws/modules/{adw_name}.py)",
+            f"sssf: no flow chain '{adw_name}' (looked for .adws/modules/{adw_name}.py)",
             file=sys.stderr,
         )
         return 1
@@ -231,7 +236,9 @@ def plan(
 
     root = _root(cwd, explicit_project)
     if root is None:
-        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        print("sssf: no project here (no .adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    if not _require_flow_layout(root):
         return 1
     extra = ["--skip-exploration"] if skip_exploration else []
     if ticket_id is None:
@@ -318,8 +325,12 @@ def implement(
 
     root = _root(cwd, explicit_project)
     if root is None:
-        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        print("sssf: no project here (no .adws/). Run `sssf init` first.", file=sys.stderr)
         return 1
+    if not _require_flow_layout(root):
+        return 1
+    ticketing.reconcile_project_db(paths.data_dir(root) / "sssf.db", actor=_actor())
+
     row = _ticket_prompt(root, ticket_id)
     if row is None:
         print(f"sssf flow: no ticket {ticket_id}", file=sys.stderr)
@@ -488,7 +499,7 @@ def _repo(root: Path) -> str:
 def _read_mr_record(wt: Path, adw_id: str) -> dict:
     """The MR the deploy chain opened (title/url/iid), or {} when none was
     recorded (no glab — the payload markdown is the operator's manual path)."""
-    path = wt / "adws" / "data" / "deploy" / f"{adw_id}-mr.json"
+    path = wt / ".adws" / "data" / "deploy" / f"{adw_id}-mr.json"
     try:
         return json.loads(path.read_text())
     except (OSError, ValueError):
@@ -533,15 +544,14 @@ def _run_release_train(
     adw_file = _adw_file(root, "adw_deploy")
     if adw_file is None:
         print(
-            "sssf flow: no deploy chain 'adw_deploy' (looked for"
-            " adws/modules/adw_deploy.py)",
+            "sssf flow: no deploy chain 'adw_deploy' (looked for .adws/modules/adw_deploy.py)",
             file=sys.stderr,
         )
         return 1
     argv = [sys.executable, str(adw_file), _DEPLOY_PROMPT, "--adw-id", adw_id]
     code = subprocess.call(argv, cwd=wt)
-    try:  # the chain's per-run db (worktree adws/data) merges like any run
-        sync_run_db(conn, wt / "adws" / "data" / "sssf.db", adw_id)
+    try:  # the chain's per-run db (worktree .adws/data) merges like any run
+        sync_run_db(conn, wt / ".adws" / "data" / "sssf.db", adw_id)
     except Exception as error:  # the trace is best-effort — the exit code is the truth
         print(f"sssf flow: could not sync the deploy run trace ({error})", file=sys.stderr)
     if code != 0:
@@ -574,19 +584,19 @@ def _run_release_train(
     else:
         print(
             "sssf flow: no MR opened (glab absent) — the payload is under"
-            " adws/data/deploy/; open the dev→main MR, then `sssf mr add` to"
-            " register it for the monitor"
+            " .adws/data/deploy/; open the dev→main MR. Install `glab` and rerun"
+            " the deploy flow to let it register the MR for the monitor"
         )
     return 0
 
 
 def _release_config(root: Path) -> dict:
-    """The project's `release:` block from adws/config/deploy.yaml (issue
+    """The project's `release:` block from .adws/config/deploy.yaml (issue
     #97): the per-project canary command, the promote command, and the promote
     poll settings. {} when absent — the tompero commands are per-project, so
     a project without a deployment pipeline skips the gates but still gets
     the release train and close-by-commits."""
-    path = root / DEPLOY_CONFIG
+    path = paths.deploy_config_file(root)
     if not path.exists():
         return {}
     try:
@@ -635,7 +645,12 @@ def _park_batch_blocked(
 
 
 def _run_canary_gate(
-    root: Path, conn: sqlite3.Connection, batch: list[str], rel: dict, yes: bool
+    root: Path,
+    conn: sqlite3.Connection,
+    batch: list[str],
+    rel: dict,
+    yes: bool,
+    notify_transport: Transport | None = None,
 ) -> int:
     """The canary step (issue #97 AC1/AC2): runs only after the operator's
     terminal confirmation. A non-zero exit parks the batch's tickets in
@@ -658,15 +673,26 @@ def _run_canary_gate(
     r = subprocess.run(command, cwd=root, capture_output=True, text=True)
     if r.returncode != 0:
         detail = (r.stderr or r.stdout).strip()[-300:] or "canary command failed"
-        return _park_batch_blocked(
-            conn, batch, f"canary failed: {detail}", "canary failed"
+        code = _park_batch_blocked(conn, batch, f"canary failed: {detail}", "canary failed")
+        _notify_deploy_tickets(
+            root,
+            batch,
+            f"Canary failed; tickets are blocked. {detail}",
+            urls={"tompero": str(rel.get("tompero_url") or "")},
+            transport=notify_transport,
         )
+        return code
     print("sssf flow: canary passed")
     return 0
 
 
 def _run_promote_gate(
-    root: Path, conn: sqlite3.Connection, batch: list[str], rel: dict, yes: bool
+    root: Path,
+    conn: sqlite3.Connection,
+    batch: list[str],
+    rel: dict,
+    yes: bool,
+    notify_transport: Transport | None = None,
 ) -> int:
     """The promote step (issue #97 AC3): the per-project tompero
     canary-promote command runs only after the operator's terminal
@@ -681,6 +707,14 @@ def _run_promote_gate(
     if not command:
         print("sssf flow: no promote command configured — skipping the promote step")
         return 0
+    if not yes:
+        _notify_deploy_tickets(
+            root,
+            batch,
+            "The canary passed; waiting for terminal confirmation to promote the deployment.",
+            urls={"tompero": str(rel.get("tompero_url") or "")},
+            transport=notify_transport,
+        )
     if not _confirm_release_step(yes, "promote the canary to full deployment?"):
         print(
             "sssf flow: promote declined — release paused; tickets stay"
@@ -690,9 +724,7 @@ def _run_promote_gate(
     r = subprocess.run(command, cwd=root, capture_output=True, text=True)
     if r.returncode != 0:
         detail = (r.stderr or r.stdout).strip()[-300:] or "promote command failed"
-        return _park_batch_blocked(
-            conn, batch, f"promote failed: {detail}", "promote failed"
-        )
+        return _park_batch_blocked(conn, batch, f"promote failed: {detail}", "promote failed")
     status_command = promote.get("status_command")
     if not status_command:
         print("sssf flow: promote ran — no status_command configured, nothing to poll")
@@ -708,9 +740,7 @@ def _run_promote_gate(
             print("sssf flow: deployment fully promoted")
             return 0
         time.sleep(interval)
-    return _park_batch_blocked(
-        conn, batch, f"promote timed out: {detail}", "promote timed out"
-    )
+    return _park_batch_blocked(conn, batch, f"promote timed out: {detail}", "promote timed out")
 
 
 def _close_by_commits(root: Path, conn: sqlite3.Connection, batch: list[str]) -> list[str]:
@@ -732,6 +762,8 @@ def _close_by_commits(root: Path, conn: sqlite3.Connection, batch: list[str]) ->
         commit_text = "\n".join(_batch_commits(root, "dev"))
     candidates = ticketing.release_ticket_ids(conn, commit_text)
     return ticketing.close_release_tickets(conn, candidates, actor=_actor())
+
+
 def implement_afk(
     cwd: Path,
     explicit_project: str | None = None,
@@ -758,7 +790,9 @@ def implement_afk(
 
     root = _root(cwd, explicit_project)
     if root is None:
-        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        print("sssf: no project here (no .adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    if not _require_flow_layout(root):
         return 1
     sandboxed = not no_sandbox and _sandbox_enabled(root)
 
@@ -804,8 +838,7 @@ def implement_afk(
     return 0
 
 
-def _wait_for_run_settle(root: Path, ticket_id: str, timeout_s: int,
-                         poll_s: int = 15) -> bool:
+def _wait_for_run_settle(root: Path, ticket_id: str, timeout_s: int, poll_s: int = 15) -> bool:
     """Block until the ticket's current run has fully settled: its linked
     session is no longer 'running' (the run ended) AND the ticket has left
     in-progress (the monitor's machine settle landed — it runs right after
@@ -827,19 +860,76 @@ def _ticket_is(root: Path, ticket_id: str, status: str) -> bool:
 
     try:
         conn = sqlite3.connect(str(paths.data_dir(root) / "sssf.db"))
-        row = conn.execute(
-            "SELECT status FROM tickets WHERE id=?", (ticket_id,)
-        ).fetchone()
+        row = conn.execute("SELECT status FROM tickets WHERE id=?", (ticket_id,)).fetchone()
         conn.close()
         return bool(row and row[0] == status)
     except sqlite3.Error:
         return False
 
 
+def _registered_mr_url(conn: sqlite3.Connection, ticket_ids: list[str]) -> str:
+    """Return the first registered MR URL for a ticket in the release batch."""
+    if not ticket_ids:
+        return ""
+    marks = ",".join("?" for _ in ticket_ids)
+    row = conn.execute(
+        f"SELECT url FROM ticket_mrs WHERE ticket_id IN ({marks}) AND url != ''"
+        " ORDER BY created_at ASC LIMIT 1",
+        ticket_ids,
+    ).fetchone()
+    return str(row[0]) if row else ""
+
+
+def _notify_deploy_tickets(
+    root: Path,
+    ticket_ids: list[str],
+    message: str,
+    *,
+    urls: dict[str, str] | None = None,
+    transport: Transport | None = None,
+) -> None:
+    """Send one best-effort alert per relevant ticket without changing flow control."""
+    if not ticket_ids:
+        return
+    from sssf import notify
+
+    try:
+        config = notify.load_config(root)
+    except Exception as error:
+        print(f"sssf flow: deploy notification setup failed: {error}", file=sys.stderr)
+        return
+    if config is None:
+        return  # notifications are optional until a channel is configured
+
+    for ticket_id in ticket_ids:
+        try:
+            result = notify.send(
+                root,
+                ticket_id,
+                f"Ticket {ticket_id}: {message}",
+                urls=urls,
+                transport=transport,
+                config=config,
+            )
+        except Exception as error:
+            print(
+                f"sssf flow: deploy notification failed for {ticket_id}: {error}",
+                file=sys.stderr,
+            )
+            continue
+        if not result.ok:
+            print(
+                f"sssf flow: deploy notification failed for {ticket_id} after"
+                f" {result.attempts} attempt(s): {result.error}",
+                file=sys.stderr,
+            )
+
+
 def deploy(
     cwd: Path,
     explicit_project: str | None = None,
     yes: bool = False,
+    notify_transport: Transport | None = None,
 ) -> int:
     """`sssf flow deploy` — batch-level release train dev → main, with the
     workbench signoff (issue #96). No ticket: the batch is the dev snapshot.
@@ -865,10 +955,11 @@ def deploy(
 
     root = _root(cwd, explicit_project)
     if root is None:
-        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        print("sssf: no project here (no .adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    if not _require_flow_layout(root):
         return 1
     registry.update_last_run(root)
-    paths.warn_if_legacy(root, command="flow")
 
     conn = sqlite3.connect(str(paths.data_dir(root) / "sssf.db"))
     ticketing.ensure_schema(conn)
@@ -914,6 +1005,14 @@ def deploy(
         f" (container {wb['container']}; tear down with `sssf flow deploy --down`)"
     )
 
+    if not yes:
+        _notify_deploy_tickets(
+            root,
+            batch,
+            "The workbench is ready; waiting for terminal signoff.",
+            urls={"workbench": wb.get("url", "")},
+            transport=notify_transport,
+        )
     if yes:
         verdict = "y"
     else:
@@ -959,12 +1058,12 @@ def deploy(
         if code != 0:
             return code
         rel = _release_config(root)
-        code = _run_canary_gate(root, conn, batch, rel, yes)
+        code = _run_canary_gate(root, conn, batch, rel, yes, notify_transport)
         if code == _RELEASE_DECLINED:
             return 0
         if code != 0:
             return code
-        code = _run_promote_gate(root, conn, batch, rel, yes)
+        code = _run_promote_gate(root, conn, batch, rel, yes, notify_transport)
         if code == _RELEASE_DECLINED:
             return 0
         if code != 0:
@@ -972,6 +1071,17 @@ def deploy(
         closed = _close_by_commits(root, conn, batch)
         conn.commit()
         if closed:
+            release_urls = {"release": str(rel.get("release_url") or "")}
+            mr_url = _registered_mr_url(conn, closed)
+            if mr_url:
+                release_urls["mr"] = mr_url
+            _notify_deploy_tickets(
+                root,
+                closed,
+                "Release completed.",
+                urls=release_urls,
+                transport=notify_transport,
+            )
             print(
                 f"sssf flow: release closed {len(closed)} ticket(s) by the MR's"
                 f" commit set ({', '.join(closed)})"
@@ -993,7 +1103,9 @@ def deploy_down(
 
     root = _root(cwd, explicit_project)
     if root is None:
-        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        print("sssf: no project here (no .adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    if not _require_flow_layout(root):
         return 1
     if workbench.tear_down(root, adw_id):
         print(f"sssf flow: workbench torn down{(' (' + adw_id + ')') if adw_id else ''}")
@@ -1022,7 +1134,9 @@ def deploy_revert(
 
     root = _root(cwd, explicit_project)
     if root is None:
-        print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
+        print("sssf: no project here (no .adws/). Run `sssf init` first.", file=sys.stderr)
+        return 1
+    if not _require_flow_layout(root):
         return 1
     conn = _sqlite3.connect(str(paths.data_dir(root) / "sssf.db"))
     ticketing.ensure_schema(conn)
@@ -1110,7 +1224,7 @@ def deploy_revert(
 
 def _has_live_run(root: Path, ticket_id: str) -> bool:
     """True when the ticket's latest run is still 'running' — a live session
-    must not be double-spawned (mirrors ticket.run's in-progress guard; read
+    must not be double-spawned (read
     only, no transitions here)."""
     import sqlite3
 

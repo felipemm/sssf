@@ -1,8 +1,8 @@
 """Project-local workflow skills installer: hermetic closure into .pi/skills/,
 version marker, never the global pi home; check_skills reports staleness for
 doctor. The stamp root is the workflow closure (#88): the twelve workflow
-skills plus brainstorming (spec_interviewer references it); every referenced
-skill (by frontmatter name) is pulled in transitively, and external setup
+skills plus brainstorming; every referenced skill (by frontmatter name) is
+pulled in transitively, and external setup
 references are rewritten to sssf's own commands."""
 
 from __future__ import annotations

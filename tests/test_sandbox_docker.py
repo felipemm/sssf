@@ -107,13 +107,13 @@ def test_run_sandbox_flags(fake_docker, tmp_path):
         uid=501,
         gid=20,
         env={"OPENAI_API_KEY": "x", "OPENAI_BASE_URL": "https://genplat.example.com/v1"},
-        cmd=["python", "adws/modules/adw_simple_sdlc.py"],
+        cmd=["python", ".adws/modules/adw_implement.py"],
     )
     calls = fake_docker.read_text().splitlines()
     run = next(c for c in calls if c.startswith("run"))
     assert "--name sssf-abc" in run
     assert f"{tmp_path}/wt:/work" in run
-    assert "adws/adw_data" not in run  # the run writes its OWN db in the worktree
+    assert ".adws/data" not in run  # the run writes its OWN db in the worktree
     assert f"{tmp_path}/pi:/opt/pi-agent-host:ro" in run
     assert f"{tmp_path}/proj/.git:{tmp_path}/proj/.git:rw" in run
     assert f"{tmp_path}/.config:/tmp/.config:ro" in run
@@ -245,7 +245,7 @@ def test_run_sandbox_publishes_no_ports(tmp_path, monkeypatch):
         "sssf-runner",
         "sssf-x1",
         worktree=tmp_path / "wt",
-        data_dir=tmp_path / "adws" / "data",
+        data_dir=tmp_path / ".adws" / "data",
         pi_home=tmp_path / "pi",
         cmd=["python", "-c", "pass"],
     )
@@ -267,7 +267,7 @@ def test_run_sandbox_skips_publish_without_port(tmp_path, monkeypatch):
         "sssf-runner",
         "sssf-x2",
         worktree=tmp_path / "wt",
-        data_dir=tmp_path / "adws" / "data",
+        data_dir=tmp_path / ".adws" / "data",
         pi_home=tmp_path / "pi",
         cmd=["true"],
     )

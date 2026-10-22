@@ -1,8 +1,8 @@
 /**
  * Automatic archival sweep — review triage on a timer.
  *
- * The same policy as `sssf sweep` (Python CLI) and `setArchived`'s one-write
- * discipline: finished sessions older than the interval are marked archived.
+ * The same policy as `sssf sweep` (Python CLI): finished sessions older than
+ * the interval are marked archived. This sweep is the only archive writer.
  * Runs over every registered project's db (plus the adhoc db when serving
  * one), each on its own short-lived writable connection.
  */

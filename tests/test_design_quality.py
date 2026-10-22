@@ -56,7 +56,7 @@ def test_check_requires_argv_or_surface():
 
 
 def _write(root: Path, text: str) -> Path:
-    cfg = root / "adws" / "config" / "sssf.config.yaml"
+    cfg = root / ".adws" / "config" / "sssf.config.yaml"
     cfg.parent.mkdir(parents=True)
     cfg.write_text(text)
     return cfg

@@ -117,7 +117,8 @@ export interface ToolCallPayload {
 
 // ── API responses ────────────────────────────────────────────────────────────
 
-/** GET /api/sessions */
+/** GET /api/sessions?filter=all|done|blocked|archived */
+export type SessionsFilter = "all" | "done" | "blocked" | "archived";
 export type SessionsResponse = SessionSummary[];
 
 /** GET /api/sessions/:adw_id */

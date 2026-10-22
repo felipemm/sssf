@@ -1,29 +1,32 @@
-"""`sssf init` — stamp the customization surface into a project and register it.
+"""`sssf init` — stamp the hidden customization surface and register it.
 
-v2 layout: adws/modules, adws/config, adws/data, adws/prompts, adws/specs,
-adws/kb. A project still on the v1 layout (adw_sssf_config/adw_data/app_docs,
-chains at adws root) must run `sssf init --refresh` to migrate: it warns,
-backs up adws/, and moves the v1 items to v2 in place.
+The v2 footprint lives under ``.adws/``. When upgrading a project with the old
+visible ``adws/`` tree, init backs up that tree, preserves and migrates only
+its SQLite database, then stamps a fresh hidden footprint.
 """
 
 from __future__ import annotations
 
+import os
 import shutil
+import sqlite3
 import sys
+import tempfile
 import time
+from contextlib import closing
 from importlib import resources
 from pathlib import Path
 
-from sssf import __version__, registry
+from sssf import __version__, registry, ticketing
 from sssf.adw_modules import paths
 
 AGENTS_BLOCK = """
 <!-- sssf -->
 This repo runs the **sssf** software factory (global CLI). Run `sssf` commands
 to operate it: `sssf flow plan|implement|deploy` (the only entry point for
-    work), `sssf sessions`, `sssf viz`.
-Edit your chains in `adws/modules/adw_*.py` and your roster in
-`adws/config/sssf.config.yaml`. See `sssf --help`.
+    work), `sssf viz`.
+Edit your chains in `.adws/modules/adw_*.py` and your roster in
+`.adws/config/sssf.config.yaml`. See `sssf --help`.
 <!-- /sssf -->
 """
 
@@ -34,27 +37,17 @@ AGENTS_INSTRUCTIONS = """
 """
 
 GITIGNORE_ENTRIES = [
-    "adws/data/sessions/",
-    "adws/data/sssf.db",
+    ".adws/data/sessions/",
+    ".adws/data/sssf.db",
     # The WAL sidecars are runtime state too — if they ever get tracked, agents
     # see them as clutter and may git-checkout them over a live db, which breaks
     # open reader connections (SQLITE_IOERR_VNODE). Keep them untracked.
-    "adws/data/sssf.db-wal",
-    "adws/data/sssf.db-shm",
+    ".adws/data/sssf.db-wal",
+    ".adws/data/sssf.db-shm",
+    "sssf-*/",
 ]
 
-_BACKUP_PREFIX = "adws.backup."
-# (legacy relpath under adws/, v2 relpath under adws/)
-_LEGACY_MOVES = (
-    ("adw_sssf_config", "config"),
-    ("adw_data", "data"),
-    ("app_docs", "kb"),
-)
-_LITERAL_REWRITES = (  # applied to moved chain files
-    ("adws/adw_sssf_config/", "adws/config/"),
-    ("adws/adw_data", "adws/data"),
-    ("adws/app_docs", "adws/kb"),
-)
+_BACKUP_PREFIX = "sssf-"
 
 
 def _copy_tree(
@@ -66,14 +59,7 @@ def _copy_tree(
     auto: bool = False,
     label: str = "",
 ) -> list[str]:
-    """Copy a template tree into dest.
-
-    Existing files are skipped unless forced; with ``confirm`` the user is asked
-    per file first (y/N/a — a = yes to all), default no, so a --refresh can
-    never silently clobber an edited chain. ``auto`` answers yes to every
-    prompt without reading stdin (--refresh --auto: the accept-all scripting
-    mode the cockpit refresh button uses).
-    """
+    """Copy a template tree into dest, skipping existing files unless forced."""
     copied = []
     state = {"all": False}
 
@@ -84,7 +70,7 @@ def _copy_tree(
         try:
             answer = input(f"overwrite {prefix}{rel}? [y/N/a] ").strip().lower()
         except EOFError:
-            return False  # non-interactive: skip, never clobber
+            return False
         if answer in ("a", "all"):
             state["all"] = True
             return True
@@ -93,7 +79,7 @@ def _copy_tree(
     def walk(trav, rel: Path) -> None:
         for item in trav.iterdir():
             if item.name == "__pycache__" or item.suffix == ".pyc":
-                continue  # compiled noise must never be stamped into projects
+                continue
             if item.is_dir():
                 walk(item, rel / item.name)
                 continue
@@ -108,52 +94,82 @@ def _copy_tree(
     return copied
 
 
-def _backup_adws(root: Path) -> Path | None:
-    adws = root / "adws"
-    if not adws.is_dir():
+def _backup_legacy_adws(root: Path) -> Path | None:
+    legacy = root / paths.LEGACY_ADWS
+    if not legacy.is_dir():
         return None
     stamp = time.strftime("%Y%m%d-%H%M%S")
     dest = root / f"{_BACKUP_PREFIX}{stamp}"
-    shutil.copytree(adws, dest)
+    suffix = 1
+    while dest.exists():
+        dest = root / f"{_BACKUP_PREFIX}{stamp}-{suffix}"
+        suffix += 1
+    shutil.copytree(legacy, dest)
     return dest
 
 
-def _migrate_legacy(root: Path) -> None:
-    """Move v1 items to v2 in place; never overwrite an existing v2 target."""
-    adws = root / "adws"
-    for legacy, v2 in _LEGACY_MOVES:
-        src = adws / legacy
-        dst = adws / v2
-        if src.exists() and not dst.exists():
-            src.rename(dst)
-    # root-level chains → modules/
-    modules = paths.modules_dir(root)
-    modules.mkdir(parents=True, exist_ok=True)
-    for chain in adws.glob("adw_*.py"):
-        target = modules / chain.name
-        if not target.exists():
-            chain.rename(target)
-    # rewrite layout literals inside moved chains AND the moved config files
-    for chain in modules.glob("adw_*.py"):
-        text = chain.read_text()
-        for old, new in _LITERAL_REWRITES:
-            text = text.replace(old, new)
-        chain.write_text(text)
-    for cfg_file in [adws / "config" / "sssf.config.yaml", adws / "config" / "ticketing.yaml"]:
-        if cfg_file.exists():
-            text = cfg_file.read_text()
-            for old, new in _LITERAL_REWRITES:
-                text = text.replace(old, new)
-            cfg_file.write_text(text)
-    # gitignore the backup
-    gitignore = root / ".gitignore"
-    entry = f"{_BACKUP_PREFIX}*/"
-    if gitignore.exists():
-        text = gitignore.read_text()
-        if entry not in text:
-            gitignore.write_text(text.rstrip() + "\n" + entry + "\n")
-    else:
-        gitignore.write_text(entry + "\n")
+def _database_source(root: Path) -> Path | None:
+    candidates = (
+        paths.data_dir(root) / "sssf.db",
+        root / paths.LEGACY_ADWS / "data" / "sssf.db",
+        root / paths.LEGACY_ADWS / "adw_data" / "sssf.db",
+    )
+    return next((candidate for candidate in candidates if candidate.is_file()), None)
+
+
+def _migrate_database(root: Path, source: Path | None) -> Path | None:
+    """Make an online SQLite copy and apply pending schema migrations to it."""
+    if source is None:
+        return None
+    fd, temp_name = tempfile.mkstemp(prefix=".sssf-db-migration-", dir=root)
+    os.close(fd)
+    temp_db = Path(temp_name)
+    try:
+        with closing(sqlite3.connect(source)) as source_conn, closing(
+            sqlite3.connect(temp_db)
+        ) as target_conn:
+            source_conn.backup(target_conn)
+            ticketing.ensure_schema(target_conn)
+            target_conn.commit()
+    except Exception:
+        temp_db.unlink(missing_ok=True)
+        raise
+    return temp_db
+
+
+def _reset_legacy_layout(root: Path) -> bool:
+    legacy = root / paths.LEGACY_ADWS
+    if not paths.is_legacy_layout(root):
+        return False
+
+    print(
+        "sssf init: upgrading the legacy adws/ footprint. Its chains, prompts, and "
+        "config will be backed up, not migrated; only the database is carried into "
+        "a fresh .adws/ tree.",
+        file=sys.stderr,
+    )
+    backup = _backup_legacy_adws(root)
+    if backup is not None:
+        print(f"sssf init: backed up adws/ -> {backup.relative_to(root)}", file=sys.stderr)
+
+    db_source = _database_source(root)
+    try:
+        migrated_db = _migrate_database(root, db_source)
+    except Exception as error:
+        print(f"sssf init: could not migrate project database: {error}", file=sys.stderr)
+        return False
+
+    shutil.rmtree(legacy)
+    hidden = root / paths.ADWS
+    if hidden.exists():
+        shutil.rmtree(hidden)
+    templates = resources.files("sssf") / "templates" / "adws"
+    _copy_tree(templates, hidden, force=True, label=".adws")
+    if migrated_db is not None:
+        destination = paths.data_dir(root) / "sssf.db"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(migrated_db), destination)
+    return True
 
 
 def run(
@@ -164,23 +180,21 @@ def run(
     auto: bool = False,
     design_quality: str | None = None,
 ) -> int:
-    templates = resources.files("sssf.templates")
+    templates = resources.files("sssf") / "templates"
     root.mkdir(parents=True, exist_ok=True)
 
-    if refresh and paths.is_legacy_layout(root):
-        print(
-            f"sssf: legacy adws layout detected in {root} — migrating to v2 "
-            "(backup of adws/ first, then move).",
-            file=sys.stderr,
-        )
-        backup = _backup_adws(root)
-        if backup is not None:
-            print(f"sssf: backed up adws/ -> {backup.relative_to(root)}", file=sys.stderr)
-        _migrate_legacy(root)
+    upgraded = _reset_legacy_layout(root)
+    if paths.is_legacy_layout(root) and not upgraded:
+        return 1
 
-    # Stamp the whole v2 tree (templates/adws mirrors the stamped layout)
+    # The package template tree is named adws; the stamped project footprint is hidden.
     _copy_tree(
-        templates / "adws", root / "adws", force=force, confirm=refresh, auto=auto, label="adws"
+        templates / "adws",
+        root / paths.ADWS,
+        force=force or upgraded,
+        confirm=refresh,
+        auto=auto,
+        label=".adws",
     )
 
     env_dest = root / ".env.sample"
@@ -190,13 +204,17 @@ def run(
     agents_md = root / "AGENTS.md"
     if agents_md.exists():
         text = agents_md.read_text()
-        if "<!-- sssf -->" not in text:
+        start = text.find("<!-- sssf -->")
+        end_marker = "<!-- /sssf -->"
+        end = text.find(end_marker, start) if start >= 0 else -1
+        if start >= 0 and end >= 0:
+            end += len(end_marker)
+            text = text[:start] + AGENTS_BLOCK.strip("\n") + text[end:]
+            agents_md.write_text(text)
+        elif start < 0:
             agents_md.write_text(text.rstrip() + "\n" + AGENTS_BLOCK)
     else:
         agents_md.write_text("# Project\n" + AGENTS_BLOCK)
-    # Agent reporting instructions — appended on every init (fresh or refresh),
-    # so projects stamped before this section existed get it on their next
-    # refresh. Idempotent: skipped once the bullet is present.
     text = agents_md.read_text()
     if "sacrifice grammar for the sake of concision" not in text:
         agents_md.write_text(text.rstrip() + "\n" + AGENTS_INSTRUCTIONS)
@@ -212,8 +230,6 @@ def run(
 
     registry.register_project(root, paths.data_dir(root) / "sssf.db", __version__, added=True)
 
-    # Design quality (impeccable gate + designer scope), per-project — surgical
-    # config edits, idempotent; only when the flag is given.
     if design_quality is not None:
         from sssf.commands import design_quality as dq
 
@@ -221,10 +237,9 @@ def run(
         if rc != 0:
             return rc
 
-    # Interview skills — project-local (.pi/skills/), never global. A fetch
-    # failure doesn't fail init; `sssf doctor` reports it.
     try:
         from sssf.adw_modules import skills_install
+
         skills_install.install_skills(root, refresh=refresh)
     except Exception as error:
         print(f"sssf: skills install skipped ({error}) — run `sssf doctor`", file=sys.stderr)

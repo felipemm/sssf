@@ -4,6 +4,7 @@ import { LoaderCircle, Play, RotateCw, Undo2 } from 'lucide-vue-next'
 import { backlogTicket, runTicket } from '../lib/api'
 import { notify } from '../lib/toast'
 import type { Ticket } from '../lib/api'
+import { isBlockedTicket, isRetryTicket, isRunnableTicket } from '../lib/ticketFilters'
 
 const props = defineProps<{ ticket: Ticket }>()
 const emit = defineEmits<{ open: [ticket: Ticket]; ran: []; backlogged: [] }>()
@@ -12,21 +13,16 @@ const BADGE: Record<string, string> = { jira: 'J', linear: 'L', internal: '⚙' 
 const running = ref(false)
 const moving = ref(false)
 
-// A retry ticket: it sits in the backlog but already has runs behind it (a
-// failed attempt the healer or the operator moved back). Distinct accent.
-const retry = computed(() => props.ticket.status === 'backlog' && props.ticket.runs.length >= 1)
-const failed = computed(() => props.ticket.status === 'failed')
-const starting = computed(() => props.ticket.status === 'starting')
+// Requeued ready-for-agent tickets with run history are retries; blocked
+// tickets retain the manual edge back to ready-for-agent.
+const retry = computed(() => isRetryTicket(props.ticket))
+const blocked = computed(() => isBlockedTicket(props.ticket))
+const runnable = computed(() => isRunnableTicket(props.ticket))
 
-const statusLabel = computed(() => {
-  if (starting.value) return 'starting…'
-  if (failed.value) return 'failed'
-  if (retry.value) return 'retry'
-  return props.ticket.status
-})
+const statusLabel = computed(() => retry.value ? 'retry' : props.ticket.status)
 
-// Run lives on the card, not in the modal. The card body opens the modal;
-// this button spawns the ADW directly and the board refetches on 'ran'.
+// The card body opens the modal; this action uses the same implement flow as
+// the modal and board refetches on 'ran'.
 async function run(event: MouseEvent) {
   event.stopPropagation()
   running.value = true
@@ -44,8 +40,7 @@ async function run(event: MouseEvent) {
   }
 }
 
-// Manual fallback for a failed run — the healer usually beats you to it.
-// History is preserved: the failed run stays in the ticket's run list.
+// A blocked ticket can be requeued manually; its run history is preserved.
 async function toBacklog(event: MouseEvent) {
   event.stopPropagation()
   moving.value = true
@@ -65,27 +60,26 @@ async function toBacklog(event: MouseEvent) {
 </script>
 
 <template>
-  <div class="ticket" :class="{ retry, failed }">
+  <div class="ticket" :class="{ retry, blocked }">
     <button class="ticket-open" type="button" @click="emit('open', ticket)">
       <span class="sr-only">Open ticket: </span>
       <span class="badge">{{ BADGE[ticket.provider] ?? '?' }}</span>
-      <span class="t-title">{{ ticket.title }}</span>
-      <span class="t-meta dim" :class="{ starting }">
-        <LoaderCircle v-if="starting" class="spin" :size="12" />
-        <RotateCw v-else-if="retry" class="retry-ico" :size="12" />
-        {{ ticket.external_id || ticket.id }} · {{ statusLabel }}
+      <span class="t-title" :title="ticket.title">{{ ticket.title }}</span>
+      <span class="t-meta dim">
+        <RotateCw v-if="retry" class="retry-ico" :size="12" />
+        <span class="t-identifier">{{ ticket.external_id || ticket.id }} · {{ statusLabel }}</span>
         <span v-if="retry" class="runs-chip" :title="`${ticket.runs.length} run(s) — see the modal for the trace of each`">
           {{ ticket.runs.length }} run{{ ticket.runs.length > 1 ? 's' : '' }}
         </span>
       </span>
     </button>
     <button
-      v-if="failed"
+      v-if="blocked"
       class="ticket-act ticket-backlog"
       type="button"
       :disabled="moving"
       :aria-busy="moving"
-      :title="'Put this ticket back into the backlog (keeps the failed run in its history)'"
+      :title="'Move this blocked ticket back to ready-for-agent (keeps run history)'"
       aria-label="Back to backlog"
       @click="toBacklog"
     >
@@ -93,15 +87,16 @@ async function toBacklog(event: MouseEvent) {
       <Undo2 v-else :size="14" :stroke-width="2" />
     </button>
     <button
+      v-if="runnable"
       class="ticket-act ticket-run"
       type="button"
-      :disabled="running || starting"
-      :aria-busy="running || starting"
-      :title="starting ? 'Starting — the run is warming up' : (running ? 'Starting…' : 'Run this ticket (spawn simple_sdlc)')"
+      :disabled="running"
+      :aria-busy="running"
+      :title="running ? 'Starting…' : 'Run this ticket via flow implement'"
       aria-label="Run ticket"
       @click="run"
     >
-      <LoaderCircle v-if="running || starting" class="spin" :size="14" :stroke-width="2" />
+      <LoaderCircle v-if="running" class="spin" :size="14" :stroke-width="2" />
       <Play v-else :size="14" :stroke-width="2" />
     </button>
   </div>
@@ -111,6 +106,9 @@ async function toBacklog(event: MouseEvent) {
 .ticket {
   position: relative;
   display: block;
+  height: 118px;
+  box-sizing: border-box;
+  overflow: hidden;
   background: rgba(11, 15, 24, 0.66);
   border: 1px dashed rgba(232, 182, 74, 0.5);   /* distinct from session cards */
   border-radius: 12px;
@@ -130,15 +128,20 @@ async function toBacklog(event: MouseEvent) {
   background: rgba(251, 113, 133, 0.18);
   color: #fb7185;
 }
-.ticket.failed {
+.ticket.blocked {
   border-color: rgba(248, 113, 113, 0.7);
   border-style: solid;
 }
 .ticket-open {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   width: 100%;
+  height: 100%;
+  box-sizing: border-box;
   text-align: left;
-  padding: 12px 72px 12px 14px;   /* right padding clears the action buttons */
+  overflow: hidden;
+  padding: 8px 48px 8px 14px;   /* right padding clears the run/requeue action */
   background: none;
   border: none;
   color: var(--text);
@@ -158,13 +161,33 @@ async function toBacklog(event: MouseEvent) {
   font-size: 13px;
 }
 .t-title {
+  flex: none;
+  height: 36px;
   font-weight: 700;
   font-size: 14px;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .t-meta {
-  display: block;
-  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.t-identifier {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ticket-act {
   position: absolute;
@@ -198,9 +221,6 @@ async function toBacklog(event: MouseEvent) {
   background: rgba(248, 113, 113, 0.15);
   color: #f87171;
 }
-.t-meta.starting {
-  color: #e8b64a;
-}
 .spin {
   display: inline-block;
   vertical-align: -2px;
@@ -209,13 +229,15 @@ async function toBacklog(event: MouseEvent) {
 }
 .retry-ico {
   display: inline-block;
+  flex: none;
   vertical-align: -2px;
   margin-right: 4px;
   color: #fb7185;
 }
 .runs-chip {
   display: inline-block;
-  margin-left: 6px;
+  flex: none;
+  white-space: nowrap;
   padding: 0 6px;
   border-radius: 999px;
   background: rgba(251, 113, 133, 0.18);
@@ -224,13 +246,5 @@ async function toBacklog(event: MouseEvent) {
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
-}
-/* a starting ticket flashes gently so it stands out in the backlog */
-.ticket:has(.t-meta.starting) {
-  animation: flash 1.4s ease-in-out infinite;
-}
-@keyframes flash {
-  0%, 100% { border-color: rgba(232, 182, 74, 0.5); }
-  50% { border-color: rgba(232, 182, 74, 0.95); box-shadow: 0 0 10px rgba(232, 182, 74, 0.25); }
 }
 </style>

@@ -22,7 +22,7 @@ def test_sync_merges_live_totals_monotonically(tmp_path):
         "total_cost REAL DEFAULT 0)"
     )
     conn.commit()
-    per = tmp_path / "per-run" / "adws" / "adw_data"
+    per = tmp_path / "per-run" / ".adws" / "data"
     per.mkdir(parents=True)
     per_db = per / "sssf.db"
     src = sqlite3.connect(str(per_db))
@@ -83,7 +83,7 @@ def test_sync_propagates_request_mid_run(tmp_path):
         " '2026-09-02T20:48:16',NULL,0,0,0)"
     )
     conn.commit()
-    per = tmp_path / "per-run" / "adws" / "data"
+    per = tmp_path / "per-run" / ".adws" / "data"
     per.mkdir(parents=True)
     per_db = per / "sssf.db"
     src = sqlite3.connect(str(per_db))
@@ -132,7 +132,7 @@ def test_sync_never_overwrites_an_existing_request(tmp_path):
     conn.execute(schema)
     conn.execute("INSERT INTO sessions VALUES ('r2','implement oauth','running',NULL,10,0.1)")
     conn.commit()
-    per = tmp_path / "per-run2" / "adws" / "data"
+    per = tmp_path / "per-run2" / ".adws" / "data"
     per.mkdir(parents=True)
     per_db = per / "sssf.db"
     src = sqlite3.connect(str(per_db))
@@ -168,7 +168,7 @@ def test_sync_newer_ended_source_supersedes_frozen_host_row(tmp_path):
         "INSERT INTO sessions VALUES ('r1','fail','2026-09-03T00:00:00','2026-09-03T00:29:50')"
     )
     conn.commit()
-    per = tmp_path / "per-run" / "adws" / "adw_data"
+    per = tmp_path / "per-run" / ".adws" / "data"
     per.mkdir(parents=True)
     per_db = per / "sssf.db"
     src = sqlite3.connect(str(per_db))
@@ -219,7 +219,7 @@ def test_sync_older_generation_never_reverts_reopened_host_row(tmp_path):
         "INSERT INTO sessions VALUES ('r1','running','2026-09-04T14:33:06',NULL)"
     )
     conn.commit()
-    per = tmp_path / "per-run" / "adws" / "adw_data"
+    per = tmp_path / "per-run" / ".adws" / "data"
     per.mkdir(parents=True)
     per_db = per / "sssf.db"
     src = sqlite3.connect(str(per_db))

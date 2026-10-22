@@ -15,11 +15,11 @@ def test_register_and_list(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "registry_path", lambda: tmp_path / ".sssf" / "projects.json")
     proj = tmp_path / "repo-a"
     proj.mkdir()
-    registry.register_project(proj, proj / "adws/adw_data/sssf.db", "0.1.0", added=True)
+    registry.register_project(proj, proj / ".adws/data/sssf.db", "0.1.0", added=True)
     projects = registry.list_projects()
     assert len(projects) == 1
     assert projects[0]["name"] == "repo-a"
-    assert projects[0]["db"].endswith("adws/adw_data/sssf.db")
+    assert projects[0]["db"].endswith(".adws/data/sssf.db")
 
 
 def test_update_last_run(tmp_path, monkeypatch):

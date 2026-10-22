@@ -45,10 +45,14 @@ export async function runTicket(
   context?: string,
   spawnFn: SpawnFn = bunSpawn,
 ): Promise<TicketActionResult> {
-  const args = ["sssf", "ticket", "run", id];
-  if (context) args.push("--context", context);
-  args.push("--project", root);
-  const { exitCode, output } = await runCli(args, spawnFn);
+  if (context !== undefined) {
+    const saved = await setTicketContext(root, id, context, spawnFn);
+    if (!saved.ok) return saved;
+  }
+  const { exitCode, output } = await runCli(
+    ["sssf", "flow", "implement", id, "--project", root],
+    spawnFn,
+  );
   if (exitCode !== 0) return { ok: false, output };
   const adwId = output.match(/adw_id ([a-f0-9]+)/)?.[1] ?? null;
   return { ok: true, adwId: adwId ?? undefined, output };

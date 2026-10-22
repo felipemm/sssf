@@ -2,7 +2,7 @@
 """ADW Plan — the plan flow chain: exploration → grill-with-docs → to-spec → to-tickets.
 
 Usage:
-    uv run adws/adw_plan.py "<prompt or path/to/prompt.md>" [--config adws/config/sssf.config.yaml] [--adw-id a1b2c3d4] [--skip-exploration]
+    uv run .adws/modules/adw_plan.py "<prompt or path/to/prompt.md>" [--config .adws/config/sssf.config.yaml] [--adw-id a1b2c3d4] [--skip-exploration]
 
 Phases: engineer(request) -> scout(explore) -> planner(grill) -> planner(spec)
 -> planner(tickets) -> git(commit)
@@ -47,8 +47,8 @@ CHAIN = Chain(
                 "You are the grill step of a plan flow. Read docs/adr/ and CONTEXT.md "
                 "in full and stress-test the ask against them: challenge the design, "
                 "the state model, and the seam choices. Resolve every open question "
-                "in the plan you land; write the plan under adws/specs/ as "
-                "adws/specs/<adw_id>_grill-<slug>.md and declare it in artifacts."
+                "in the plan you land; write the plan under .adws/specs/ as "
+                ".adws/specs/<adw_id>_grill-<slug>.md and declare it in artifacts."
             ),
             gates=[gates.artifacts_exist, gates.files_non_empty],
             fresh_session=True,
@@ -60,7 +60,7 @@ CHAIN = Chain(
             description="Turn the grilled proposal into the spec (to-spec)",
             user_directive=(
                 "You are the to-spec step of a plan flow. Write the final spec under "
-                "adws/specs/ as adws/specs/<adw_id>_spec-<slug>.md (list the directory "
+                ".adws/specs/ as .adws/specs/<adw_id>_spec-<slug>.md (list the directory "
                 "first; never overwrite an existing spec — pick a free name). Start the "
                 "spec with a single `# ` title line (the feature's name) — the flow "
                 "reads it back. The spec must be implementable without further "
@@ -79,7 +79,7 @@ CHAIN = Chain(
                 "You are the to-tickets step of a plan flow. Slice the spec into "
                 "implementation tickets — small, independently implementable units, "
                 "each with its own acceptance criteria. Write the breakdown under "
-                "adws/specs/ as adws/specs/<adw_id>_tickets-<slug>.md and declare it "
+                ".adws/specs/ as .adws/specs/<adw_id>_tickets-<slug>.md and declare it "
                 "in artifacts. The breakdown is parsed mechanically by the flow, so "
                 "use EXACTLY ONE `## ` heading per implementation ticket — the heading "
                 "is the ticket title and the body under it its description (no other "
@@ -112,7 +112,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config",
         default=None,
-        help="path to sssf.config.yaml (default: adws/config/sssf.config.yaml)",
+        help="path to sssf.config.yaml (default: .adws/config/sssf.config.yaml)",
     )
     parser.add_argument("--adw-id", default=None, help="join or pin an existing session")
     parser.add_argument(

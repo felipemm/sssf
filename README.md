@@ -1,161 +1,100 @@
 # Super Simple Software Factory (sssf)
 
-A global CLI that stamps **repeatable agents-plus-code workflows** into any
-codebase. Deterministic Python ADW scripts own sequencing, retries, and
-acceptance; coding agents (Pi) work inside bounded phases; typed JSON envelopes
-carry context between them; everything streams into SQLite for a polled
-visualizer. **Agent proposes, code disposes.**
+A global CLI that stamps repeatable agents-plus-code workflows into a codebase.
+Deterministic Python owns sequencing, retries, and acceptance; coding agents work
+inside bounded phases; typed envelopes and SQLite traces make every run
+observable. **Agent proposes, code disposes.**
 
-> **Website:** [felipemm.github.io/sssf](https://felipemm.github.io/sssf) — the homepage and full documentation (Astro, in `site/`).
-
-> **Origin:** a repackaging of [Super Simple Software Factory](https://github.com/disler/super-simple-software-factory)
-> by [IndyDevDan](https://github.com/disler) — the engine and visualizer are ported from that
-> project's skill; this repo ships it as a globally installed CLI. MIT, same license.
+> **Website:** [felipemm.github.io/sssf](https://felipemm.github.io/sssf)
 
 ## Quickstart
 
 ```bash
-uv tool install --editable .     # or: uv tool install sssf
-sssf init                        # stamp the factory into this repo
-sssf run scout "map the repo"    # run a chain (scout is read-only)
-sssf sessions                    # see the trace
-sssf viz                         # open the global visualizer on :4600
+uv tool install sssf
+sssf init
+sssf ticket new "Explore dark mode"
+sssf flow plan                 # or: sssf flow plan <ticket-id>
+sssf flow implement afk        # implement ready-for-agent tickets
+sssf viz                       # inspect the project in the visualizer
 ```
 
-Three principles:
+`sssf flow plan`, `sssf flow implement`, and `sssf flow deploy` are the only
+work-entry points. Every run belongs to a ticket. Use `sssf ticket sync` to
+pull external tickets and mirror their machine state back to the tracker.
 
-- **Observable** — every run, phase, envelope, gate, and process streams into
-  `adws/data/sssf.db` (WAL, so reads never block writers). Watch live in
-  `sssf viz` or from the terminal with `sssf sessions / phases / tail / procs`.
-- **Design quality** — deterministic `impeccable detect` gate (shipped configured, per-project
-  surface via `sssf init --design-quality <surface>`) + the full agentic chain
-  (`sssf run sdlc_full`) — see the site's Design quality docs.
-- **Customizable** — `sssf init` stamps only the customization surface: your
-  chains (`adws/modules/adw_*.py`), your roster (`adws/config/sssf.config.yaml`),
-  your prompts (`adws/data/prompt_engineering/`). The engine is package code
-  — see `src/sssf/docs/customizing.md`.
-- **Reusable** — one global install, any number of projects, registered in
-  `~/.sssf/projects.json`. `sssf viz` is a global service over all of them with
-  a project picker in the UI.
+## The 2.0 project footprint
+
+`sssf init` stamps the factory under `.adws/`:
+
+- `.adws/modules/` — the plan, implement, and deploy chains
+- `.adws/config/` — roster, ticketing, deploy, monitor, and notification config
+- `.adws/data/` — the project database, session traces, and agent prompts
+- `.adws/prompts/`, `.adws/specs/`, `.adws/kb/` — project work artifacts
+
+Upgrading a project with the old visible `adws/` footprint backs that tree up
+to `sssf-<timestamp>/`, warns that its customizations are not migrated, then
+stamps a fresh `.adws/`. The project SQLite database is the only state carried
+forward and is migrated to the current schema. Review the backup and reapply any
+custom config or chain edits after init. Flow commands on a legacy project stop
+with an instruction to run `sssf init`.
 
 ## Visualizer
 
-`sssf viz` serves a global, multi-project UI as a background service
-(`sssf viz start` / `sssf viz stop`, default port 4600). Views:
+`sssf viz` starts the global multi-project UI. It provides the status dashboard,
+ticket board, ticket details, session history, and run traces. The visualizer is
+the trace-reading surface; the removed terminal trace verbs are not part of the
+2.0 CLI.
 
-- **Status dashboard** (`#/status`, the landing page) — per-project KPIs:
-  runs/health, cost & tokens (actual billing + token-share per agent and per
-  model), quality gates, git repo stats + yearly contributions heatmap, trend
-  charts (7/30/90d), ticket pipeline.
-- **Kanban board** (`#/board`) — sessions and tickets by stage
-  (Backlog · Planning · Building · Reviewing · Done/Blocked); cards open a
-  detail modal; backlog tickets can be run or closed.
-- **Sessions** (`#/list`) and **Archived** (`#/archived`) — the session list,
-  with archive buttons and the sweep control.
-- **Traces** (`#/<adw_id>` / `#/<adw_id>/<phase_id>`) — the waterfall of
-  phases, envelopes, costs, and events for one run.
+The board uses the same ticket machine as the CLI. Its stop/restart controls
+shell to `sssf sandbox stop` and `sssf sandbox restart`; ticket run actions use
+`sssf flow implement`.
 
-## Run semantics
+## Ticket lifecycle
 
-- **Re-runs reap the previous run.** Running an ADW again with the same
-  `--adw-id` terminates any processes the previous run left in flight (the pid
-  is verified against the recorded command first, so a recycled pid is spared)
-  and marks its open phases and session `failed` — no zombie `running` sessions.
-- **Failures always land in the trace.** Per-phase exceptions are recorded by
-  the phase manager; a failsafe hook marks the session failed on *any* other
-  uncaught exception in the ADW process.
-- **No-op re-runs are green.** If `commit_build` finds nothing to commit and the
-  builder reported no changes, the work is already implemented and verified —
-  the run succeeds with a note and skips the document chain. A builder that
-  *claims* changes that never landed is a hard failure.
-- **WAL sidecars stay untracked.** `sssf init` gitignores `sssf.db-wal` /
-  `sssf.db-shm` — if they get committed, agents treat them as clutter and
-  `git checkout` them over the live db, which breaks open reader connections.
+- `sssf ticket new "<title>"` captures a title-only idea in `needs-triage`.
+- `sssf flow plan <ticket-id>` turns an idea into a spec and implementation
+  tickets.
+- `sssf flow implement <ticket-id>` runs one `ready-for-agent` ticket;
+  `sssf flow implement afk` works the queue one ticket per run.
+- `sssf ticket backlog <ticket-id>` requeues a ticket with optional feedback.
+- `sssf ticket sync` pulls tickets and mirrors machine labels, completion, and
+  rejection comments to their origin. It is the only tracker writer.
 
-## Sandboxed runs (parallel-safe)
+## Operational commands
 
-Each run executes in its own sandbox — a git worktree (branch `sssf/<adw_id>`)
-bind-mounted into a `sssf-runner` container — so multiple runs proceed in
-parallel without touching the project tree. The ADW runs its normal stages
-inside the container; when it exits (success or fail) a monitor tears the
-sandbox down automatically (container + worktree). The branch `sssf/<adw_id>`
-survives as the deliverable — the engineer merges it or opens a PR with their
-own tooling. Each run keeps its own per-run db; a forward-only sync streams
-progress into the project db without lock fights.
-
-- `sssf sandbox build` — build/refresh the runner image
-- `sssf sandbox list` — show sandboxes and their branches
-- `sssf sweep [--days N]` — the only deleter: archive old runs and remove their container, worktree and review record
-- `sssf run stop <adw_id>` — kill a live run (sandbox torn down, run marked failed)
-- `sssf run restart <adw_id>` — re-run a session on its existing branch
-- `--no-sandbox` — run in the current dir instead, for debugging
-
-## Self-healing monitor
-
-`sssf heal` is a daemon that scans every registered project and recovers what
-is stuck:
-
-- **Dead sandbox** (container or worktree gone while the session is `running`)
-  → finalize the run as failed.
-- **Torn terminal state** → sync the per-run db forward and tear the sandbox
-  down.
-- **Hung agent** (no progress for a long interval) → `sssf run restart` the
-  session, with a restart budget (`MAX_RESTARTS`) per run; exhausted budget
-  finalizes it.
-- **Spawn-failed ticket** (a ticket stuck in `starting`) → return it to the
-  backlog and clean up the sandbox.
-- **Stale runner image** (the sandbox image's baked engine fingerprint no
-  longer matches the local sssf) → rebuild it automatically with
-  `docker build`; failed builds are remembered in state and retried after a
-  cooldown so the daemon never hammers docker.
-
-```bash
-sssf heal start    # daemon, logs to the heal log (interval 30s)
-sssf heal status   # running? pid? recent heal actions
-sssf heal stop
-```
-
-## Commands
-
-| Command | What it does |
+| Command | Purpose |
 |---|---|
-| `sssf init [--refresh] [--force]` | stamp chains/config/prompts into the project, register it |
-| `sssf run <adw> "<prompt>" [--adw-id X] [--project P] [--no-sandbox]` | execute a chain (`adw_` prefix optional) |
-| `sssf run stop / restart <adw_id>` | kill a live run / re-run a session on its branch |
-| `sssf sessions / phases <id> / tail <id> / procs <id>` | trace queries over the WAL db |
-| `sssf projects [list\|remove <name>]` | manage the registry |
-| `sssf viz [start\|stop] [--port N] [--db PATH]` | global trace visualizer as a background service (bun required) |
-| `sssf sweep [--project P] [--days N]` | archive finished sessions older than N days (default 30) |
-| `sssf sandbox build\|list` · `sssf sweep [--days N]` | runner image / sandbox lifecycle · sole cleanup |
-| `sssf heal start\|stop\|status` | self-healing monitor daemon |
-| `sssf ticket add/sync/list/run [--project]` | ticketing integration (internal add, external sync, backlog run) — optional, per-project `adws/config/ticketing.yaml` |
-| `sssf doctor` | check global prerequisites (`uv`, `pi`, `bun`, `sqlite3`) |
-| `sssf upgrade` | `uv tool upgrade sssf` |
+| `sssf init [--refresh] [--force]` | Stamp or refresh a project and register it |
+| `sssf flow plan [<ticket-id>]` | Explore and plan an idea into implementation tickets |
+| `sssf flow implement <ticket-id>\|afk` | Implement one ticket or the ready queue |
+| `sssf flow deploy [--down] [--revert <ticket-id>]` | Sign off and release the dev batch |
+| `sssf ticket new\|sync\|list\|context\|backlog` | Capture, mirror, inspect, steer, and requeue tickets |
+| `sssf sandbox build\|list\|stop\|restart` | Manage runner image and active sandboxes |
+| `sssf sweep [--project P] [--days N]` | Archive old runs and clean their sandbox resources |
+| `sssf heal start\|stop\|status` | Run the self-healing monitor |
+| `sssf viz [start\|stop]` | Open or stop the global visualizer |
+| `sssf projects [list\|remove <name>]` | Manage registered projects |
+| `sssf doctor` / `sssf upgrade` | Check prerequisites / upgrade the CLI |
 
 ## Requirements
 
-Python 3.11+ (installed as a uv tool), `pi` as the coding agent, `bun` for
-`sssf viz`, `docker` for sandboxed runs, and a registered model in the coding
-agent's catalog (`sssf doctor` checks all of it).
+Python 3.11+ (installed as a uv tool), `pi` as the coding agent, `bun` for the
+visualizer, `docker` for sandboxed runs, and a registered model in the coding
+agent's catalog (`sssf doctor` checks prerequisites).
 
 ## Development
 
 ```bash
-uv sync --group dev && uv run pytest     # engine + CLI suite
-cd src/sssf/apps/visualizer && bun test  # visualizer server suite
+uv sync --group dev && uv run pytest
+cd src/sssf/apps/visualizer && bun test
 ```
 
-Engine layout, session-lifecycle invariants, and the visualizer workflow are
-documented in [CONTRIBUTING.md](CONTRIBUTING.md) (and, deeper, in
-`src/sssf/docs/contributing.md`).
+See `src/sssf/docs/customizing.md` for the supported customization surface and
+`CONTRIBUTING.md` for development guidance.
 
 ## Docs
 
 - [CHANGELOG.md](CHANGELOG.md) — release history
 - [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute
-- [SECURITY.md](SECURITY.md) — reporting vulnerabilities
 - `src/sssf/docs/customizing.md` — chains, roster, definition of done
-- `docs/superpowers/specs/` + `docs/superpowers/plans/` — the design specs and
-  implementation plans behind every feature (global CLI, run semantics,
-  archive sweep, status page, visualizer UX, ticketing, parallel runs, viz
-  background service, mission control)
+- `docs/adr/` — accepted architecture decisions

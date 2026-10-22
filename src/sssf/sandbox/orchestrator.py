@@ -106,7 +106,7 @@ def abort_sandbox(project_root: Path, adw_id: str) -> None:
 def teardown_sandbox(project_root: Path, adw_id: str) -> int:
     """No-op by design: after a run, NEITHER the container nor the worktree
     is deleted — they are the operator's debugging surface (docker logs, the
-    .worktrees/<adw_id> checkout, its adws/data/sessions artifacts). Cleanup is
+    .worktrees/<adw_id> checkout, its .adws/data/sessions artifacts). Cleanup is
     explicit: `sssf sandbox prune <adw_id>` or `sssf sweep`."""
     return 0
 
@@ -236,7 +236,7 @@ def monitor_run(project_root: Path, adw_id: str) -> int:
 
     data_dir, _pi, _env = sandbox_env(project_root)
     project_db = project_db_path(data_dir)
-    wt_data = sandbox_dir(project_root, adw_id) / "adws" / "data"
+    wt_data = sandbox_dir(project_root, adw_id) / ".adws" / "data"
     per_run_db = wt_data / "sssf.db"
     tracer = Tracer(str(project_db), str(project_db.parent / "sessions" / adw_id / "events.jsonl"))
     try:
@@ -414,7 +414,7 @@ def _flip_sandbox_run_stopped(data_dir: Path, adw_id: str) -> None:
 
 def stamp_adw_template(wt: Path) -> None:
     """Stamp the CURRENT installed ADW modules into the worktree (v2 layout:
-    adws/modules/adw_*.py). The worktree's copies are the project's committed
+    .adws/modules/adw_*.py). The worktree's copies are the project's committed
     templates (stamped at init, possibly stale after an sssf upgrade — e.g.
     the chain-builder migration and the review-gate removal) — sandboxed runs
     must run the installed ADWs so the run matches the installed sssf exactly.
@@ -431,7 +431,7 @@ def stamp_adw_template(wt: Path) -> None:
     src_modules = templates / "adws" / "modules"
     if not src_modules.is_dir():
         return
-    dest = wt / "adws" / "modules"
+    dest = wt / ".adws" / "modules"
     dest.mkdir(parents=True, exist_ok=True)
     for adw in src_modules.glob("adw_*.py"):
         shutil.copy(adw, dest / adw.name)

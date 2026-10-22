@@ -1,32 +1,32 @@
 # Customizing a project
 
 `sssf init` stamps the **customization surface** into your repo: everything you
-are meant to edit lives in `adws/`, and nothing you are meant to edit lives
+are meant to edit lives in `.adws/`, and nothing you are meant to edit lives
 anywhere else. The engine (`sssf.adw_modules`) is package code — changing it is
 contributing, not customizing (see `contributing.md`).
 
-Everything the factory touches lives under `adws/` — including the artifacts
+Everything the factory touches lives under `.adws/` — including the artifacts
 its agents produce, so the repo root stays clean:
 
 ```
-adws/
+.adws/
 ├── modules/                 adw_*.py chains
 ├── config/                  sssf.config.yaml, ticketing.yaml
 ├── data/                    sssf.db, sessions/, prompt_engineering/, harness_engineering/
 ├── prompts/                 your prompt files — the flows generate ticket prompts here
-├── specs/                   plans the planner commits (adws/specs/<adw_id>_<slug>.md)
-└── kb/                      write-ups the documenter commits (adws/kb/<adw_id>_<slug>.md)
+├── specs/                   plans the planner commits (.adws/specs/<adw_id>_<slug>.md)
+└── kb/                      write-ups the documenter commits (.adws/kb/<adw_id>_<slug>.md)
 ```
 
 Three things are yours to shape per project:
 
 ## Your chains
 
-Chains are the `adws/modules/adw_*.py` scripts. Copy the closest starter chain, rename
+Chains are the `.adws/modules/adw_*.py` scripts. Copy the closest starter chain, rename
 it, and edit its phase list:
 
 ```python
-# adws/modules/adw_my_flow.py  — Phases: engineer → scout → build
+# .adws/modules/adw_my_flow.py  — Phases: engineer → scout → build
 from sssf.adw_modules import run
 from sssf.adw_modules.data_types import AgentCall, EnvelopeBase
 
@@ -48,14 +48,14 @@ all three in the same edit.
 
 ## Your roster
 
-`adws/config/sssf.config.yaml` declares the agents: models as
+`.adws/config/sssf.config.yaml` declares the agents: models as
 `provider/model-id` (any id registered in the coding agent's catalog), thinking
 levels, per-agent `tools:` and `writes:`, and `protected_files` in `defaults`.
 
 - `tools:` is a capability list; `writes:` is the boundary. `protected_files`
-  (default: `adws/adw_modules/`, `adws/config/`, `adws/modules/`)
+  (default: `.adws/adw_modules/`, `.adws/config/`, `.adws/modules/`)
   keeps agents from editing the machinery that grades them.
-- Prompts live at `adws/data/prompt_engineering/{agent}/system.md` and
+- Prompts live at `.adws/data/prompt_engineering/{agent}/system.md` and
   `user.md` — identity in the system prompt, task shape in the user prompt.
 
 ## Your skills
@@ -63,8 +63,8 @@ levels, per-agent `tools:` and `writes:`, and `protected_files` in `defaults`.
 `sssf init` stamps the **hermetic workflow closure** into `.pi/skills/` — the
 workflow skills the flows reference (grill-me, wayfinder, grill-with-docs,
 to-spec, to-tickets, triage, implement, code-review, tdd, grilling,
-domain-modeling, codebase-design, plus the spec interviewer's
-`brainstorming`), their in-directory reference docs and agent defs, pinned to
+domain-modeling, codebase-design, and brainstorming), their in-directory
+reference docs and agent defs, pinned to
 source commits in `.pi/skills/.sssf-versions.json` (`sssf doctor` reports
 staleness). The set never touches the global pi home.
 
@@ -85,7 +85,7 @@ session status, and the banner agree.
 
 **Your quality commands** — the deterministic `test`/`lint`/`typecheck`/`build`
 blocks are per-project config: wire the real argv in `quality.checks` in
-`adws/config/sssf.config.yaml`. Each check runs as a `kind="code"`
+`.adws/config/sssf.config.yaml`. Each check runs as a `kind="code"`
 phase and records a `gate_results` row, so the status dashboard's quality KPI
 counts them. A name you don't wire keeps its honest placeholder; delete the
 checks you don't need. The full cookbook — schema, argv rules, per-stack
@@ -105,6 +105,6 @@ a PR to the sssf tool repo (see `contributing.md`).
   already implemented — the run succeeds with a note and skips documentation.
   If the builder claims changed files that aren't in the working tree, the run
   fails.
-- **Keep `adws/data/sssf.db-wal`/`-shm` untracked.** `sssf init` adds them
+- **Keep `.adws/data/sssf.db-wal`/`-shm` untracked.** `sssf init` adds them
   to `.gitignore`; if they are ever committed, agents may git-checkout them
   over the live db and break the visualizer's open connection.

@@ -20,7 +20,7 @@ function python(): string {
 
 /** Build a fresh db with Python's apply_schema and seed one full run. */
 function buildContractDb(dir: string): string {
-  const path = join(dir, "adws", "data", "sssf.db");
+  const path = join(dir, ".adws", "data", "sssf.db");
   mkdirSync(dirname(path), { recursive: true });
   const script = `
 import json, sqlite3, sys
