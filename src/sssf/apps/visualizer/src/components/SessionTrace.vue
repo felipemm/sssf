@@ -41,12 +41,10 @@ const session = ref<Session | null>(null)
 const ticket = ref<TicketInfo | null>(null)
 const ticketChecked = ref(false)
 const activeTicket = ref<TicketInfo | null>(null)
-// Use shallowRef for large API response arrays that are completely replaced
-// rather than deeply mutated. This prevents severe Vue deep reactivity performance overhead
-// when rendering traces with thousands of events.
+// Use shallowRef for large API response data that is replaced rather than deeply mutated.
 const phases = shallowRef<Phase[]>([])
 const agents = shallowRef<AgentSession[]>([])
-const usage = ref<SessionUsage>({ read: 0, written: 0 })
+const usage = shallowRef<SessionUsage>({ read: 0, written: 0 })
 const events = shallowRef<EventRow[]>([])
 const envelopes = shallowRef<Envelope[]>([])
 const gates = shallowRef<GateResult[]>([])
@@ -734,6 +732,8 @@ function selectPhase(p: Phase) {
               :class="[p.status, { selected: p.phase_id === phaseId }]"
               :style="blockStyle(p, lane)"
               :title="`${p.name} — ${p.status}${p.description ? `\n${p.description}` : ''}`"
+              :aria-label="`Phase ${p.name}, status ${p.status}`"
+              :aria-current="p.phase_id === phaseId ? 'step' : false"
               @click="selectPhase(p)"
             >
               <span class="b-top">
@@ -766,6 +766,8 @@ function selectPhase(p: Phase) {
             :class="{ selected: p.phase_id === phaseId }"
             :style="{ right: `${10 + i * 5}px`, width: '170px' }"
             :title="`${p.name} — queued`"
+            :aria-label="`Phase ${p.name}, status queued`"
+            :aria-current="p.phase_id === phaseId ? 'step' : false"
             @click="selectPhase(p)"
           >
             <span class="b-top">
