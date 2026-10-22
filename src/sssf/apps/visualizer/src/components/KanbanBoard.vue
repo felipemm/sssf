@@ -14,6 +14,7 @@ import { cmpTs } from '../lib/format'
 import KanbanSessionCard from './KanbanSessionCard.vue'
 import TicketCard from './TicketCard.vue'
 import TicketModal from './TicketModal.vue'
+import { backlogTickets as selectBacklogTickets, blockedTickets as selectBlockedTickets } from '../lib/ticketFilters'
 
 // A read-only stage board: sessions grouped by where they are in the chain. Status is
 // produced by the factory, not triaged here, so the board never reorders by
@@ -69,16 +70,10 @@ const tickets = ref<TicketsResponse>({ enabled: false, tickets: [] })
 const activeTicket = ref<Ticket | null>(null)
 const syncing = ref(false)
 
-// The backlog column renders tickets, not sessions — its count and empty
-// state come from here, never from byColumn['backlog'] (which no session ever
-// lands in).
-// 'starting' tickets stay in the backlog with a spinner until the run's
-// session appears (the container warm-up) — only then does the card vanish.
-const backlogTickets = computed(() => tickets.value.tickets.filter((x) => x.status === 'backlog' || x.status === 'starting'))
-
-// Failed tickets render in the Blocked column (alongside failed sessions) with
-// a manual back-to-backlog action — the healer usually moves them first.
-const failedTickets = computed(() => tickets.value.tickets.filter((x) => x.status === 'failed'))
+// The backlog column renders ready-for-agent tickets, not sessions; the failed
+// session lane also includes tickets parked in the machine's blocked state.
+const backlogTickets = computed(() => selectBacklogTickets(tickets.value.tickets))
+const blockedTickets = computed(() => selectBlockedTickets(tickets.value.tickets))
 
 async function pullTickets() {
   if (!selectedProject.value) return      // adhoc mode has no project scope / backlog
@@ -293,7 +288,7 @@ function toggleCollapsed(key: string) {
             <ChevronDown v-else :size="15" :stroke-width="2" class="chev" aria-hidden="true" />
             <span class="dot" :style="{ background: col.accent }" />
             <span class="col-name">{{ col.label }}</span>
-            <span class="col-count">{{ col.key === 'backlog' ? backlogTickets.length : col.key === 'fail' ? byColumn[col.key].length + failedTickets.length : byColumn[col.key].length }}</span>
+            <span class="col-count">{{ col.key === 'backlog' ? backlogTickets.length : col.key === 'fail' ? byColumn[col.key].length + blockedTickets.length : byColumn[col.key].length }}</span>
           </button>
           <button
             v-if="col.key === 'backlog'"
@@ -322,7 +317,7 @@ function toggleCollapsed(key: string) {
           </template>
           <template v-else-if="col.key === 'fail'">
             <TicketCard
-              v-for="t in failedTickets"
+              v-for="t in blockedTickets"
               :key="t.id"
               :ticket="t"
               @open="activeTicket = $event"
@@ -347,7 +342,7 @@ function toggleCollapsed(key: string) {
             />
           </template>
 
-          <div v-if="loaded && (col.key === 'backlog' ? backlogTickets.length === 0 : col.key === 'fail' ? byColumn[col.key].length + failedTickets.length === 0 : byColumn[col.key].length === 0)" class="empty">
+          <div v-if="loaded && (col.key === 'backlog' ? backlogTickets.length === 0 : col.key === 'fail' ? byColumn[col.key].length + blockedTickets.length === 0 : byColumn[col.key].length === 0)" class="empty">
             {{ col.stub ? 'no backlog tickets' : 'no runs' }}
           </div>
         </div>

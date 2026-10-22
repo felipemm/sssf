@@ -272,11 +272,11 @@ export async function fetchTickets(): Promise<TicketsResponse> {
   return getJson(`${base()}/tickets`) as Promise<TicketsResponse>
 }
 
-export async function runTicket(id: string, context = ""): Promise<{ ok: boolean; adwId?: string; output?: string }> {
+export async function runTicket(id: string, context?: string): Promise<{ ok: boolean; adwId?: string; output?: string }> {
   const res = await fetch(`${base()}/tickets/${encodeURIComponent(id)}/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ context }),
+    ...(context === undefined ? {} : { body: JSON.stringify({ context }) }),
   })
   const data = (await res.json().catch(() => ({}))) as { ok?: boolean; adwId?: string; output?: string }
   return { ok: data.ok ?? res.ok, adwId: data.adwId, output: data.output }

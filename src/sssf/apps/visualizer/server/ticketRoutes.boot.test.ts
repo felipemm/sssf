@@ -102,8 +102,8 @@ beforeAll(async () => {
   const script = [
     "#!/bin/sh",
     `printf '%s\\n' "$*" >> "${cliLog}"`,
-    `if [ "$1" = "ticket" ] && [ "$2" = "run" ]; then`,
-    `  echo "sssf ticket: run spawned for $3 — adw_id ${ADW_ID}"`,
+    `if [ "$1" = "flow" ] && [ "$2" = "implement" ]; then`,
+    `  echo "sssf flow: implement spawned for $3 — adw_id ${ADW_ID}"`,
     "else",
     '  echo "ok"',
     "fi",
@@ -213,7 +213,7 @@ describe("booted ticket routes (regression: ticketRoutes import in index.ts)", (
   test("the fake CLI was invoked once per action with the project root", () => {
     const calls = readFileSync(cliLog, "utf8").split("\n").filter(Boolean);
     expect(calls).toHaveLength(3);
-    expect(calls).toContain(`ticket run ${TICKET} --project ${root}`);
+    expect(calls).toContain(`flow implement ${TICKET} --project ${root}`);
     expect(calls).toContain(`ticket backlog ${TICKET} --project ${root}`);
     expect(calls).toContain(`ticket sync --project ${root}`);
   });

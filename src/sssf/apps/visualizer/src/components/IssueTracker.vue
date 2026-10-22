@@ -11,19 +11,20 @@ import { ChevronDown, ChevronRight, RefreshCw, EyeOff, GitBranch } from 'lucide-
 import { backlogTicket, fetchTickets, syncTickets, useProjects, type Ticket, type TicketsResponse } from '../lib/api'
 import { notify } from '../lib/toast'
 import TicketModal from './TicketModal.vue'
+import { MACHINE_STATUSES } from '../../shared/machineStatuses'
 
 const { selectedProject } = useProjects()
 
 // The ticket machine's statuses in lifecycle order (ticketing.py
 // MACHINE_STATUSES). `ready-for-agent` is the backlog — nothing else is.
 const COLUMNS = [
-  { key: 'needs-triage', label: 'Needs triage', accent: 'var(--faint)' },
-  { key: 'ready-for-agent', label: 'Backlog · ready', accent: 'var(--purple)' },
-  { key: 'in-progress', label: 'In progress', accent: 'var(--blue)' },
-  { key: 'ready-for-signoff', label: 'Ready for signoff', accent: 'var(--cyan)' },
-  { key: 'ready-to-deploy', label: 'Ready to deploy', accent: 'var(--amber)' },
-  { key: 'done', label: 'Done', accent: 'var(--green)' },
-  { key: 'blocked', label: 'Blocked', accent: 'var(--red)' },
+  { key: MACHINE_STATUSES.NEEDS_TRIAGE, label: 'Needs triage', accent: 'var(--faint)' },
+  { key: MACHINE_STATUSES.READY_FOR_AGENT, label: 'Backlog · ready', accent: 'var(--purple)' },
+  { key: MACHINE_STATUSES.IN_PROGRESS, label: 'In progress', accent: 'var(--blue)' },
+  { key: MACHINE_STATUSES.READY_FOR_SIGNOFF, label: 'Ready for signoff', accent: 'var(--cyan)' },
+  { key: MACHINE_STATUSES.READY_TO_DEPLOY, label: 'Ready to deploy', accent: 'var(--amber)' },
+  { key: MACHINE_STATUSES.DONE, label: 'Done', accent: 'var(--green)' },
+  { key: MACHINE_STATUSES.BLOCKED, label: 'Blocked', accent: 'var(--red)' },
 ] as const
 
 // The fetched ticket payload is replaced as a whole, so deep reactivity is unnecessary.

@@ -430,7 +430,7 @@ const server = Bun.serve({
       const root = projectRoot(name);
       const id = param(req, "id");
       if (!root || !isEnabled(root)) return json({ error: "ticketing not configured" }, 400);
-      let context = "";
+      let context: string | undefined;
       try {
         const body = await req.json();
         if (typeof body?.context === "string") context = body.context;
