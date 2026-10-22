@@ -37,11 +37,11 @@ async function toggleArchive() {
   }
 }
 
-const session = ref<Session | null>(null)
-const ticket = ref<TicketInfo | null>(null)
+// These API payloads are replaced as a whole, so deep reactivity is unnecessary.
+const session = shallowRef<Session | null>(null)
+const ticket = shallowRef<TicketInfo | null>(null)
 const ticketChecked = ref(false)
-const activeTicket = ref<TicketInfo | null>(null)
-// Use shallowRef for large API response data that is replaced rather than deeply mutated.
+const activeTicket = shallowRef<TicketInfo | null>(null)
 const phases = shallowRef<Phase[]>([])
 const agents = shallowRef<AgentSession[]>([])
 const usage = shallowRef<SessionUsage>({ read: 0, written: 0 })
