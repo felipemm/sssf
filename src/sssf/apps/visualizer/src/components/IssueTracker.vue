@@ -176,7 +176,7 @@ onBeforeUnmount(() => clearInterval(timer))
           <input v-model="untrackedOnly" type="checkbox" />
           <EyeOff :size="13" /> untracked only
         </label>
-        <button class="sync-link" type="button" :disabled="syncing" :aria-busy="syncing" aria-label="Fetch external tickets" @click="onSync">
+        <button class="sync-link" type="button" :disabled="syncing" :aria-busy="syncing" :aria-label="syncing ? 'Syncing external tickets' : 'Fetch external tickets'" @click="onSync">
           <RefreshCw :size="13" :class="{ spin: syncing }" /> {{ syncing ? 'syncing…' : 'sync' }}
         </button>
       </div>
