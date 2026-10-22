@@ -1,0 +1,3 @@
+## 2025-02-28 - Vue Reactivity Overhead on Large Payloads
+**Learning:** Vue's `ref()` applies deep reactivity to all nested properties by default. When storing large API response payloads (like `TicketsResponse` which contains complex ticket arrays) that are simply fetched and replaced entirely, this deep reactivity causes unnecessary rendering and memory overhead. Also, mutating `shallowRef` payloads requires re-assigning the whole `.value`, which is standard practice when they represent full API responses. In this case, `KanbanBoard.vue` just maps API data to UI.
+**Action:** Used `shallowRef()` instead of `ref()` for `tickets` in `KanbanBoard.vue` to avoid unnecessary deep reactivity setup overhead for API payload arrays.

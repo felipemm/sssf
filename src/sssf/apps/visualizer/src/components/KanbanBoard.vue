@@ -65,8 +65,10 @@ watch(selectedProject, () => {
   tickets.value = { enabled: false, tickets: [] }
   void tick()
 })
-const tickets = ref<TicketsResponse>({ enabled: false, tickets: [] })
-const activeTicket = ref<Ticket | null>(null)
+
+// These API payloads are replaced as a whole, so deep reactivity is unnecessary.
+const tickets = shallowRef<TicketsResponse>({ enabled: false, tickets: [] })
+const activeTicket = shallowRef<Ticket | null>(null)
 const syncing = ref(false)
 
 // The backlog column renders tickets, not sessions — its count and empty
