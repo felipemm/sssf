@@ -285,6 +285,36 @@ def _run_failure_feedback(conn: sqlite3.Connection, adw_id: str) -> str:
     return "the implement flow run failed"
 
 
+def _apply_run_outcome(
+    conn: sqlite3.Connection,
+    ticket_id: str,
+    adw_id: str,
+    session_status: str | None,
+    *,
+    actor: str,
+) -> str:
+    """Settle an in-progress ticket from its linked run's terminal outcome."""
+    if session_status == "success":
+        transition_ticket(
+            conn,
+            ticket_id,
+            STATUS_SIGNOFF,
+            actor=actor,
+            comment="implement flow run succeeded — ready for signoff",
+        )
+        return "signoff"
+    feedback = _run_failure_feedback(conn, adw_id)
+    transition_ticket(
+        conn,
+        ticket_id,
+        STATUS_READY,
+        actor=actor,
+        feedback=feedback,
+        comment="implement flow run failed — requeued fix-forward",
+    )
+    return "requeued"
+
+
 def finish_implement_run(
     conn: sqlite3.Connection, adw_id: str, *, actor: str = "system"
 ) -> str | None:
@@ -326,26 +356,7 @@ def finish_implement_run(
     ).fetchone()
     if ticket is None:
         return None  # nothing we own in-flight
-    ticket_id = ticket[0]
-    if session_status == "success":
-        transition_ticket(
-            conn,
-            ticket_id,
-            STATUS_SIGNOFF,
-            actor=actor,
-            comment="implement flow run succeeded — ready for signoff",
-        )
-        return "signoff"
-    feedback = _run_failure_feedback(conn, adw_id)
-    transition_ticket(
-        conn,
-        ticket_id,
-        STATUS_READY,
-        actor=actor,
-        feedback=feedback,
-        comment="implement flow run failed — requeued fix-forward",
-    )
-    return "requeued"
+    return _apply_run_outcome(conn, ticket[0], adw_id, session_status, actor=actor)
 
 
 def reconcile_stale_tickets(conn: sqlite3.Connection, *, actor: str = "system") -> int:
@@ -364,23 +375,7 @@ def reconcile_stale_tickets(conn: sqlite3.Connection, *, actor: str = "system") 
     ).fetchall()
     settled = 0
     for ticket_id, adw_id, session_status in runs:
-        if session_status == "success":
-            transition_ticket(
-                conn,
-                ticket_id,
-                STATUS_SIGNOFF,
-                actor=actor,
-                comment="implement flow run succeeded — ready for signoff",
-            )
-        else:
-            transition_ticket(
-                conn,
-                ticket_id,
-                STATUS_READY,
-                actor=actor,
-                feedback=_run_failure_feedback(conn, adw_id),
-                comment="implement flow run failed — requeued fix-forward",
-            )
+        _apply_run_outcome(conn, ticket_id, adw_id, session_status, actor=actor)
         settled += 1
     return settled
 
