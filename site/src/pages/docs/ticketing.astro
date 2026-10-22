@@ -24,7 +24,7 @@ const description =
 
   <h2>Commands</h2>
   <pre><code>sssf ticket add "Add a /health endpoint"     # create an internal backlog ticket
-sssf ticket sync                              # fetch external tickets into the backlog
+sssf ticket sync                              # pull tickets and mirror machine labels/comments
 sssf ticket list                              # list tickets (id · provider · title · status)
 sssf ticket run &lt;ticket_id&gt;                   # spawn simple_sdlc for a ticket</code></pre>
   <p>
@@ -73,11 +73,11 @@ sssf ticket run &lt;ticket_id&gt;                   # spawn simple_sdlc for a ti
     (never an error, never a fetch against the wrong forge).
   </p>
   <p>
-    State/label/comment write-backs to origin trackers are best-effort:
-    <code class="hl">sssf ticket writeback</code> mirrors them through gh/glab, and a failure is
-    recorded as a <code class="hl">ticket_events</code> event — it never blocks the flow.
-    Requeueing a synced ticket (<code class="hl">sssf ticket backlog</code>) reopens it on the
-    origin automatically.
+    <code class="hl">sssf ticket sync</code> is the only tracker writer. It ensures the ticket's
+    machine control label while preserving unrelated labels, closes tickets that reach
+    <code class="hl">done</code>, and appends closing or rejection-feedback comments. Tracker
+    write failures are recorded as <code class="hl">ticket_events</code> and never block local
+    ticket changes; a requeue is mirrored on the next sync.
   </p>
   <div class="note" data-impeccable-ignore="side-tab">
     <strong>Ticket table.</strong> Tickets live in the project db

@@ -112,7 +112,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   spec TEXT NOT NULL DEFAULT '',
   rejection_feedback TEXT NOT NULL DEFAULT '',
   created_at TEXT,
-  updated_at TEXT
+  updated_at TEXT,
+  mirrored_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ticket_events (

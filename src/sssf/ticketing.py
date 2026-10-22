@@ -202,7 +202,7 @@ def transition_ticket(
     new_feedback = feedback if feedback is not None else ("" if to_status == STATUS_DONE else None)
     conn.execute(
         "UPDATE tickets SET status=?, updated_at=?, rejection_feedback="
-        "COALESCE(?, rejection_feedback) WHERE id=?",
+        "COALESCE(?, rejection_feedback), mirrored_at=NULL WHERE id=?",
         (to_status, _now(), new_feedback, ticket_id),
     )
     add_ticket_event(conn, ticket_id, "transition", actor=actor, payload=payload)

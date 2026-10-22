@@ -301,8 +301,8 @@ def test_migration_6_normalizes_only_legacy_synced_statuses(tmp_path):
     }
     assert statuses["internal:legacy"] == "backlog"
     assert statuses["jira:machine"] == "blocked"
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
-    assert "mirrored_at" not in {row[1] for row in conn.execute("PRAGMA table_info(tickets)")}
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
+    assert "mirrored_at" in {row[1] for row in conn.execute("PRAGMA table_info(tickets)")}
     conn.close()
 
 

@@ -1,25 +1,19 @@
-"""Best-effort write-backs to origin trackers (issue #90).
+"""Best-effort tracker writers used only by `sssf ticket sync`.
 
-State/label/comment changes on synced tickets can be pushed back to the
-origin tracker through its CLI (gh / glab). Write-backs are best-effort: a
-failure (missing binary, CLI error, tracker outage) appends a `ticket_events`
-row (`writeback_failed`) and NEVER raises — the caller's flow is never
-blocked by a tracker. Origins without a wired writer (jira, linear, unknown)
-record a `writeback_skipped` event instead; `internal` tickets have no
-external tracker and are a no-op.
-
-The machine mutations themselves stay db-only (ticketing.py). These functions
-are the host-side adapter that mirrors a mutation to the origin when the
-operator wants it — called from `sssf ticket backlog` (reopen) and the
-`sssf ticket writeback` command.
+Tracker state remains a mirror of the local ticket machine. Sync records
+write failures as ticket events and never blocks the local ticket workflow.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import subprocess
 from datetime import UTC, datetime
+
+CONTROL_LABELS = ("needs-triage", "ready-for-agent", "blocked")
+CLOSING_COMMENT = "Closed by sssf: ticket reached done."
 
 
 def _now() -> str:
@@ -36,8 +30,7 @@ def _run(cmd: list[str]) -> None:
 
 
 def _record(conn: sqlite3.Connection, ticket_id: str, event_type: str, actor: str, payload: dict) -> None:
-    """Append an audit row and commit it — a failed/skipped write-back must be
-    durably visible, not lost with the caller's transaction."""
+    """Append an audit row and commit it — a failed sync must be durably visible."""
     conn.execute(
         "INSERT INTO ticket_events (ticket_id, event_type, actor, payload, created_at)"
         " VALUES (?,?,?,?,?)",
@@ -46,8 +39,12 @@ def _record(conn: sqlite3.Connection, ticket_id: str, event_type: str, actor: st
     conn.commit()
 
 
-def _split_external(external_id: str) -> tuple[str, str] | None:
-    """`owner/repo#12` → (repo, number); None when unparseable."""
+def _split_external(origin: str, external_id: str) -> tuple[str, str] | None:
+    """Parse hosted-forge `<repo>#<number>` ids and Jira issue keys."""
+    if origin == "jira":
+        if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*-\d+", external_id):
+            return external_id, external_id
+        return None
     if "#" not in external_id:
         return None
     repo, _, number = external_id.rpartition("#")
@@ -57,9 +54,6 @@ def _split_external(external_id: str) -> tuple[str, str] | None:
 
 
 # ── per-origin writers ──────────────────────────────────────────────────────
-# Each origin provides (state, comment, label) writers. Operations take the
-# parsed (repo, number); state strings are passed through (github: open/closed;
-# gitlab: opened/closed, with canonical "open" mapped to "opened").
 
 
 def _github_state(repo: str, number: str, state: str) -> None:
@@ -88,9 +82,24 @@ def _gitlab_label(repo: str, number: str, label: str, add: bool) -> None:
     _run(["glab", "issue", "update", number, "--repo", repo, flag, label])
 
 
+def _jira_state(_key: str, key: str, state: str) -> None:
+    status = "Closed" if state == "closed" else state
+    _run(["acli", "jira", "workitem", "transition", "--key", key, "--status", status, "--yes"])
+
+
+def _jira_comment(_key: str, key: str, text: str) -> None:
+    _run(["acli", "jira", "workitem", "comment", "create", "--key", key, "--body", text])
+
+
+def _jira_label(_key: str, key: str, label: str, add: bool) -> None:
+    flag = "--labels" if add else "--remove-labels"
+    _run(["acli", "jira", "workitem", "edit", "--key", key, flag, label, "--yes"])
+
+
 ORIGIN_WRITERS = {
     "github": (_github_state, _github_comment, _github_label),
     "gitlab": (_gitlab_state, _gitlab_comment, _gitlab_label),
+    "jira": (_jira_state, _jira_comment, _jira_label),
 }
 
 
@@ -101,11 +110,8 @@ def _dispatch(
     actor: str,
     op_index: int,
     *writer_args,
-) -> None:
-    """Resolve the ticket's origin and run the origin's writer best-effort.
-
-    Every exit path is an event or a no-op — this function NEVER raises.
-    """
+) -> bool:
+    """Resolve the ticket's origin and run one writer operation best-effort."""
     row = conn.execute(
         "SELECT origin, external_id FROM tickets WHERE id=?", (ticket_id,)
     ).fetchone()
@@ -117,10 +123,10 @@ def _dispatch(
             actor,
             {"operation": operation, "error": f"no ticket {ticket_id}"},
         )
-        return
+        return False
     origin, external_id = row
     if origin == "internal":
-        return  # no external tracker to mirror to
+        return True
     if origin not in ORIGIN_WRITERS or not external_id:
         _record(
             conn,
@@ -129,8 +135,8 @@ def _dispatch(
             actor,
             {"origin": origin, "operation": operation},
         )
-        return
-    parsed = _split_external(external_id)
+        return False
+    parsed = _split_external(origin, external_id)
     if parsed is None:
         _record(
             conn,
@@ -143,7 +149,7 @@ def _dispatch(
                 "error": f"cannot parse external_id {external_id!r}",
             },
         )
-        return
+        return False
     repo, number = parsed
     try:
         ORIGIN_WRITERS[origin][op_index](repo, number, *writer_args)
@@ -155,20 +161,104 @@ def _dispatch(
             actor,
             {"origin": origin, "operation": operation, "error": str(error)},
         )
+        return False
+    return True
+
+
+def _rejection_feedback(conn: sqlite3.Connection, ticket_id: str, status: str) -> str | None:
+    """Return only feedback attached to the latest transition into the queue."""
+    if status != "ready-for-agent":
+        return None
+    row = conn.execute(
+        "SELECT payload FROM ticket_events WHERE ticket_id=? AND event_type='transition'"
+        " ORDER BY id DESC LIMIT 1",
+        (ticket_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        payload = json.loads(row[0] or "{}")
+    except (TypeError, ValueError):
+        return None
+    feedback = payload.get("feedback")
+    if payload.get("to") == status and isinstance(feedback, str) and feedback.strip():
+        return feedback
+    return None
+
+
+def mirror_tickets(
+    conn: sqlite3.Connection,
+    *,
+    providers: set[str] | None = None,
+    actor: str = "system",
+) -> dict[str, int]:
+    """Ensure control labels and mirror close/comments for synced tickets.
+
+    Labels are ensured on each sync by touching only the known control-label
+    vocabulary. The watermark gates one-shot close and feedback comments;
+    machine transitions clear it so a later rejection/close can be mirrored.
+    Returns failed write counts grouped by origin.
+    """
+    query = (
+        "SELECT id, origin, status, mirrored_at FROM tickets"
+        " WHERE tracked=0 AND origin != 'internal'"
+    )
+    params: tuple = ()
+    if providers is not None:
+        if not providers:
+            return {}
+        provider_list = sorted(providers)
+        query += f" AND origin IN ({','.join('?' for _ in provider_list)})"
+        params = tuple(provider_list)
+    rows = conn.execute(query + " ORDER BY id", params).fetchall()
+    failures: dict[str, int] = {}
+    for ticket_id, origin, status, mirrored_at in rows:
+        if origin not in ORIGIN_WRITERS:
+            continue
+        failed = 0
+        desired = status if status in CONTROL_LABELS else None
+        for label in CONTROL_LABELS:
+            if label != desired and not _dispatch(
+                conn, ticket_id, "label", actor, 2, label, False
+            ):
+                failed += 1
+        if desired is not None and not _dispatch(
+            conn, ticket_id, "label", actor, 2, desired, True
+        ):
+            failed += 1
+
+        if mirrored_at is None and status == "done":
+            if not _dispatch(conn, ticket_id, "state", actor, 0, "closed"):
+                failed += 1
+            if not _dispatch(conn, ticket_id, "comment", actor, 1, CLOSING_COMMENT):
+                failed += 1
+        elif mirrored_at is None:
+            feedback = _rejection_feedback(conn, ticket_id, status)
+            if feedback is not None and not _dispatch(
+                conn, ticket_id, "comment", actor, 1, feedback
+            ):
+                failed += 1
+
+        if failed:
+            failures[origin] = failures.get(origin, 0) + failed
+        else:
+            conn.execute("UPDATE tickets SET mirrored_at=? WHERE id=?", (_now(), ticket_id))
+    conn.commit()
+    return failures
 
 
 def writeback_state(conn: sqlite3.Connection, ticket_id: str, state: str, *, actor: str = "system") -> None:
-    """Push a state change to the origin tracker (best-effort)."""
+    """Push a state change through the origin writer."""
     _dispatch(conn, ticket_id, "state", actor, 0, state)
 
 
 def writeback_comment(conn: sqlite3.Connection, ticket_id: str, text: str, *, actor: str = "system") -> None:
-    """Push a comment to the origin tracker (best-effort)."""
+    """Push a comment through the origin writer."""
     _dispatch(conn, ticket_id, "comment", actor, 1, text)
 
 
 def writeback_label(
     conn: sqlite3.Connection, ticket_id: str, label: str, *, add: bool = True, actor: str = "system"
 ) -> None:
-    """Push a label add/remove to the origin tracker (best-effort)."""
+    """Add or remove one label through the origin writer."""
     _dispatch(conn, ticket_id, "label", actor, 2, label, add)

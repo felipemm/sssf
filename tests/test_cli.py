@@ -1,3 +1,5 @@
+import pytest
+
 from sssf.cli import main
 
 
@@ -67,3 +69,17 @@ def test_flow_implement_routes_ticket_vs_afk(monkeypatch, tmp_path):
     assert kw["cap"] == 5 and kw["wait_seconds"] == 99  # flags forwarded to the loop
     assert routed[1][0] == "implement"
     assert routed[1][1][1] == "internal:abc"  # the ticket id reaches the flow
+
+
+def test_ticket_sync_is_the_only_tracker_write_cli_verb(capsys):
+    with pytest.raises(SystemExit) as removed:
+        main(["ticket", "writeback", "github:owner/repo#1"])
+    assert removed.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
+
+    with pytest.raises(SystemExit) as ticket_help:
+        main(["ticket", "--help"])
+    assert ticket_help.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "sync" in help_text
+    assert "writeback" not in help_text

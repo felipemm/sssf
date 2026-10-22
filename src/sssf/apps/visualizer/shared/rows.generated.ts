@@ -146,6 +146,7 @@ export interface TicketsRow {
   rejection_feedback: string;
   created_at: string | null;
   updated_at: string | null;
+  mirrored_at: string | null;
 }
 
 /** `ticket_events` table — generated from db_schema.TicketEventsRow. */

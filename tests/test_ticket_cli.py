@@ -3,7 +3,7 @@ import sqlite3
 import subprocess
 from pathlib import Path
 
-from sssf import ticketing
+from sssf import ticketing, writeback
 from sssf.commands import ticket
 
 
@@ -594,6 +594,46 @@ def test_sync_provider_subset_passes_through(tmp_path, monkeypatch, capsys):
     assert "github: 1 ticket(s) synced" in capsys.readouterr().out
 
 
+def test_sync_pulls_before_pushing_successful_providers(tmp_path, monkeypatch, capsys):
+    _project(tmp_path, monkeypatch, "providers:\n  - github\ngithub:\n  repo: owner/repo\n")
+    calls = []
+
+    def fake_pull(root, cfg, providers=None):
+        calls.append(("pull", providers))
+        return [ticketing.ProviderSyncResult("github", tickets=1)]
+
+    def fake_push(conn, *, providers, actor):
+        calls.append(("push", providers, actor))
+        return {"github": 1}
+
+    monkeypatch.setattr(ticketing, "sync_tickets", fake_pull)
+    monkeypatch.setattr(writeback, "mirror_tickets", fake_push)
+
+    assert ticket.sync(None, provider="github") == 0
+    assert calls[0] == ("pull", ["github"])
+    assert calls[1][0:2] == ("push", {"github"})
+    assert "1 tracker write(s) failed" in capsys.readouterr().out
+
+
+def test_sync_does_not_push_a_provider_that_failed_to_pull(tmp_path, monkeypatch, capsys):
+    _project(tmp_path, monkeypatch, CONFIG)
+    monkeypatch.setattr(
+        ticketing,
+        "sync_tickets",
+        lambda root, cfg, providers=None: [
+            ticketing.ProviderSyncResult("jira", error="jira unavailable")
+        ],
+    )
+    monkeypatch.setattr(
+        writeback,
+        "mirror_tickets",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not push")),
+    )
+
+    assert ticket.sync(None) == 0
+    assert "jira: jira unavailable" in capsys.readouterr().out
+
+
 def test_sync_all_when_no_provider_flag(tmp_path, monkeypatch, capsys):
     _project(tmp_path, monkeypatch, CONFIG)
     captured = {}
@@ -622,59 +662,8 @@ def test_sync_prints_skip_warning_distinctly(tmp_path, monkeypatch, capsys):
     assert "skipped" in out and "gitlab configured but origin" in out
 
 
-def test_writeback_cmd_dispatches_operations(tmp_path, monkeypatch, capsys):
-    root = _project(tmp_path, monkeypatch, CONFIG)
-    conn = _db(root)
-    conn.execute(
-        "INSERT INTO tickets (id, provider, external_id, title, status, kind, tracked, origin, created_at, updated_at)"
-        " VALUES ('github:owner/repo#12','github','owner/repo#12','T','ready-for-agent','idea',0,'github','2026-01-01','2026-01-01')"
-    )
-    conn.commit()
-    conn.close()
-    calls = []
-    rc = 0
-    err = ""
-
-    def fake_run(args, capture_output, text, timeout):
-        calls.append(args)
-
-        class R:
-            returncode = rc
-            stdout = ""
-            stderr = err
-
-        return R()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    assert (
-        ticket.writeback_cmd(
-            "github:owner/repo#12",
-            None,
-            state="closed",
-            comment="merged",
-            label="shipped",
-            remove_label="wip",
-        )
-        == 0
-    )
-    assert calls == [
-        ["gh", "issue", "edit", "12", "--repo", "owner/repo", "--state", "closed"],
-        ["gh", "issue", "comment", "12", "--repo", "owner/repo", "--body", "merged"],
-        ["gh", "issue", "edit", "12", "--repo", "owner/repo", "--add-label", "shipped"],
-        ["gh", "issue", "edit", "12", "--repo", "owner/repo", "--remove-label", "wip"],
-    ]
-    assert "writeback recorded" in capsys.readouterr().out
-
-
-def test_writeback_cmd_requires_an_option(tmp_path, monkeypatch, capsys):
-    _project(tmp_path, monkeypatch, CONFIG)
-    assert ticket.writeback_cmd("github:owner/repo#12", None) == 1
-    assert "at least one" in capsys.readouterr().err
-
-
-def test_backlog_reopens_external_ticket_on_origin(tmp_path, monkeypatch, capsys):
-    """Requeueing a synced (external) ticket fires a state write-back; a
-    tracker failure is recorded as an event and never blocks the requeue."""
+def test_backlog_does_not_write_to_origin_outside_sync(tmp_path, monkeypatch, capsys):
+    """Requeue changes the local machine only; `ticket sync` owns tracker writes."""
     root = _project(tmp_path, monkeypatch, CONFIG)
     conn = _db(root)
     conn.execute(
@@ -698,15 +687,12 @@ def test_backlog_reopens_external_ticket_on_origin(tmp_path, monkeypatch, capsys
         return R()
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    assert ticket.backlog("github:owner/repo#12", None) == 0  # requeue succeeds
-    assert calls == [["gh", "issue", "edit", "12", "--repo", "owner/repo", "--state", "open"]]
+    assert ticket.backlog("github:owner/repo#12", None) == 0
+    assert calls == []
     conn = _db(root)
-    events = ticketing.ticket_events(conn, "github:owner/repo#12")
-    types = [e["event_type"] for e in events]
-    assert "writeback_failed" in types
     row = conn.execute("SELECT status FROM tickets WHERE id='github:owner/repo#12'").fetchone()
     conn.close()
-    assert row[0] == "ready-for-agent"  # the machine state change stuck
+    assert row[0] == "ready-for-agent"
 
 
 def test_backlog_internal_ticket_no_writeback(tmp_path, monkeypatch, capsys):

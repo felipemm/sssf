@@ -162,6 +162,7 @@ class TicketsRow(Row):
     rejection_feedback: str = Field(default="", json_schema_extra={"not_null": True})
     created_at: str | None = None
     updated_at: str | None = None
+    mirrored_at: str | None = None
 
 
 class TicketEventsRow(Row):
@@ -281,8 +282,15 @@ def _add_machine_columns(conn: sqlite3.Connection) -> None:
             conn.execute(ddl)
 
 
+def _add_mirrored_at(conn: sqlite3.Connection) -> None:
+    """Add the sync watermark to a schema-v6 tickets table."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(tickets)")}
+    if "mirrored_at" not in cols:
+        conn.execute("ALTER TABLE tickets ADD COLUMN mirrored_at TEXT")
+
+
 # The current schema version. Bump on every schema-affecting change.
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # Columns the read-only viz reader (db.ts SINCE_VERSION) can serve as NULL on
 # dbs stamped below the version that guarantees them. The codegen renders
@@ -344,6 +352,11 @@ MIGRATIONS: list[tuple[int, str, str | Callable[[sqlite3.Connection], None]]] = 
         WHERE tracked=0
           AND status IN ('backlog', 'starting', 'running', 'failed', 'success');
         """,
+    ),
+    (
+        7,
+        "ticket sync mirror watermark",
+        _add_mirrored_at,
     ),
 ]
 
