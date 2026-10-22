@@ -1,7 +1,53 @@
 import contextlib
+import sqlite3
 import subprocess
 
+from sssf import registry, ticketing
 from sssf.commands import misc, viz
+
+
+def test_viz_start_reconciles_registered_database_before_launch(tmp_path, monkeypatch):
+    root = tmp_path / "project"
+    db_path = root / "adws" / "data" / "sssf.db"
+    db_path.parent.mkdir(parents=True)
+    conn = sqlite3.connect(db_path)
+    ticketing.ensure_schema(conn)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, external_id, title, status, adw_id)"
+        " VALUES ('internal:stale', 'internal', '', 'Stale', 'in-progress', 'run1')"
+    )
+    conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, status) VALUES ('run1', 'adw_implement', 'success')"
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(registry, "registry_path", lambda: tmp_path / "projects.json")
+    registry.register_project(root, db_path, "test")
+
+    monkeypatch.setattr(misc, "which", lambda name: "/usr/bin/bun")
+    monkeypatch.setattr(viz, "STATE_DIR", tmp_path / "state")
+    monkeypatch.setattr(viz, "_pid_file", lambda: tmp_path / "viz.pid")
+    monkeypatch.setattr(viz, "_log_file", lambda: tmp_path / "viz.log")
+    monkeypatch.setattr(viz, "_pid_alive", lambda pid: True)
+    monkeypatch.setattr(viz, "_wait_for_server", lambda url: True)
+    observed = {}
+
+    def _popen(*_args, **_kwargs):
+        check = sqlite3.connect(db_path)
+        observed["status"] = check.execute(
+            "SELECT status FROM tickets WHERE id='internal:stale'"
+        ).fetchone()[0]
+        observed["events"] = check.execute(
+            "SELECT COUNT(*) FROM ticket_events WHERE ticket_id='internal:stale'"
+        ).fetchone()[0]
+        check.close()
+        return _FakeProc(4242)
+
+    monkeypatch.setattr(viz.subprocess, "Popen", _popen)
+    monkeypatch.setattr(viz.webbrowser, "open", lambda url: None)
+
+    assert viz.start(4600, str(db_path), None) == 0
+    assert observed == {"status": "ready-for-signoff", "events": 1}
 
 
 def test_viz_start_rejects_missing_bun(monkeypatch):

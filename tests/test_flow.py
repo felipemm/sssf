@@ -293,6 +293,35 @@ def test_flow_implement_dispatches_implement_chain(tmp_path, monkeypatch):
     assert "Make it dark" in argv[2]
 
 
+def test_flow_implement_reconciles_finished_tickets_before_claim(tmp_path, monkeypatch):
+    root = _setup_project(tmp_path, monkeypatch)
+    _seed_ticket(root, "internal:current")
+    conn = _adb(root)
+    conn.execute(
+        "INSERT INTO tickets (id, provider, external_id, title, status, adw_id)"
+        " VALUES ('internal:stale', 'internal', '', 'Stale', 'in-progress', 'oldrun')"
+    )
+    conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, status) VALUES ('oldrun', 'adw_implement', 'success')"
+    )
+    conn.commit()
+    conn.close()
+
+    seen = []
+
+    def dispatch(*_args, **_kwargs):
+        db = _adb(root)
+        seen.append(
+            db.execute("SELECT status FROM tickets WHERE id='internal:stale'").fetchone()[0]
+        )
+        db.close()
+        return 1
+
+    monkeypatch.setattr(flow, "_dispatch_chain", dispatch)
+    assert flow.implement(Path.cwd(), "internal:current", None, no_sandbox=False) == 1
+    assert seen == [ticketing.STATUS_SIGNOFF]
+
+
 def test_flow_implement_requires_ready_for_agent(tmp_path, monkeypatch, capsys):
     root = _setup_project(tmp_path, monkeypatch)
     _seed_ticket(root, "internal:idea", status="needs-triage")

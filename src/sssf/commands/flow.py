@@ -320,6 +320,8 @@ def implement(
     if root is None:
         print("sssf: no project here (no adws/). Run `sssf init` first.", file=sys.stderr)
         return 1
+    ticketing.reconcile_project_db(paths.data_dir(root) / "sssf.db", actor=_actor())
+
     row = _ticket_prompt(root, ticket_id)
     if row is None:
         print(f"sssf flow: no ticket {ticket_id}", file=sys.stderr)

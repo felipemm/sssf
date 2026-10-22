@@ -282,7 +282,7 @@ def _add_machine_columns(conn: sqlite3.Connection) -> None:
 
 
 # The current schema version. Bump on every schema-affecting change.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Columns the read-only viz reader (db.ts SINCE_VERSION) can serve as NULL on
 # dbs stamped below the version that guarantees them. The codegen renders
@@ -328,6 +328,21 @@ MIGRATIONS: list[tuple[int, str, str | Callable[[sqlite3.Connection], None]]] = 
         UPDATE tickets SET tracked=0 WHERE provider != 'internal' AND tracked=1;
         UPDATE tickets SET origin=provider
           WHERE provider != 'internal' AND origin='internal';
+        """,
+    ),
+    (
+        6,
+        "normalize legacy statuses on synced tickets",
+        """
+        UPDATE tickets SET status = CASE status
+          WHEN 'backlog' THEN 'ready-for-agent'
+          WHEN 'starting' THEN 'in-progress'
+          WHEN 'running' THEN 'in-progress'
+          WHEN 'failed' THEN 'ready-for-agent'
+          WHEN 'success' THEN 'done'
+        END
+        WHERE tracked=0
+          AND status IN ('backlog', 'starting', 'running', 'failed', 'success');
         """,
     ),
 ]

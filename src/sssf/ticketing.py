@@ -349,6 +349,44 @@ def finish_implement_run(
     return "requeued"
 
 
+def reconcile_stale_tickets(conn: sqlite3.Connection, *, actor: str = "system") -> int:
+    """Settle in-progress tickets whose linked run has finished.
+
+    The status transition and audit record use the same machine edge as the
+    implement flow. Only terminal sessions are considered; a missing or still
+    running session remains untouched. Returns the number of tickets settled.
+    """
+    runs = conn.execute(
+        "SELECT tickets.adw_id FROM tickets"
+        " JOIN sessions ON sessions.adw_id=tickets.adw_id"
+        " WHERE tickets.status=? AND sessions.status IN ('success','fail')"
+        " ORDER BY tickets.id",
+        (STATUS_IN_PROGRESS,),
+    ).fetchall()
+    settled = 0
+    for (adw_id,) in runs:
+        if finish_implement_run(conn, adw_id, actor=actor) is not None:
+            settled += 1
+    return settled
+
+
+def reconcile_project_db(db_path: Path, *, actor: str = "system") -> int:
+    """Migrate and reconcile one project-owned ticket database if it exists."""
+    if not db_path.exists():
+        return 0
+    conn = sqlite3.connect(str(db_path))
+    try:
+        ensure_schema(conn)
+        settled = reconcile_stale_tickets(conn, actor=actor)
+        conn.commit()
+        return settled
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def create_idea_ticket(conn: sqlite3.Connection, title: str, *, actor: str = "system") -> str:
     """A title-only idea shell: blank spec, born `needs-triage`, tracked,
     internal origin. The plan flow turns it into a spec plus implementation

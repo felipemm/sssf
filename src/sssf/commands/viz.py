@@ -20,6 +20,7 @@ import webbrowser
 from importlib import resources
 from pathlib import Path
 
+from sssf import registry, ticketing
 from sssf.commands import misc
 
 APP_DIR = Path(str(resources.files("sssf") / "apps" / "visualizer"))
@@ -87,6 +88,41 @@ def _wait_for_server(url: str, tries: int = 10, interval: float = 0.5) -> bool:
     return False
 
 
+def _reconcile_ticket_databases(db_override: str | None, project: str | None) -> None:
+    """Reconcile each database the visualizer is about to serve, once."""
+    registry_setting = None
+    if project:
+        registry_setting = os.environ.get("SSSF_REGISTRY")
+        os.environ["SSSF_REGISTRY"] = str(Path(project).resolve() / ".sssf" / "projects.json")
+    try:
+        paths: set[Path] = set()
+        for entry in registry.list_projects():
+            if not isinstance(entry, dict):
+                continue
+            db_path = entry.get("db")
+            if isinstance(db_path, str) and db_path:
+                paths.add(Path(db_path).resolve())
+    finally:
+        if project:
+            if registry_setting is None:
+                os.environ.pop("SSSF_REGISTRY", None)
+            else:
+                os.environ["SSSF_REGISTRY"] = registry_setting
+    active_override = db_override if db_override is not None else os.environ.get("SSSF_DB")
+    if active_override:
+        paths.add(Path(active_override).resolve())
+
+    for db_path in sorted(paths):
+        if not db_path.is_file():
+            continue
+        try:
+            settled = ticketing.reconcile_project_db(db_path)
+            if settled:
+                print(f"sssf viz: reconciled {settled} stale ticket(s) in {db_path}")
+        except Exception as error:
+            print(f"sssf viz: could not reconcile tickets in {db_path} ({error})", file=sys.stderr)
+
+
 def start(port: int, db_override: str | None, project: str | None) -> int:
     if misc.which("bun") is None:
         print("sssf: bun is required for `sssf viz` — install it globally once.", file=sys.stderr)
@@ -97,6 +133,7 @@ def start(port: int, db_override: str | None, project: str | None) -> int:
         print(f"sssf viz: already running (pid {pid}) — {url}")
         webbrowser.open(url)
         return 0
+    _reconcile_ticket_databases(db_override, project)
     pid = _spawn(port, db_override, project)
     _wait_for_server(url)  # give it a moment to bind — or to crash
     if not _pid_alive(pid):

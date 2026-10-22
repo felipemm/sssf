@@ -376,6 +376,68 @@ def test_migration_is_idempotent(tmp_path):
     conn.close()
 
 
+def test_reconcile_settles_successful_terminal_run_with_audit_event(tmp_path):
+    conn = _machine_conn(tmp_path / "m.db")
+    _insert_ticket(conn, "t1", status=ticketing.STATUS_IN_PROGRESS, adw_id="run1")
+    conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, status) VALUES (?,?,?)",
+        ("run1", ticketing.IMPLEMENT_ADW, "success"),
+    )
+
+    assert ticketing.reconcile_stale_tickets(conn, actor="viz") == 1
+    assert ticketing.reconcile_stale_tickets(conn, actor="viz") == 0
+    assert conn.execute("SELECT COUNT(*) FROM ticket_events WHERE ticket_id='t1'").fetchone() == (
+        1,
+    )
+    assert conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone() == (
+        ticketing.STATUS_SIGNOFF,
+    )
+    event = ticketing.ticket_events(conn, "t1")[0]
+    assert event["event_type"] == "transition"
+    assert event["actor"] == "viz"
+    assert event["payload"] == {
+        "from": ticketing.STATUS_IN_PROGRESS,
+        "to": ticketing.STATUS_SIGNOFF,
+        "comment": "implement flow run succeeded — ready for signoff",
+    }
+    conn.close()
+
+
+def test_reconcile_requeues_failed_terminal_run_with_feedback(tmp_path):
+    conn = _machine_conn(tmp_path / "m.db")
+    _insert_ticket(conn, "t1", status=ticketing.STATUS_IN_PROGRESS, adw_id="run1")
+    conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, status) VALUES (?,?,?)",
+        ("run1", ticketing.IMPLEMENT_ADW, "fail"),
+    )
+
+    assert ticketing.reconcile_stale_tickets(conn) == 1
+    assert conn.execute(
+        "SELECT status, rejection_feedback FROM tickets WHERE id='t1'"
+    ).fetchone() == (ticketing.STATUS_READY, "the implement flow run failed")
+    event = ticketing.ticket_events(conn, "t1")[0]
+    assert event["payload"]["from"] == ticketing.STATUS_IN_PROGRESS
+    assert event["payload"]["to"] == ticketing.STATUS_READY
+    assert event["payload"]["feedback"] == "the implement flow run failed"
+    conn.close()
+
+
+def test_reconcile_leaves_nonterminal_runs_in_progress(tmp_path):
+    conn = _machine_conn(tmp_path / "m.db")
+    _insert_ticket(conn, "t1", status=ticketing.STATUS_IN_PROGRESS, adw_id="run1")
+    conn.execute(
+        "INSERT INTO sessions (adw_id, adw_name, status) VALUES (?,?,?)",
+        ("run1", ticketing.IMPLEMENT_ADW, "running"),
+    )
+
+    assert ticketing.reconcile_stale_tickets(conn) == 0
+    assert conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone() == (
+        ticketing.STATUS_IN_PROGRESS,
+    )
+    assert ticketing.ticket_events(conn, "t1") == []
+    conn.close()
+
+
 def test_transition_legal_edges_allowed(tmp_path):
     conn = _machine_conn(tmp_path / "m.db")
     legal = [
