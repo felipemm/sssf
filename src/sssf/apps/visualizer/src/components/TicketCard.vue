@@ -64,10 +64,10 @@ async function toBacklog(event: MouseEvent) {
     <button class="ticket-open" type="button" @click="emit('open', ticket)">
       <span class="sr-only">Open ticket: </span>
       <span class="badge">{{ BADGE[ticket.provider] ?? '?' }}</span>
-      <span class="t-title">{{ ticket.title }}</span>
+      <span class="t-title" :title="ticket.title">{{ ticket.title }}</span>
       <span class="t-meta dim">
         <RotateCw v-if="retry" class="retry-ico" :size="12" />
-        {{ ticket.external_id || ticket.id }} · {{ statusLabel }}
+        <span class="t-identifier">{{ ticket.external_id || ticket.id }} · {{ statusLabel }}</span>
         <span v-if="retry" class="runs-chip" :title="`${ticket.runs.length} run(s) — see the modal for the trace of each`">
           {{ ticket.runs.length }} run{{ ticket.runs.length > 1 ? 's' : '' }}
         </span>
@@ -106,6 +106,9 @@ async function toBacklog(event: MouseEvent) {
 .ticket {
   position: relative;
   display: block;
+  height: 118px;
+  box-sizing: border-box;
+  overflow: hidden;
   background: rgba(11, 15, 24, 0.66);
   border: 1px dashed rgba(232, 182, 74, 0.5);   /* distinct from session cards */
   border-radius: 12px;
@@ -130,10 +133,15 @@ async function toBacklog(event: MouseEvent) {
   border-style: solid;
 }
 .ticket-open {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   width: 100%;
+  height: 100%;
+  box-sizing: border-box;
   text-align: left;
-  padding: 12px 72px 12px 14px;   /* right padding clears the action buttons */
+  overflow: hidden;
+  padding: 8px 48px 8px 14px;   /* right padding clears the run/requeue action */
   background: none;
   border: none;
   color: var(--text);
@@ -153,13 +161,33 @@ async function toBacklog(event: MouseEvent) {
   font-size: 13px;
 }
 .t-title {
+  flex: none;
+  height: 36px;
   font-weight: 700;
   font-size: 14px;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .t-meta {
-  display: block;
-  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   font-size: 12px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.t-identifier {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ticket-act {
   position: absolute;
@@ -201,13 +229,15 @@ async function toBacklog(event: MouseEvent) {
 }
 .retry-ico {
   display: inline-block;
+  flex: none;
   vertical-align: -2px;
   margin-right: 4px;
   color: #fb7185;
 }
 .runs-chip {
   display: inline-block;
-  margin-left: 6px;
+  flex: none;
+  white-space: nowrap;
   padding: 0 6px;
   border-radius: 999px;
   background: rgba(251, 113, 133, 0.18);

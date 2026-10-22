@@ -217,7 +217,7 @@ onBeforeUnmount(() => clearInterval(timer))
             <button class="tk-open" type="button" @click="open(t)">
               <span class="sr-only">Open ticket: </span>
               <span class="badge">{{ ORIGIN_BADGE[t.origin] ?? '?' }}</span>
-              <span class="tk-title">{{ t.title }}</span>
+              <span class="tk-title" :title="t.title">{{ t.title }}</span>
               <span class="tk-meta dim">
                 <code>{{ t.external_id || t.id }}</code>
                 <span class="tk-tags">
@@ -230,7 +230,7 @@ onBeforeUnmount(() => clearInterval(timer))
                 <span v-if="t.spec" class="tk-spec"><code>{{ t.spec }}</code></span>
               </span>
               <!-- lineage: implementation tickets trace to their idea -->
-              <span v-if="t.kind === 'implementation' && parentOf(t)" class="tk-parent dim">
+              <span v-if="t.kind === 'implementation' && parentOf(t)" class="tk-parent dim" :title="parentOf(t)!.title">
                 ← {{ parentOf(t)!.title }}
               </span>
               <!-- lineage: idea tickets expand to their slices -->
@@ -406,6 +406,9 @@ onBeforeUnmount(() => clearInterval(timer))
 .tk {
   position: relative;
   display: block;
+  height: 176px;
+  box-sizing: border-box;
+  overflow: hidden;
   background: rgba(11, 15, 24, 0.66);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -420,36 +423,52 @@ onBeforeUnmount(() => clearInterval(timer))
 .tk-open {
   display: block;
   width: 100%;
+  height: 100%;
+  box-sizing: border-box;
   background: none;
   border: none;
   text-align: left;
   color: var(--text);
-  padding: 9px 10px 8px;
+  padding: 8px 10px 42px;
+  overflow: hidden;
   cursor: pointer;
   border-radius: inherit;
 }
 .tk-title {
-  display: block;
+  display: -webkit-box;
+  max-height: 2.5em;
   font-size: 13px;
-  line-height: 1.35;
+  line-height: 1.25;
   margin: 2px 0 4px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .tk-meta {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  max-height: 44px;
+  overflow: hidden;
   font-size: 11px;
 }
 .tk-meta code {
+  display: block;
+  max-width: 100%;
   font-family: var(--mono);
   font-size: 10px;
   color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tk-tags {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 .tag {
   font-size: 10px;
@@ -476,6 +495,8 @@ onBeforeUnmount(() => clearInterval(timer))
   color: var(--faint);
 }
 .tk-spec {
+  display: block;
+  max-width: 100%;
   font-family: var(--mono);
   font-size: 10px;
   color: var(--faint);
@@ -494,9 +515,14 @@ onBeforeUnmount(() => clearInterval(timer))
   text-overflow: ellipsis;
 }
 .tk-adopt {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 8px;
   display: block;
-  width: calc(100% - 20px);
-  margin: 0 10px 9px;
+  width: auto;
+  height: 26px;
+  margin: 0;
   background: rgba(232, 182, 74, 0.12);
   border: 1px solid rgba(232, 182, 74, 0.5);
   color: var(--amber);

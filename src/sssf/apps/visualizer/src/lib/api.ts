@@ -12,6 +12,7 @@ import type {
   ReviewInfo,
   SessionDetail,
   SessionSummary,
+  SessionsFilter,
   UpdateReport,
 } from './types'
 
@@ -128,10 +129,8 @@ function base(): string {
   return selectedProject.value ? `/api/projects/${encodeURIComponent(selectedProject.value)}` : '/api'
 }
 
-export function fetchSessions(archived = false): Promise<SessionSummary[]> {
-  return getJson(
-    `${base()}/sessions${archived ? '?archived=1' : ''}`,
-  ) as Promise<SessionSummary[]>
+export function fetchSessions(filter: SessionsFilter = 'all'): Promise<SessionSummary[]> {
+  return getJson(`${base()}/sessions?filter=${filter}`) as Promise<SessionSummary[]>
 }
 
 export async function fetchSession(adwId: string): Promise<SessionDetail> {
@@ -156,18 +155,6 @@ export async function fetchEvents(adwId: string, after: number, limit = 500): Pr
   }
   return { events: page.events ?? [], cursor: page.cursor ?? after, has_more: page.has_more ?? false }
 }
-
-/** Archive a run out of the review list (or restore it with archived=false). */
-export async function archiveSession(adwId: string, archived = true): Promise<void> {
-  const url = `${base()}/sessions/${encodeURIComponent(adwId)}/archive`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ archived }),
-  })
-  if (!res.ok) throw new Error(`POST ${url} → ${res.status}`)
-}
-
 
 /** Stop a run. `project` scopes to that project (the cockpit runs-now strip
  * controls sessions in ANY project); default = the selected project. */

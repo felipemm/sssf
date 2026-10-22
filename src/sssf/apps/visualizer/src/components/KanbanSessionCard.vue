@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Archive, ArchiveRestore, RotateCw, Square, User } from 'lucide-vue-next'
+import { RotateCw, Square, User } from 'lucide-vue-next'
 import type { SessionSummary } from '../lib/types'
-import { archiveSession, restartRun, stopRun } from '../lib/api'
+import { restartRun, stopRun } from '../lib/api'
+import { sessionActions } from '../lib/sessionActions'
 import { runDurationMs } from '../lib/duration'
 import { hrefFor } from '../lib/router'
 import { adwIconFor } from '../lib/adwIcons'
@@ -22,6 +23,7 @@ const adwIcon = computed(() => adwIconFor(props.session.adw_name))
 // wall-clock span — a re-run joins the same row, so the span would count the
 // idle gap between attempts (09:00 run + 21:00 re-run = a 12-hour "run").
 const durationMs = computed(() => runDurationMs(props.session, props.nowMs))
+const controls = computed(() => sessionActions(props.session.status, Boolean(props.session.archived)))
 
 // The card is an <a>; the buttons inside must not navigate. The parent polls
 // every 500 ms — a failed write just re-syncs on the next tick.
@@ -42,15 +44,6 @@ async function stop(event: MouseEvent) {
   } catch { /* the next poll reconciles */ }
   emit('changed', props.session.adw_id)
 }
-
-async function archive(event: MouseEvent) {
-  event.preventDefault()
-  event.stopPropagation()
-  try {
-    await archiveSession(props.session.adw_id)
-  } catch { /* the next poll reconciles */ }
-  emit('changed', props.session.adw_id)
-}
 </script>
 
 <template>
@@ -61,21 +54,10 @@ async function archive(event: MouseEvent) {
         <component :is="adwIcon" :size="15" :stroke-width="2" />
       </span>
       <span class="card-id">{{ session.adw_id }}</span>
-      <span class="head-actions">
+      <span v-if="controls.canStop || controls.canRestart" class="head-actions">
         <button
-          class="card-archive"
-          type="button"
-          :disabled="session.status !== 'success' && session.status !== 'fail'"
-          :title="session.status === 'running' ? 'Running — archive available once done or failed' : 'Archive — remove this run from review'"
-          aria-label="Archive run"
-          @click="archive"
-        >
-          <Archive v-if="!session.archived" :size="14" :stroke-width="2" />
-          <ArchiveRestore v-else :size="14" :stroke-width="2" />
-        </button>
-        <button
-          v-if="session.status === 'running'"
-          class="card-archive"
+          v-if="controls.canStop"
+          class="card-control"
           type="button"
           title="Stop — cancel this run (marked failed, sandbox torn down)"
           aria-label="Stop run"
@@ -84,8 +66,8 @@ async function archive(event: MouseEvent) {
           <Square :size="14" :stroke-width="2" />
         </button>
         <button
-          v-if="session.status === 'success' || session.status === 'fail'"
-          class="card-archive"
+          v-if="controls.canRestart"
+          class="card-control"
           type="button"
           title="Restart — re-run this session in a fresh sandbox"
           aria-label="Restart run"
@@ -166,7 +148,7 @@ async function archive(event: MouseEvent) {
   gap: 2px;
   margin-left: auto;
 }
-.card-archive {
+.card-control {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -181,16 +163,16 @@ async function archive(event: MouseEvent) {
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
-.card-archive:hover {
-  background: rgba(255, 111, 103, 0.16);
-  color: #ff6f67;
-  border-color: rgba(255, 111, 103, 0.35);
+.card-control:hover {
+  background: rgba(200, 155, 255, 0.12);
+  color: var(--text);
+  border-color: rgba(200, 155, 255, 0.35);
 }
-.card-archive:disabled {
+.card-control:disabled {
   opacity: 0.3;
   cursor: not-allowed;
 }
-.card-archive:disabled:hover {
+.card-control:disabled:hover {
   background: none;
   color: var(--faint);
   border-color: transparent;

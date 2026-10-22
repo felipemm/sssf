@@ -704,7 +704,7 @@ button.primary:disabled { opacity: 0.5; cursor: default; }
 .feed-ts { color: var(--faint); font-variant-numeric: tabular-nums; }
 .feed-ev { color: var(--dim); }
 
-/* log button — same style as the run-strip archive buttons on project pages */
+/* log button — same style as the run-strip icon buttons on project pages */
 .strip-archive {
   display: inline-flex;
   align-items: center;

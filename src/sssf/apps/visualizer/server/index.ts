@@ -1,10 +1,9 @@
 /**
  * SSSF visualizer server — JSON API over registered projects' sssf.db files
  * (the global `sssf viz` mode), plus the single-db adhoc mode it replaced, plus
- * the built UI when ./dist exists. Reads are read-only; the two writes are
- * POST /api/sessions/:adw_id/archive (one review flag on a row) and the
- * timer-driven batch writers — the archival sweep and the MR monitor's
- * last-seen state (both write only to the trace dbs).
+ * the built UI when ./dist exists. Reads are read-only; the timer-driven batch
+ * writers are the archival sweep and the MR monitor's last-seen state (both
+ * write only to the trace dbs).
  *
  * There is no ingest endpoint and no websocket. The data path is
  * agents → sqlite → web ui, and the UI gets there by polling.
@@ -27,6 +26,7 @@ import { sweepAll } from "./sweep.ts";
 import { isEnabled, readTickets } from "./tickets.ts";
 import { syncTickets, runTicket, backlogTicket, setTicketContext } from "./ticketRoutes.ts";
 import { computeStatus } from "./status.ts";
+import { parseSessionsFilter } from "./sessionFilters.ts";
 import { updateCheck } from "./updates.ts";
 import { sweepMonitorAll, monitorStatus, DEFAULT_INTERVAL_MS as DEFAULT_MONITOR_INTERVAL_MS } from "./monitor.ts";
 import { computeCockpit, computeCockpitContributions, containerLogs, defaultSpawnCli, handleControl, reviewFor, sandboxLogs, sessionControl } from "./cockpit.ts";
@@ -179,28 +179,14 @@ function intQuery(req: Request, key: string, fallback: number): number {
 // ── handlers — the query code from the single-db server, unchanged ──────────
 
 function sessionsHandler(req: Request, db: SssfDb): Response {
-  const onlyArchived = intQuery(req, "archived", 0) === 1;
-  return json(db.sessions(intQuery(req, "limit", 200), onlyArchived));
+  const filter = parseSessionsFilter(new URL(req.url).searchParams.get("filter"));
+  return json(db.sessions(intQuery(req, "limit", 200), filter));
 }
 
 function sessionDetailHandler(req: Request, db: SssfDb): Response {
   const adwId = param(req, "adw_id");
   const detail = db.sessionDetail(adwId);
   return detail ? json(detail) : notFound(`no session ${adwId}`);
-}
-
-// The one write. Archiving is review triage — it belongs to the reader, not
-// to the run — so it never touches anything a tracer wrote.
-async function archiveHandler(req: Request, db: SssfDb): Promise<Response> {
-  const adwId = param(req, "adw_id");
-  if (!isSafeSegment(adwId)) {
-    return json({ error: "invalid adw_id" } satisfies ApiError, 400);
-  }
-  const body = (await req.json().catch(() => ({}))) as { archived?: unknown };
-  const archived = body.archived === undefined ? true : Boolean(body.archived);
-  return db.setArchived(adwId, archived)
-    ? json({ adw_id: adwId, archived })
-    : notFound(`no session ${adwId}`);
 }
 
 function eventsHandler(req: Request, db: SssfDb): Response {
@@ -383,9 +369,6 @@ const server = Bun.serve({
     // Adhoc single-db mode (backwards compat).
     "/api/sessions": adhocOnly(sessionsHandler),
     "/api/sessions/:adw_id": adhocOnly(sessionDetailHandler),
-    "/api/sessions/:adw_id/archive": {
-      POST: adhocOnly(archiveHandler),
-    },
     "/api/sessions/:adw_id/events": adhocOnly(eventsHandler),
     "/api/sessions/:adw_id/envelopes": adhocOnly(envelopesHandler),
     "/api/sessions/:adw_id/gates": adhocOnly(gatesHandler),
@@ -488,9 +471,6 @@ const server = Bun.serve({
       if (!root) return notFound(`no project ${name}`);
       return json(await sessionControl("stop", adwId, root));
     }),
-    "/api/projects/:project/sessions/:adw_id/archive": {
-      POST: scoped(archiveHandler),
-    },
     "/api/projects/:project/sessions/:adw_id/events": scoped(eventsHandler),
     "/api/projects/:project/sessions/:adw_id/envelopes": scoped(envelopesHandler),
     "/api/projects/:project/sessions/:adw_id/gates": scoped(gatesHandler),

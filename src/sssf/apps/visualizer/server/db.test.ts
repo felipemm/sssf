@@ -22,12 +22,30 @@ function fakeDb() {
   db.run(`CREATE TABLE tickets (id TEXT PRIMARY KEY, status TEXT, adw_id TEXT)`);
   db.run(`INSERT INTO sessions VALUES ('a1','adw_simple_sdlc','req1','success','eng','2026-08-16T10:00:00','2026-08-16T10:30:00',10,1.0,0)`);
   db.run(`INSERT INTO sessions VALUES ('a2','adw_simple_sdlc','req2','running','eng','2026-08-16T11:00:00',NULL,5,0.5,0)`);
+  db.run(`INSERT INTO sessions VALUES ('a3','adw_simple_sdlc','req3','fail','eng','2026-08-16T12:00:00','2026-08-16T12:30:00',5,0.5,0)`);
+  db.run(`INSERT INTO sessions VALUES ('a4','adw_simple_sdlc','req4','success','eng','2026-08-16T13:00:00','2026-08-16T13:30:00',5,0.5,1)`);
+  db.run(`INSERT INTO sessions VALUES ('a5','adw_simple_sdlc','req5','fail','eng','2026-08-16T14:00:00','2026-08-16T14:30:00',5,0.5,1)`);
   db.run(`INSERT INTO tickets VALUES ('internal:t1','done','a1')`);
   db.close();
   return { root, path };
 }
 
 describe("SssfDb.sessions", () => {
+  test("filters all, done, blocked, and archived runs by session outcome", () => {
+    const { root, path } = fakeDb();
+    const sdb = new SssfDb(path);
+    const ids = (filter: "all" | "done" | "blocked" | "archived") =>
+      sdb.sessions(200, filter).map((session) => session.adw_id);
+
+    expect(ids("all")).toEqual(["a3", "a2", "a1"]);
+    expect(ids("done")).toEqual(["a1"]);
+    expect(ids("blocked")).toEqual(["a3"]);
+    expect(ids("archived")).toEqual(["a5", "a4"]);
+    expect(sdb.session("a4")?.archived).toBe(1);
+    sdb.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
   test("carries the originating ticket id per session", () => {
     const { root, path } = fakeDb();
     const sdb = new SssfDb(path);

@@ -33,6 +33,7 @@ export type {
   ControlResult,
   UpdateReport,
   SessionStatus,
+  SessionsFilter,
   PhaseStatus,
   PhaseKind,
   EventType,
