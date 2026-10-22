@@ -41,18 +41,13 @@ const session = ref<Session | null>(null)
 const ticket = ref<TicketInfo | null>(null)
 const ticketChecked = ref(false)
 const activeTicket = ref<TicketInfo | null>(null)
-
-// ⚡ Bolt: Use shallowRef for large trace arrays that are completely replaced on fetch.
-// 💡 What: Replaced ref() with shallowRef() for trace-heavy properties.
-// 🎯 Why: Standard ref() forces Vue to recursively proxy thousands of nested objects in API responses, blocking the main thread.
-// 📊 Impact: Significantly reduces memory bloat and UI blocking time during trace polls.
+// Use shallowRef for large API response data that is replaced rather than deeply mutated.
 const phases = shallowRef<Phase[]>([])
 const agents = shallowRef<AgentSession[]>([])
 const usage = shallowRef<SessionUsage>({ read: 0, written: 0 })
 const events = shallowRef<EventRow[]>([])
 const envelopes = shallowRef<Envelope[]>([])
 const gates = shallowRef<GateResult[]>([])
-
 const apiError = ref<string | null>(null)
 const flash = ref('') // transient control feedback (restart/stop failures)
 const loaded = ref(false)
