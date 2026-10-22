@@ -67,6 +67,7 @@ async function toBacklog(event: MouseEvent) {
 <template>
   <div class="ticket" :class="{ retry, failed }">
     <button class="ticket-open" type="button" @click="emit('open', ticket)">
+      <span class="sr-only">Open ticket: </span>
       <span class="badge">{{ BADGE[ticket.provider] ?? '?' }}</span>
       <span class="t-title">{{ ticket.title }}</span>
       <span class="t-meta dim" :class="{ starting }">

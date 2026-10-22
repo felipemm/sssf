@@ -61,7 +61,7 @@ watch(selectedProject, () => {
           <span v-if="status.project.last_run"> · last run {{ status.project.last_run.slice(0, 10) }}</span>
         </p>
       </div>
-      <button class="btn" type="button" aria-label="Refresh status" :disabled="loading" @click="load">
+      <button class="btn" type="button" aria-label="Refresh status" :disabled="loading" :aria-busy="loading" @click="load">
         <RefreshCw :size="15" :class="{ spin: loading }" /> refresh
       </button>
     </header>
