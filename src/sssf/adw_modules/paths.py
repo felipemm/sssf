@@ -29,6 +29,10 @@ def ticketing_file(root: Path) -> Path:
     return root / ADWS / "config" / "ticketing.yaml"
 
 
+def deploy_config_file(root: Path) -> Path:
+    return config_dir(root) / "deploy.yaml"
+
+
 def data_dir(root: Path) -> Path:
     return root / ADWS / "data"
 

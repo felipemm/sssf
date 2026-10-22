@@ -422,6 +422,32 @@ def test_reconcile_requeues_failed_terminal_run_with_feedback(tmp_path):
     conn.close()
 
 
+@pytest.mark.parametrize("session_status", ["success", "fail"])
+def test_reconcile_settles_terminal_legacy_run_without_changing_flow_guard(
+    tmp_path, session_status
+):
+    conn = _impl_db(
+        tmp_path,
+        adw_name="adw_simple_sdlc",
+        session_status=session_status,
+    )
+
+    assert ticketing.reconcile_stale_tickets(conn, actor="viz") == 1
+    expected_status = (
+        ticketing.STATUS_SIGNOFF if session_status == "success" else ticketing.STATUS_READY
+    )
+    assert conn.execute("SELECT status FROM tickets WHERE id='t1'").fetchone() == (
+        expected_status,
+    )
+    (event,) = ticketing.ticket_events(conn, "t1")
+    assert event["event_type"] == "transition"
+    assert event["actor"] == "viz"
+    assert event["payload"]["from"] == ticketing.STATUS_IN_PROGRESS
+    assert event["payload"]["to"] == expected_status
+    assert ticketing.reconcile_stale_tickets(conn, actor="viz") == 0
+    conn.close()
+
+
 def test_reconcile_leaves_nonterminal_runs_in_progress(tmp_path):
     conn = _machine_conn(tmp_path / "m.db")
     _insert_ticket(conn, "t1", status=ticketing.STATUS_IN_PROGRESS, adw_id="run1")

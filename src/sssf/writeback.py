@@ -10,7 +10,9 @@ import json
 import re
 import sqlite3
 import subprocess
+from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Literal
 
 CONTROL_LABELS = ("needs-triage", "ready-for-agent", "blocked")
 CLOSING_COMMENT = "Closed by sssf: ticket reached done."
@@ -96,19 +98,19 @@ def _jira_label(_key: str, key: str, label: str, add: bool) -> None:
     _run(["acli", "jira", "workitem", "edit", "--key", key, flag, label, "--yes"])
 
 
-ORIGIN_WRITERS = {
-    "github": (_github_state, _github_comment, _github_label),
-    "gitlab": (_gitlab_state, _gitlab_comment, _gitlab_label),
-    "jira": (_jira_state, _jira_comment, _jira_label),
+WriterOperation = Literal["state", "comment", "label"]
+ORIGIN_WRITERS: dict[str, dict[WriterOperation, Callable[..., None]]] = {
+    "github": {"state": _github_state, "comment": _github_comment, "label": _github_label},
+    "gitlab": {"state": _gitlab_state, "comment": _gitlab_comment, "label": _gitlab_label},
+    "jira": {"state": _jira_state, "comment": _jira_comment, "label": _jira_label},
 }
 
 
 def _dispatch(
     conn: sqlite3.Connection,
     ticket_id: str,
-    operation: str,
+    operation: WriterOperation,
     actor: str,
-    op_index: int,
     *writer_args,
 ) -> bool:
     """Resolve the ticket's origin and run one writer operation best-effort."""
@@ -152,7 +154,7 @@ def _dispatch(
         return False
     repo, number = parsed
     try:
-        ORIGIN_WRITERS[origin][op_index](repo, number, *writer_args)
+        ORIGIN_WRITERS[origin][operation](repo, number, *writer_args)
     except (RuntimeError, OSError) as error:
         _record(
             conn,
@@ -162,6 +164,31 @@ def _dispatch(
             {"origin": origin, "operation": operation, "error": str(error)},
         )
         return False
+    return True
+
+
+def _dispatch_once(
+    conn: sqlite3.Connection,
+    ticket_id: str,
+    checkpoint_key: str,
+    operation: WriterOperation,
+    actor: str,
+    *writer_args,
+) -> bool:
+    """Run a one-shot mirror operation once per machine transition."""
+    if conn.execute(
+        "SELECT 1 FROM ticket_mirror_operations WHERE ticket_id=? AND operation_key=?",
+        (ticket_id, checkpoint_key),
+    ).fetchone():
+        return True
+    if not _dispatch(conn, ticket_id, operation, actor, *writer_args):
+        return False
+    conn.execute(
+        "INSERT INTO ticket_mirror_operations (ticket_id, operation_key, completed_at)"
+        " VALUES (?,?,?)",
+        (ticket_id, checkpoint_key, _now()),
+    )
+    conn.commit()
     return True
 
 
@@ -195,12 +222,13 @@ def mirror_tickets(
     """Ensure control labels and mirror close/comments for synced tickets.
 
     Labels are ensured on each sync by touching only the known control-label
-    vocabulary. The watermark gates one-shot close and feedback comments;
-    machine transitions clear it so a later rejection/close can be mirrored.
+    vocabulary. Successful close and comment operations are checkpointed
+    independently; machine transitions clear those checkpoints. ``mirrored_at``
+    remains the watermark for a completely successful mirror pass.
     Returns failed write counts grouped by origin.
     """
     query = (
-        "SELECT id, origin, status, mirrored_at FROM tickets"
+        "SELECT id, origin, status FROM tickets"
         " WHERE tracked=0 AND origin != 'internal'"
     )
     params: tuple = ()
@@ -212,30 +240,39 @@ def mirror_tickets(
         params = tuple(provider_list)
     rows = conn.execute(query + " ORDER BY id", params).fetchall()
     failures: dict[str, int] = {}
-    for ticket_id, origin, status, mirrored_at in rows:
+    for ticket_id, origin, status in rows:
         if origin not in ORIGIN_WRITERS:
             continue
         failed = 0
         desired = status if status in CONTROL_LABELS else None
         for label in CONTROL_LABELS:
             if label != desired and not _dispatch(
-                conn, ticket_id, "label", actor, 2, label, False
+                conn, ticket_id, "label", actor, label, False
             ):
                 failed += 1
         if desired is not None and not _dispatch(
-            conn, ticket_id, "label", actor, 2, desired, True
+            conn, ticket_id, "label", actor, desired, True
         ):
             failed += 1
 
-        if mirrored_at is None and status == "done":
-            if not _dispatch(conn, ticket_id, "state", actor, 0, "closed"):
+        if status == "done":
+            if not _dispatch_once(
+                conn, ticket_id, "done:close", "state", actor, "closed"
+            ):
                 failed += 1
-            if not _dispatch(conn, ticket_id, "comment", actor, 1, CLOSING_COMMENT):
+            if not _dispatch_once(
+                conn,
+                ticket_id,
+                "done:comment",
+                "comment",
+                actor,
+                CLOSING_COMMENT,
+            ):
                 failed += 1
-        elif mirrored_at is None:
+        else:
             feedback = _rejection_feedback(conn, ticket_id, status)
-            if feedback is not None and not _dispatch(
-                conn, ticket_id, "comment", actor, 1, feedback
+            if feedback is not None and not _dispatch_once(
+                conn, ticket_id, "feedback:comment", "comment", actor, feedback
             ):
                 failed += 1
 
@@ -249,16 +286,16 @@ def mirror_tickets(
 
 def writeback_state(conn: sqlite3.Connection, ticket_id: str, state: str, *, actor: str = "system") -> None:
     """Push a state change through the origin writer."""
-    _dispatch(conn, ticket_id, "state", actor, 0, state)
+    _dispatch(conn, ticket_id, "state", actor, state)
 
 
 def writeback_comment(conn: sqlite3.Connection, ticket_id: str, text: str, *, actor: str = "system") -> None:
     """Push a comment through the origin writer."""
-    _dispatch(conn, ticket_id, "comment", actor, 1, text)
+    _dispatch(conn, ticket_id, "comment", actor, text)
 
 
 def writeback_label(
     conn: sqlite3.Connection, ticket_id: str, label: str, *, add: bool = True, actor: str = "system"
 ) -> None:
     """Add or remove one label through the origin writer."""
-    _dispatch(conn, ticket_id, "label", actor, 2, label, add)
+    _dispatch(conn, ticket_id, "label", actor, label, add)

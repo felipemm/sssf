@@ -33,9 +33,8 @@ if TYPE_CHECKING:
     from sssf.notify import Transport
 
 from sssf import registry
+from sssf.adw_modules import paths
 from sssf.project import find_project
-
-DEPLOY_CONFIG = ".adws/config/deploy.yaml"
 
 
 def _root(cwd: Path, explicit: str | None) -> Path | None:
@@ -43,14 +42,10 @@ def _root(cwd: Path, explicit: str | None) -> Path | None:
 
 
 def _require_flow_layout(root: Path) -> bool:
-    from sssf.adw_modules import paths
-
     return paths.require_current_layout(root)
 
 
 def _adw_file(root: Path, name: str) -> Path | None:
-    from sssf.adw_modules import paths
-
     """Prefer the INSTALLED template for standard ADWs — a project's committed
     copy goes stale after an sssf upgrade. Custom ADWs (no installed template)
     fall back to the project's file (the legacy path for already-stamped
@@ -601,7 +596,7 @@ def _release_config(root: Path) -> dict:
     poll settings. {} when absent — the tompero commands are per-project, so
     a project without a deployment pipeline skips the gates but still gets
     the release train and close-by-commits."""
-    path = root / DEPLOY_CONFIG
+    path = paths.deploy_config_file(root)
     if not path.exists():
         return {}
     try:

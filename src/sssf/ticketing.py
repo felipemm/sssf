@@ -205,6 +205,7 @@ def transition_ticket(
         "COALESCE(?, rejection_feedback), mirrored_at=NULL WHERE id=?",
         (to_status, _now(), new_feedback, ticket_id),
     )
+    conn.execute("DELETE FROM ticket_mirror_operations WHERE ticket_id=?", (ticket_id,))
     add_ticket_event(conn, ticket_id, "transition", actor=actor, payload=payload)
 
 
@@ -355,16 +356,32 @@ def reconcile_stale_tickets(conn: sqlite3.Connection, *, actor: str = "system") 
     running session remains untouched. Returns the number of tickets settled.
     """
     runs = conn.execute(
-        "SELECT tickets.adw_id FROM tickets"
+        "SELECT tickets.id, tickets.adw_id, sessions.status FROM tickets"
         " JOIN sessions ON sessions.adw_id=tickets.adw_id"
         " WHERE tickets.status=? AND sessions.status IN ('success','fail')"
         " ORDER BY tickets.id",
         (STATUS_IN_PROGRESS,),
     ).fetchall()
     settled = 0
-    for (adw_id,) in runs:
-        if finish_implement_run(conn, adw_id, actor=actor) is not None:
-            settled += 1
+    for ticket_id, adw_id, session_status in runs:
+        if session_status == "success":
+            transition_ticket(
+                conn,
+                ticket_id,
+                STATUS_SIGNOFF,
+                actor=actor,
+                comment="implement flow run succeeded — ready for signoff",
+            )
+        else:
+            transition_ticket(
+                conn,
+                ticket_id,
+                STATUS_READY,
+                actor=actor,
+                feedback=_run_failure_feedback(conn, adw_id),
+                comment="implement flow run failed — requeued fix-forward",
+            )
+        settled += 1
     return settled
 
 

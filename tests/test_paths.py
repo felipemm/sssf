@@ -7,6 +7,7 @@ V2 = {
     "config_dir": ".adws/config",
     "config_file": ".adws/config/sssf.config.yaml",
     "ticketing_file": ".adws/config/ticketing.yaml",
+    "deploy_config_file": ".adws/config/deploy.yaml",
     "data_dir": ".adws/data",
     "kb_dir": ".adws/kb",
     "prompts_dir": ".adws/prompts",
@@ -47,6 +48,26 @@ def test_warn_if_legacy_prints_and_returns(capsys, tmp_path):
     assert paths.warn_if_legacy(tmp_path, command="flow") is True
     captured = capsys.readouterr()
     assert "legacy adws layout" in captured.err and "sssf init" in captured.err
+
+
+def test_flow_and_workbench_read_deploy_config_through_shared_path_helper(
+    tmp_path, monkeypatch
+):
+    from sssf import workbench
+    from sssf.commands import flow
+
+    config = tmp_path / "selected-deploy.yaml"
+    config.write_text(
+        "release:\n  canary_command: [deploy, canary]\n"
+        "workbench:\n  command: [bun, run, dev]\n  container_port: 3000\n"
+    )
+    monkeypatch.setattr(paths, "deploy_config_file", lambda root: config)
+
+    assert flow._release_config(tmp_path) == {"canary_command": ["deploy", "canary"]}
+    assert workbench.workbench_config(tmp_path) == {
+        "command": ["bun", "run", "dev"],
+        "container_port": 3000,
+    }
 
 
 def test_warn_if_legacy_silent_on_v2(capsys, tmp_path):

@@ -174,6 +174,12 @@ class TicketEventsRow(Row):
     created_at: str = Field(json_schema_extra={"not_null": True})
 
 
+class TicketMirrorOperationsRow(Row):
+    ticket_id: str = Field(json_schema_extra={"pk": True, "not_null": True})
+    operation_key: str = Field(json_schema_extra={"pk": True, "not_null": True})
+    completed_at: str = Field(json_schema_extra={"not_null": True})
+
+
 class TicketRunsRow(Row):
     ticket_id: str = Field(json_schema_extra={"pk": True, "not_null": True})
     adw_id: str = Field(json_schema_extra={"pk": True, "not_null": True})
@@ -245,6 +251,7 @@ TABLES: dict[str, type[Row]] = {
     "agent_sessions": AgentSessionsRow,
     "tickets": TicketsRow,
     "ticket_events": TicketEventsRow,
+    "ticket_mirror_operations": TicketMirrorOperationsRow,
     "ticket_runs": TicketRunsRow,
     "ticket_mrs": TicketMrsRow,
     "notify_threads": NotifyThreadsRow,
@@ -290,7 +297,7 @@ def _add_mirrored_at(conn: sqlite3.Connection) -> None:
 
 
 # The current schema version. Bump on every schema-affecting change.
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 # Columns the read-only viz reader (db.ts SINCE_VERSION) can serve as NULL on
 # dbs stamped below the version that guarantees them. The codegen renders
@@ -357,6 +364,22 @@ MIGRATIONS: list[tuple[int, str, str | Callable[[sqlite3.Connection], None]]] = 
         7,
         "ticket sync mirror watermark",
         _add_mirrored_at,
+    ),
+    (
+        8,
+        "ticket sync partial-operation checkpoints",
+        "CREATE TABLE IF NOT EXISTS ticket_mirror_operations ("
+        "ticket_id TEXT NOT NULL, operation_key TEXT NOT NULL, completed_at TEXT NOT NULL, "
+        "PRIMARY KEY (ticket_id, operation_key));"
+        "INSERT OR IGNORE INTO ticket_mirror_operations (ticket_id, operation_key, completed_at) "
+        "SELECT id, 'done:close', mirrored_at FROM tickets "
+        "WHERE status='done' AND mirrored_at IS NOT NULL;"
+        "INSERT OR IGNORE INTO ticket_mirror_operations (ticket_id, operation_key, completed_at) "
+        "SELECT id, 'done:comment', mirrored_at FROM tickets "
+        "WHERE status='done' AND mirrored_at IS NOT NULL;"
+        "INSERT OR IGNORE INTO ticket_mirror_operations (ticket_id, operation_key, completed_at) "
+        "SELECT id, 'feedback:comment', mirrored_at FROM tickets "
+        "WHERE status='ready-for-agent' AND mirrored_at IS NOT NULL;",
     ),
 ]
 

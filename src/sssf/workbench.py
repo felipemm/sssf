@@ -26,10 +26,9 @@ from pathlib import Path
 import yaml
 
 from sssf import db_schema
+from sssf.adw_modules import paths
 from sssf.sandbox.docker import _docker
 from sssf.sandbox.worktree_git import _exclude_worktrees, remove_worktree
-
-DEPLOY_CONFIG = ".adws/config/deploy.yaml"
 
 
 class WorkbenchError(RuntimeError):
@@ -50,16 +49,17 @@ def workbench_config(root: Path) -> dict:
     `{command: [...], container_port: N}`. Raises WorkbenchError when missing —
     the workbench is a required part of the deploy flow, never silently
     skipped."""
-    path = root / DEPLOY_CONFIG
+    path = paths.deploy_config_file(root)
+    config_path = path.relative_to(root)
     if not path.exists():
-        raise WorkbenchError(f"no {DEPLOY_CONFIG} — the workbench needs a `workbench:` block")
+        raise WorkbenchError(f"no {config_path} — the workbench needs a `workbench:` block")
     data = yaml.safe_load(path.read_text()) or {}
     wb = data.get("workbench") or {}
     command = wb.get("command")
     port = wb.get("container_port")
     if not command or not port:
         raise WorkbenchError(
-            f"{DEPLOY_CONFIG} needs a `workbench:` block with `command` (argv list)"
+            f"{config_path} needs a `workbench:` block with `command` (argv list)"
             " and `container_port` (the app's port inside the container)"
         )
     return {"command": list(command), "container_port": int(port)}
