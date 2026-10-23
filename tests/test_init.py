@@ -71,6 +71,30 @@ def test_refresh_stamps_instructions_on_pre_instructions_stamp(tmp_path, monkeyp
     assert agents_md.read_text().count("## Instructions") == 1
 
 
+def test_reinit_updates_an_already_stamped_block_in_place(tmp_path, monkeypatch):
+    """Refreshing replaces only the managed AGENTS block and keeps user text."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert _run_init(root, monkeypatch) == 0
+    agents_md = root / "AGENTS.md"
+    old_block = (
+        "<!-- sssf -->\nThis repo runs the **sssf** software factory.\n"
+        "<!-- /sssf -->"
+    )
+    agents_md.write_text(
+        "# My Project\n\nmy own notes\n\n" + old_block + "\n\n# more user docs\n"
+    )
+
+    assert _run_init(root, monkeypatch) == 0
+
+    text = agents_md.read_text()
+    assert text.count("<!-- sssf -->") == 1
+    assert "When reporting information, be extremely concise" in text
+    assert "my own notes" in text
+    assert "# more user docs" in text
+    assert text.index("<!-- sssf -->") > text.index("my own notes")
+
+
 def test_refresh_adds_missing_only(tmp_path, monkeypatch):
     root = tmp_path / "proj"
     root.mkdir()
