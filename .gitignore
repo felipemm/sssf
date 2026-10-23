@@ -30,3 +30,9 @@ adws/adw_data/
 
 # agent scratch journals (Bolt/Palette learnings) — not product content
 .jules/
+
+.agents
+.pi
+.claude
+skills-lock.json
+.playwright-cli
