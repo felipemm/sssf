@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, shallowRef, watch } from 'vue'
 import type {
   AgentEndPayload,
   Envelope,
@@ -269,7 +269,7 @@ const typeClass: Record<string, string> = {
 // The exact system/user prompts sent to this phase's agent, fetched once per
 // (adw_id, agent) and cached for the trace view's lifetime.
 
-const prompts = ref<PromptsResponse | null>(null)
+const prompts = shallowRef<PromptsResponse | null>(null) // Object is entirely replaced, safe for shallowRef
 const promptsState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
 const promptCache = new Map<string, PromptsResponse>()
 const openPanels = reactive(new Set<string>())
