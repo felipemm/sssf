@@ -27,7 +27,7 @@ import type { ContributionDay } from '../lib/api'
 import ContributionsHeatmap from './ContributionsHeatmap.vue'
 import CompletedChart from './CompletedChart.vue'
 
-const data = ref<CockpitData | null>(null)
+const data = shallowRef<CockpitData | null>(null) // API payload completely replaced, skip deep reactivity
 const contribDays = shallowRef<ContributionDay[]>([])
 const loading = ref(false)
 const error = ref('')
