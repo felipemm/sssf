@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import { RefreshCw } from 'lucide-vue-next'
 import { useProjects, fetchStatus } from '../lib/api'
 import type { StatusResponse } from '../lib/api'
@@ -9,7 +9,8 @@ import StatusCharts from './StatusCharts.vue'
 import ContributionsHeatmap from './ContributionsHeatmap.vue'
 
 const { selectedProject, projectsLoaded } = useProjects()
-const status = ref<StatusResponse | null>(null)
+// This API payload is replaced entirely on fetch, so shallowRef prevents unnecessary deep reactivity overhead.
+const status = shallowRef<StatusResponse | null>(null)
 const apiError = ref<string | null>(null)
 const loading = ref(false)
 const windowDays = ref(30)

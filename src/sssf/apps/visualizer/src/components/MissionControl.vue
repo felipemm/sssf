@@ -27,7 +27,8 @@ import type { ContributionDay } from '../lib/api'
 import ContributionsHeatmap from './ContributionsHeatmap.vue'
 import CompletedChart from './CompletedChart.vue'
 
-const data = ref<CockpitData | null>(null)
+// This API payload is replaced entirely on fetch, so shallowRef prevents unnecessary deep reactivity overhead.
+const data = shallowRef<CockpitData | null>(null)
 const contribDays = shallowRef<ContributionDay[]>([])
 const loading = ref(false)
 const error = ref('')
