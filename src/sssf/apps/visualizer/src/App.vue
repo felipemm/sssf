@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { HeartPulse, Recycle } from 'lucide-vue-next'
+import { HeartPulse, LoaderCircle, Recycle } from 'lucide-vue-next'
 import { useRoute, hrefFor, phaseCrumb, navigate } from './lib/router'
 import { fetchProjects, runSweep, setProject, useProjects } from './lib/api'
 import SessionsList from './components/SessionsList.vue'
@@ -178,11 +178,13 @@ async function onSweep() {
           class="sweep-btn"
           type="button"
           :disabled="sweeping"
+          :aria-busy="sweeping"
           :title="sweeping ? 'Sweeping…' : 'Archive finished sessions older than 30 days (all projects)'"
           aria-label="Run the archive sweep"
           @click="onSweep"
         >
-          <Recycle :size="16" :stroke-width="2" />
+          <LoaderCircle v-if="sweeping" class="spin" :size="16" :stroke-width="2" />
+          <Recycle v-else :size="16" :stroke-width="2" />
         </button>
         <span class="live-hint"><span class="live-dot" /> live</span>
       </div>
@@ -367,6 +369,16 @@ async function onSweep() {
 .sweep-btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.spin {
+  display: inline-block;
+  vertical-align: -2px;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .sweep-toast {
