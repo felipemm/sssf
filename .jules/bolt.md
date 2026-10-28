@@ -4,3 +4,7 @@
 ## 2024-05-24 - Vue Deep Reactivity Overhead with Large API Payloads
 **Learning:** In the Vue visualizer app, using `ref()` for large API response payloads of complex objects (like `StatusResponse`, `CockpitData`, event traces) causes severe Vue deep reactivity performance overhead.
 **Action:** Use `shallowRef()` instead of `ref()` for these large payloads since they are completely replaced (e.g., `data.value = [...]`) and the component logic does not rely on mutating nested object properties. Always add an inline code comment explaining that the objects are entirely replaced to justify the safety of the optimization.
+
+## 2023-10-29 - Vue Reactivity Overhead on Large Payloads in api.ts
+**Learning:** In the visualizer app, `projects` in `api.ts` stores an array of `ProjectInfo` which is completely replaced via API fetch. While it isn't massive, it's still a complete payload replacement where `shallowRef()` provides a measurable, safe performance gain by eliminating Vue deep reactivity setup overhead.
+**Action:** Replaced `ref()` with `shallowRef()` for `projects` array in `api.ts` since it is entirely replaced (`projects.value = list`) and no nested mutation is expected.
