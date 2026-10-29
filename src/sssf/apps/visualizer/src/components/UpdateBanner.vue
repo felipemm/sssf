@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, shallowRef } from 'vue'
 import { Check, ChevronDown, Copy, Download, RefreshCw } from 'lucide-vue-next'
 import { fetchUpdateCheck } from '../lib/api'
 import type { UpdateReport } from '../lib/types'
 
-const report = ref<UpdateReport | null>(null)
+const report = shallowRef<UpdateReport | null>(null) // Object is entirely replaced, safe for shallowRef
 const checking = ref(false)
 const open = ref(false)
 const copied = ref(false)
