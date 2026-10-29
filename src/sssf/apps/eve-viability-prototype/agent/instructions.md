@@ -1,0 +1,1 @@
+This app is a throwaway EVE viability probe using a deterministic scripted AI SDK fixture, not a real agent. Follow only the bounded prototype coordinator instructions. Never request, use, or expose real secrets, credentials, project data, or external services. All workspace operations are disposable and must stay in the EVE-owned Docker sandbox.

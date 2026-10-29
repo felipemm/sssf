@@ -5,12 +5,22 @@ codebase: deterministic code owns sequencing and acceptance, coding agents do
 bounded work, and everything traces to SQLite for a visualizer. Agent proposes,
 code disposes.
 
+## Approved target model
+
+SSSF is evolving into a local-first durable agent platform, with Software
+Factory as its first deterministic workflow application. The target vocabulary
+below distinguishes agents, conversations, agent executions, and factory runs.
+This direction is approved but not yet implemented: the checked-out runtime
+still uses roster-bound pi sessions. See `docs/adr/0009-durable-agent-platform.md`.
+Other factory terms below retain their existing meaning unless explicitly
+redefined; this document is not a runtime verification report.
+
 ## Language
 
 **Ticket**:
-The first-class unit of work. Every piece of sssf work is a ticket; a ticket is
-mandatory to start any run. A ticket owns a state in the ticket machine and
-accumulates one or more runs over its life.
+The first-class unit of factory work. A ticket is mandatory to start a factory
+run, but not a general agent conversation or agent execution. A ticket owns a
+state in the ticket machine and accumulates one or more runs over its life.
 _Avoid_: backlog item, issue (the external tracker's record is an issue; the
 ticket is sssf's).
 
@@ -46,13 +56,19 @@ _Avoid_: treating idea tickets as implementable (they are not `ready-for-agent`
 by construction)
 
 **Run**:
-One execution of a chain against a ticket. A ticket may have many runs (initial
-attempts, rework after rejection); every run has its own trace.
-_Avoid_: session (a session is the traced record of a run, not the run itself)
+One execution of a factory chain against a ticket. A ticket may have many runs
+(initial attempts, rework after rejection); every run has its own trace.
+_Avoid_: conversation, agent execution (neither is a factory run)
+
+**Workflow**:
+A user-declared, code-controlled coordination of agent executions and
+non-agent actions, with explicit sequencing and acceptance rules. Software
+Factory is one workflow application, not the whole agent platform.
+_Avoid_: treating a workflow as an agent's free-form choice of next actions
 
 **Chain**:
-A deterministic Python ADW script: an ordered list of phases for one run.
-_Avoid_: workflow (that's the whole factory, not one script)
+A deterministic Python ADW script: an ordered list of phases for one factory run.
+_Avoid_: workflow as a synonym (a chain realizes part of a factory workflow)
 
 **Phase**:
 One bounded step inside a chain — either an agent call (typed envelope in,
@@ -61,18 +77,37 @@ decided by an agent.
 _Avoid_: step (their workflow's "STEP"s become phases once realized)
 
 **Agent**:
-A roster entry in `sssf.config.yaml` (planner, builder, reviewer, scout,
-designer, documenter). Each agent is its own role; there is no separate role
-layer.
-_Avoid_: developer (that role is the **builder**)
+A durable, independently addressable worker with its own declared capabilities
+and conversations. It can accept work from workflows, people, or other tools
+without owning the caller's sequencing or acceptance policy.
+_Avoid_: roster entry, conversation, permanently running reasoning loop;
+developer (the factory agent is the **builder**)
+
+**Agent execution**:
+One accepted request for an agent to do work, including any waits and
+continuations needed to reach an outcome.
+_Avoid_: factory run, conversation
+
+**Conversation**:
+An agent's durable interaction history within an explicit caller context. A
+conversation can contain multiple agent executions and is not a shared memory
+space for every caller of that agent.
+_Avoid_: factory run, workspace
+
+**Black-box tester**:
+An agent that checks observable application behavior against acceptance
+criteria through browser, API, or CLI interactions, without access to the
+implementation repository.
+_Avoid_: source reviewer, builder self-review
 
 **Envelope**:
 The typed JSON contract passed between phases. Every agent call pairs with a
 concrete envelope type; parse failures re-prompt the same session.
 
 **Gate**:
-A deterministic check that validates an envelope's claims (not guesses).
-Failures return the same session for corrections.
+A deterministic acceptance check whose evidence is tied to the exact candidate
+and verification environment. Missing requirements or invalidated evidence
+cannot pass; failures lead to bounded correction or a visible human-blocked state.
 
 **Flow**:
 A phase orchestrator invoked by the human, mapping one of the factory's phases
@@ -102,10 +137,21 @@ each run a fresh context window, until the queue is empty or the cap is hit
 includes the builder's self-review (`/code-review`) before the reviewer gate.
 _Avoid_: long-lived agent sessions that carry context across tickets
 
+**Environment definition**:
+A reusable, versioned description of the dependencies and restrictions under
+which work executes.
+_Avoid_: live sandbox, workspace
+
+**Workspace**:
+The isolated files associated with an execution, with explicit ownership and
+recoverable checkpoints. A workspace has one writer; sharing changes requires
+an explicit handoff.
+_Avoid_: agent identity, shared writable checkout
+
 **Runner sandbox**:
-The ephemeral, isolated environment in which every run executes. Work never
-happens directly on the host machine.
-_Avoid_: running on the user machine
+The replaceable, isolated environment that executes project code against a
+workspace. Its lifetime is separate from the agent, conversation, and workspace.
+_Avoid_: one permanent environment shared by all work handled by an agent
 
 **Hermetic skills**:
 The sssf-curated skill set, vendored with the codebase and stamped into each
