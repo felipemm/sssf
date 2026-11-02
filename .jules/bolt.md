@@ -4,3 +4,6 @@
 ## 2024-05-24 - Vue Deep Reactivity Overhead with Large API Payloads
 **Learning:** In the Vue visualizer app, using `ref()` for large API response payloads of complex objects (like `StatusResponse`, `CockpitData`, event traces) causes severe Vue deep reactivity performance overhead.
 **Action:** Use `shallowRef()` instead of `ref()` for these large payloads since they are completely replaced (e.g., `data.value = [...]`) and the component logic does not rely on mutating nested object properties. Always add an inline code comment explaining that the objects are entirely replaced to justify the safety of the optimization.
+## 2025-02-28 - Code Splitting Large Route Components
+**Learning:** The visualizer SPA dynamically renders different large components (like `SessionTrace.vue`, `MissionControl.vue`) based on the active tab using `v-if`/`v-else-if`. Importing them statically forces the browser to load the entire bundle upfront, delaying time-to-interactive.
+**Action:** Use Vue's `defineAsyncComponent(() => import('...'))` to code-split these large route-level components in `App.vue` so they are only loaded when their respective route/tab is active, drastically reducing the initial bundle size.
