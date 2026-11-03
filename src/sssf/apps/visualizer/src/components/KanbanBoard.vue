@@ -296,13 +296,12 @@ function toggleCollapsed(key: string) {
             v-if="col.key === 'backlog'"
             class="sync-link"
             type="button"
-            aria-label="Fetch external tickets"
             :disabled="syncing"
             :aria-busy="syncing"
             :title="'Fetch external tickets'"
             @click="onSync"
           >
-            <RefreshCw :size="13" /> {{ syncing ? 'syncing…' : 'refresh' }}
+            <span class="sr-only">Fetch external tickets: </span><RefreshCw :size="13" /> {{ syncing ? 'syncing…' : 'refresh' }}
           </button>
         </div>
 
