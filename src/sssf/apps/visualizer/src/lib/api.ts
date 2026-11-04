@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, shallowRef } from 'vue'
 import type {
   CockpitData,
   ContainerLogsResponse,
@@ -34,7 +34,8 @@ export interface ProjectInfo {
 }
 
 const selectedProject = ref<string | null>(null)
-const projects = ref<ProjectInfo[]>([])
+// Replaced as a whole, safe for shallowRef to avoid deep reactivity overhead
+const projects = shallowRef<ProjectInfo[]>([])
 /** True once fetchProjects() has answered — the project situation is known. */
 const projectsLoaded = ref(false)
 
