@@ -4,3 +4,6 @@
 ## 2024-05-24 - Vue Deep Reactivity Overhead with Large API Payloads
 **Learning:** In the Vue visualizer app, using `ref()` for large API response payloads of complex objects (like `StatusResponse`, `CockpitData`, event traces) causes severe Vue deep reactivity performance overhead.
 **Action:** Use `shallowRef()` instead of `ref()` for these large payloads since they are completely replaced (e.g., `data.value = [...]`) and the component logic does not rely on mutating nested object properties. Always add an inline code comment explaining that the objects are entirely replaced to justify the safety of the optimization.
+## 2025-02-28 - Code Splitting Route Components in v-if Architectures
+**Learning:** This app uses `v-if` conditionals for route rendering instead of a standard router library (like Vue Router). Without dynamic imports, Vite bundles all these large route-level components into a single massive index file, significantly slowing down the initial load time and needlessly increasing memory usage for views the user may never visit.
+**Action:** Used `defineAsyncComponent` in `App.vue` to dynamically import the 6 main route components (`SessionsList`, `SessionTrace`, `KanbanBoard`, `IssueTracker`, `StatusPage`, `MissionControl`), chunking the bundle and reducing the initial load size.
