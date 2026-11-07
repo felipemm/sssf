@@ -1,17 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import { HeartPulse, LoaderCircle, Recycle } from 'lucide-vue-next'
 import { useRoute, hrefFor, phaseCrumb, navigate } from './lib/router'
 import { fetchProjects, runSweep, setProject, useProjects } from './lib/api'
-import SessionsList from './components/SessionsList.vue'
-import SessionTrace from './components/SessionTrace.vue'
-import KanbanBoard from './components/KanbanBoard.vue'
-import IssueTracker from './components/IssueTracker.vue'
-import StatusPage from './components/StatusPage.vue'
-import MissionControl from './components/MissionControl.vue'
 import ProjectPicker from './components/ProjectPicker.vue'
 import Toasts from './components/Toasts.vue'
 import UpdateBanner from './components/UpdateBanner.vue'
+
+// Code-split route-level components since we use a custom v-if router
+const SessionsList = defineAsyncComponent(() => import('./components/SessionsList.vue'))
+const SessionTrace = defineAsyncComponent(() => import('./components/SessionTrace.vue'))
+const KanbanBoard = defineAsyncComponent(() => import('./components/KanbanBoard.vue'))
+const IssueTracker = defineAsyncComponent(() => import('./components/IssueTracker.vue'))
+const StatusPage = defineAsyncComponent(() => import('./components/StatusPage.vue'))
+const MissionControl = defineAsyncComponent(() => import('./components/MissionControl.vue'))
 
 const route = useRoute()
 const { selectedProject } = useProjects()
